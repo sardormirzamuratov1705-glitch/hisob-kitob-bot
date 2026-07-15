@@ -1,48 +1,67 @@
-from aiogram import Router, F
-from aiogram.filters import CommandStart
-from aiogram.types import Message
-from aiogram.fsm.context import FSMContext
-
-import keyboards as kb
-
-router = Router()
+from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup
+from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 
-@router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer(
-        "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
-        "Quyidagi bo'limlardan birini tanlang:",
-        reply_markup=kb.main_menu()
-    )
+def main_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="📦 Sklad")
+    builder.button(text="💰 Kirim/Chiqim")
+    builder.button(text="📒 Qarz daftar")
+    builder.button(text="📊 Hisobot")
+    builder.adjust(2, 2)
+    return builder.as_markup(resize_keyboard=True)
 
 
-@router.message(F.text == "⬅️ Orqaga")
-async def go_back(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=kb.main_menu())
+def sklad_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="➕ Mahsulot qo'shish")
+    builder.button(text="📋 Mahsulotlar ro'yxati")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
 
 
-@router.message(F.text == "📦 Sklad")
-async def open_sklad(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Sklad bo'limi:", reply_markup=kb.sklad_menu())
+def kirim_chiqim_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="➕ Kirim qo'shish")
+    builder.button(text="➖ Chiqim qo'shish")
+    builder.button(text="📈 Bugungi holat")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(2, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
 
 
-@router.message(F.text == "💰 Kirim/Chiqim")
-async def open_kirim_chiqim(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Kirim/Chiqim bo'limi:", reply_markup=kb.kirim_chiqim_menu())
+def qarz_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="➕ Qarz qo'shish")
+    builder.button(text="📋 Qarzdorlar ro'yxati")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
 
 
-@router.message(F.text == "📒 Qarz daftar")
-async def open_qarz(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Qarz daftar bo'limi:", reply_markup=kb.qarz_menu())
+def hisobot_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="📊 Umumiy hisobot")
+    builder.button(text="📥 Excel yuklab olish")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
 
 
-@router.message(F.text == "📊 Hisobot")
-async def open_hisobot(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Hisobot bo'limi:", reply_markup=kb.hisobot_menu())
+def skip_photo_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Rasmsiz davom etish", callback_data="skip_photo")
+    return builder.as_markup()
+
+
+def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗑 O'chirish", callback_data=f"del_product_{product_id}")
+    return builder.as_markup()
+
+
+def debt_action_kb(debt_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ To'landi", callback_data=f"pay_debt_{debt_id}")
+    return builder.as_markup()
