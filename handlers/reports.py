@@ -1,14 +1,24 @@
 import os
+import shutil
 from datetime import datetime
 
+import aiosqlite
 from aiogram import Router, F
 from aiogram.types import Message, FSInputFile
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
+import config
 import database as db
+import keyboards as kb
 
 router = Router()
+
+
+class RestoreDB(StatesGroup):
+    waiting_file = State()
 
 
 @router.message(F.text == "📊 Umumiy hisobot")
@@ -90,3 +100,86 @@ async def export_excel(message: Message):
 
     await message.answer_document(FSInputFile(filepath, filename=filename))
     os.remove(filepath)
+
+
+# ---------- DB FAYLNI ZAXIRALASH / TIKLASH ----------
+# Railway'da Volume ulanmagan bo'lsa, redeploy vaqtida baza tozalanadi va
+# mahsulotlarni qaytadan kiritish kerak bo'ladi. Shu ikki tugma orqali
+# bazani faylga olib, keyinroq (masalan redeploy'dan keyin) qayta yuklab
+# tiklash mumkin - mahsulotlarni qo'lda qaytadan kiritish shart bo'lmaydi.
+
+@router.message(F.text == "🗄 DB faylni yuklab olish")
+async def export_db(message: Message):
+    if not os.path.exists(config.DB_PATH):
+        await message.answer("❌ Baza fayli topilmadi.")
+        return
+
+    filename = os.path.basename(config.DB_PATH) or "shop.db"
+    await message.answer_document(
+        FSInputFile(config.DB_PATH, filename=filename),
+        caption=(
+            "🗄 Joriy baza fayli.\n"
+            "Buni saqlab qo'ying — baza tozalanib qolsa (masalan redeploy'da), "
+            "\"📤 DB faylni tiklash\" tugmasi orqali shu faylni qayta yuklab, "
+            "mahsulotlarni qaytadan kiritmasdan tiklashingiz mumkin."
+        ),
+    )
+
+
+@router.message(F.text == "📤 DB faylni tiklash")
+async def restore_db_start(message: Message, state: FSMContext):
+    await state.set_state(RestoreDB.waiting_file)
+    await message.answer(
+        "⚠️ <b>Diqqat!</b> Yuboradigan faylingiz joriy bazadagi barcha ma'lumotlarni "
+        "(mahsulotlar, kirim-chiqim, qarzlar) to'liq almashtiradi.\n\n"
+        "Avval joriy bazani zaxiralab olmoqchi bo'lsangiz, \"🗄 DB faylni yuklab olish\" "
+        "tugmasini bosing.\n\n"
+        "Tiklash uchun oldin saqlab qo'ygan .db faylni hujjat sifatida yuboring "
+        "(bekor qilish uchun \"⬅️ Orqaga\" tugmasini bosing):",
+        parse_mode="HTML",
+    )
+
+
+@router.message(RestoreDB.waiting_file, F.document)
+async def restore_db_file(message: Message, state: FSMContext):
+    document = message.document
+    tmp_path = f"/tmp/restore_{document.file_unique_id}.db"
+    await message.bot.download(document.file_id, destination=tmp_path)
+
+    valid = False
+    try:
+        async with aiosqlite.connect(tmp_path) as test_db:
+            cursor = await test_db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='products'"
+            )
+            row = await cursor.fetchone()
+            valid = row is not None
+    except Exception:
+        valid = False
+
+    if not valid:
+        os.remove(tmp_path)
+        await message.answer(
+            "❌ Bu fayl to'g'ri baza fayli emasga o'xshaydi. Qaytadan urinib ko'ring "
+            "yoki \"⬅️ Orqaga\" tugmasini bosing."
+        )
+        return
+
+    db_dir = os.path.dirname(config.DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    shutil.move(tmp_path, config.DB_PATH)
+
+    await state.clear()
+    await message.answer(
+        "✅ Baza muvaffaqiyatli tiklandi. Mahsulotlarni qaytadan kiritishning hojati yo'q.",
+        reply_markup=kb.hisobot_menu(),
+    )
+
+
+@router.message(RestoreDB.waiting_file)
+async def restore_db_wrong_type(message: Message):
+    await message.answer(
+        "Iltimos, .db faylni hujjat (document) sifatida yuboring, "
+        "yoki bekor qilish uchun \"⬅️ Orqaga\" tugmasini bosing."
+    )
