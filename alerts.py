@@ -1,6 +1,7 @@
 import logging
 
 import config
+import database as db
 
 
 async def notify_stock_change(bot, product: dict, old_quantity: float, new_quantity: float,
@@ -43,3 +44,35 @@ async def notify_stock_change(bot, product: dict, old_quantity: float, new_quant
                 await bot.send_message(chat_id, text, parse_mode="HTML")
             except Exception as e:
                 logging.warning(f"Ogohlantirish yuborib bo'lmadi ({chat_id}): {e}")
+
+
+async def send_debt_reminders(bot, days_threshold: int = 3):
+    """Har kuni bir marta chaqiriladi (main.py'dagi fon vazifadan).
+
+    Bot mijozning shaxsiy Telegram chat_id'sini bilmaydi (faqat ism/telefon
+    saqlanadi), shuning uchun eslatma to'g'ridan-to'g'ri mijozga emas,
+    ADMIN_IDS'dagi do'kon xodimlariga yuboriladi - ular ro'yxatni ko'rib,
+    mijozga qo'ng'iroq qilishi yoki xabar yozishi mumkin.
+    """
+    if not config.ADMIN_IDS:
+        return
+
+    overdue = await db.get_overdue_debts(days=days_threshold)
+    if not overdue:
+        return
+
+    lines = [
+        f"• {d['customer_name']} ({d['phone']}) — {d['amount']:.0f} so'm, "
+        f"{d['days_ago']} kundan beri qarzda"
+        for d in overdue
+    ]
+    text = (
+        f"🔔 <b>Qarzdorlar eslatmasi</b>\n"
+        f"{days_threshold}+ kundan beri to'lanmagan qarzlar:\n\n" + "\n".join(lines)
+    )
+
+    for chat_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(chat_id, text, parse_mode="HTML")
+        except Exception as e:
+            logging.warning(f"Qarz eslatmasini yuborib bo'lmadi ({chat_id}): {e}")
