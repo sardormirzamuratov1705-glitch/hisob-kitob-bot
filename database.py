@@ -23,6 +23,7 @@ async def init_db():
                 channel_message_id INTEGER,
                 sell_price REAL,
                 min_price REAL,
+                alert_quantity REAL,
                 created_at TEXT NOT NULL
             )
             """
@@ -32,6 +33,7 @@ async def init_db():
             ("channel_message_id", "INTEGER"),
             ("sell_price", "REAL"),
             ("min_price", "REAL"),
+            ("alert_quantity", "REAL"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
@@ -44,6 +46,16 @@ async def init_db():
                 type TEXT NOT NULL,
                 amount REAL NOT NULL,
                 description TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS restock_manual (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                note TEXT,
                 created_at TEXT NOT NULL
             )
             """
@@ -71,12 +83,14 @@ def _now() -> str:
 # ---------- MAHSULOTLAR (SKLAD) ----------
 
 async def add_product(name: str, price: float, quantity: float, photo_file_id,
-                       channel_message_id=None, sell_price=None, min_price=None):
+                       channel_message_id=None, sell_price=None, min_price=None,
+                       alert_quantity=None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
             "INSERT INTO products (name, price, quantity, photo_file_id, channel_message_id, "
-            "sell_price, min_price, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, price, quantity, photo_file_id, channel_message_id, sell_price, min_price, _now()),
+            "sell_price, min_price, alert_quantity, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, price, quantity, photo_file_id, channel_message_id, sell_price, min_price,
+             alert_quantity, _now()),
         )
         await db.commit()
 
@@ -108,6 +122,43 @@ async def get_all_products():
 async def delete_product(product_id: int):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        await db.commit()
+
+
+# ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
+
+async def get_low_stock_products():
+    """Xodim belgilagan ogohlantirish chegarasidan kam qolgan mahsulotlar."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM products WHERE alert_quantity IS NOT NULL "
+            "AND quantity <= alert_quantity ORDER BY quantity ASC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def add_manual_restock_item(name: str, note: str = None):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO restock_manual (name, note, created_at) VALUES (?, ?, ?)",
+            (name, note, _now()),
+        )
+        await db.commit()
+
+
+async def get_manual_restock_items():
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM restock_manual ORDER BY id DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def delete_manual_restock_item(item_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute("DELETE FROM restock_manual WHERE id = ?", (item_id,))
         await db.commit()
 
 
