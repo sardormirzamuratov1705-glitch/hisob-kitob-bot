@@ -3,17 +3,20 @@ import logging
 import config
 
 
-async def notify_stock_change(bot, product: dict, old_quantity: float, new_quantity: float):
+async def notify_stock_change(bot, product: dict, old_quantity: float, new_quantity: float,
+                               also_notify_chat_id: int = None):
     """Mahsulot miqdori kamaygandan keyin chaqiriladi.
 
     - Agar mahsulot butunlay tugasa (0 dona qolsa) - alohida ogohlantirish.
     - Agar xodim belgilagan ogohlantirish chegarasidan pastga tushsa - ogohlantirish.
     Xabar faqat chegaradan "o'tilgan" paytda yuboriladi (spam bo'lmasligi uchun),
     ya'ni oldingi miqdor chegaradan yuqori, yangisi esa past yoki teng bo'lsa.
-    """
-    if not config.ADMIN_IDS:
-        return
 
+    Xabar config.ADMIN_IDS'dagilarga, shuningdek amalni bajargan foydalanuvchiga
+    ham yuboriladi (also_notify_chat_id) - shunda ADMIN_IDS noto'g'ri sozlangan
+    yoki admin botga hali /start bosmagan bo'lsa ham, harakatni bajargan odam
+    ogohlantirishni ko'radi.
+    """
     threshold = product.get("alert_quantity")
     messages = []
 
@@ -28,9 +31,15 @@ async def notify_stock_change(bot, product: dict, old_quantity: float, new_quant
     if not messages:
         return
 
-    for admin_id in config.ADMIN_IDS:
+    recipients = set(config.ADMIN_IDS)
+    if also_notify_chat_id:
+        recipients.add(also_notify_chat_id)
+    if not recipients:
+        return
+
+    for chat_id in recipients:
         for text in messages:
             try:
-                await bot.send_message(admin_id, text, parse_mode="HTML")
+                await bot.send_message(chat_id, text, parse_mode="HTML")
             except Exception as e:
-                logging.warning(f"Ogohlantirish yuborib bo'lmadi ({admin_id}): {e}")
+                logging.warning(f"Ogohlantirish yuborib bo'lmadi ({chat_id}): {e}")
