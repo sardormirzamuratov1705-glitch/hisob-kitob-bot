@@ -15,6 +15,8 @@ router = Router()
 class AddProduct(StatesGroup):
     name = State()
     price = State()
+    sell_price = State()
+    min_price = State()
     quantity = State()
     photo = State()
 
@@ -31,7 +33,7 @@ async def add_product_start(message: Message, state: FSMContext):
 async def add_product_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
     await state.set_state(AddProduct.price)
-    await message.answer("Narxini kiriting (so'mda, faqat raqam):")
+    await message.answer("Tannarxini kiriting (necha so'mga tushdi, faqat raqam):")
 
 
 @router.message(AddProduct.price)
@@ -42,6 +44,36 @@ async def add_product_price(message: Message, state: FSMContext):
         await message.answer("Iltimos, faqat raqam kiriting. Masalan: 25000")
         return
     await state.update_data(price=price)
+    await state.set_state(AddProduct.sell_price)
+    await message.answer("Savdo narxini kiriting (necha so'mga sotasiz):")
+
+
+@router.message(AddProduct.sell_price)
+async def add_product_sell_price(message: Message, state: FSMContext):
+    try:
+        sell_price = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 30000")
+        return
+    await state.update_data(sell_price=sell_price)
+    await state.set_state(AddProduct.min_price)
+    await message.answer("Eng past narxini kiriting (qanchagacha tushirib berish mumkin):")
+
+
+@router.message(AddProduct.min_price)
+async def add_product_min_price(message: Message, state: FSMContext):
+    try:
+        min_price = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 27000")
+        return
+    data = await state.get_data()
+    if min_price > data["sell_price"]:
+        await message.answer(
+            f"Eng past narx savdo narxidan ({data['sell_price']:.0f} so'm) katta bo'lmasligi kerak. Qaytadan kiriting:"
+        )
+        return
+    await state.update_data(min_price=min_price)
     await state.set_state(AddProduct.quantity)
     await message.answer("Miqdorini kiriting (masalan: 10):")
 
@@ -77,17 +109,24 @@ async def add_product_photo(message: Message, state: FSMContext):
             sent = await message.bot.send_photo(
                 chat_id=config.CHANNEL_ID,
                 photo=photo_file_id,
-                caption=f"🆕 {data['name']} | {data['price']:.0f} so'm | {data['quantity']:.0f} dona",
+                caption=(
+                    f"🆕 {data['name']} | Savdo narxi: {data['sell_price']:.0f} so'm | "
+                    f"{data['quantity']:.0f} dona"
+                ),
             )
             photo_file_id = sent.photo[-1].file_id
             channel_message_id = sent.message_id
         except Exception as e:
             logging.warning(f"Rasmni kanalga yuborib bo'lmadi: {e}")
 
-    await db.add_product(data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id)
+    await db.add_product(
+        data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id,
+        sell_price=data["sell_price"], min_price=data["min_price"],
+    )
     await state.clear()
     await message.answer(
-        f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nNarxi: {data['price']:.0f} so'm\n"
+        f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nTannarx: {data['price']:.0f} so'm\n"
+        f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
         f"Miqdori: {data['quantity']:.0f}",
         reply_markup=kb.sklad_menu(),
         parse_mode="HTML"
@@ -97,10 +136,14 @@ async def add_product_photo(message: Message, state: FSMContext):
 @router.callback_query(AddProduct.photo, F.data == "skip_photo")
 async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    await db.add_product(data["name"], data["price"], data["quantity"], None)
+    await db.add_product(
+        data["name"], data["price"], data["quantity"], None,
+        sell_price=data["sell_price"], min_price=data["min_price"],
+    )
     await state.clear()
     await callback.message.answer(
-        f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nNarxi: {data['price']:.0f} so'm\n"
+        f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nTannarx: {data['price']:.0f} so'm\n"
+        f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
         f"Miqdori: {data['quantity']:.0f}",
         reply_markup=kb.sklad_menu(),
         parse_mode="HTML"
@@ -120,9 +163,13 @@ async def list_products(message: Message):
     for p in products:
         caption = (
             f"<b>{p['name']}</b>\n"
-            f"Narxi: {p['price']:.0f} so'm\n"
-            f"Miqdori: {p['quantity']:.0f}"
+            f"Tannarx: {p['price']:.0f} so'm\n"
         )
+        if p.get("sell_price"):
+            caption += f"Savdo narxi: {p['sell_price']:.0f} so'm\n"
+        if p.get("min_price"):
+            caption += f"Eng past narx: {p['min_price']:.0f} so'm\n"
+        caption += f"Miqdori: {p['quantity']:.0f}"
         if p["photo_file_id"]:
             await message.answer_photo(
                 photo=p["photo_file_id"],
@@ -203,7 +250,7 @@ async def decrease_qty_cb(callback: CallbackQuery):
 async def _sync_after_qty_change(callback: CallbackQuery, product: dict):
     caption = (
         f"<b>{product['name']}</b>\n"
-        f"Narxi: {product['price']:.0f} so'm\n"
+        f"Tannarx: {product['price']:.0f} so'm\n"
         f"Miqdori: {product['quantity']:.0f}"
     )
     try:
