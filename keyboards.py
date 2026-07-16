@@ -57,7 +57,10 @@ def skip_photo_kb() -> InlineKeyboardMarkup:
 
 def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="➖", callback_data=f"dec_qty_{product_id}")
+    builder.button(text="➕", callback_data=f"inc_qty_{product_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"del_product_{product_id}")
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 
