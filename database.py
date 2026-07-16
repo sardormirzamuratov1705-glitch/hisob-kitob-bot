@@ -111,6 +111,24 @@ async def update_product_quantity(product_id: int, quantity: float):
         await db.commit()
 
 
+async def update_product_purchase(product_id: int, add_quantity: float,
+                                    price: float, sell_price: float, min_price: float):
+    """Kam qolgan mahsulot qayta sotib olinganda: miqdorni qo'shadi va narxlarni yangilaydi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT quantity FROM products WHERE id = ?", (product_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        new_quantity = row["quantity"] + add_quantity
+        await db.execute(
+            "UPDATE products SET quantity = ?, price = ?, sell_price = ?, min_price = ? WHERE id = ?",
+            (new_quantity, price, sell_price, min_price, product_id),
+        )
+        await db.commit()
+        return new_quantity
+
+
 async def get_all_products():
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -154,6 +172,14 @@ async def get_manual_restock_items():
         cursor = await db.execute("SELECT * FROM restock_manual ORDER BY id DESC")
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_manual_restock_item(item_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM restock_manual WHERE id = ?", (item_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def delete_manual_restock_item(item_id: int):
