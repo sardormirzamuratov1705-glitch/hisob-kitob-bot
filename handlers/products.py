@@ -291,7 +291,10 @@ async def decrease_qty_cb(callback: CallbackQuery):
     old_quantity = product["quantity"]
     product["quantity"] = new_quantity
     await _sync_after_qty_change(callback, product)
-    await alerts.notify_stock_change(callback.bot, product, old_quantity, new_quantity)
+    await alerts.notify_stock_change(
+        callback.bot, product, old_quantity, new_quantity,
+        also_notify_chat_id=callback.from_user.id,
+    )
 
 
 async def _sync_after_qty_change(callback: CallbackQuery, product: dict):
