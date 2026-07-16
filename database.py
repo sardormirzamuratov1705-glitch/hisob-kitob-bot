@@ -112,7 +112,8 @@ async def update_product_quantity(product_id: int, quantity: float):
 
 
 async def update_product_purchase(product_id: int, add_quantity: float,
-                                    price: float, sell_price: float, min_price: float):
+                                    price: float, sell_price: float, min_price: float,
+                                    alert_quantity=None):
     """Kam qolgan mahsulot qayta sotib olinganda: miqdorni qo'shadi va narxlarni yangilaydi."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -122,8 +123,9 @@ async def update_product_purchase(product_id: int, add_quantity: float,
             return None
         new_quantity = row["quantity"] + add_quantity
         await db.execute(
-            "UPDATE products SET quantity = ?, price = ?, sell_price = ?, min_price = ? WHERE id = ?",
-            (new_quantity, price, sell_price, min_price, product_id),
+            "UPDATE products SET quantity = ?, price = ?, sell_price = ?, min_price = ?, "
+            "alert_quantity = ? WHERE id = ?",
+            (new_quantity, price, sell_price, min_price, alert_quantity, product_id),
         )
         await db.commit()
         return new_quantity
