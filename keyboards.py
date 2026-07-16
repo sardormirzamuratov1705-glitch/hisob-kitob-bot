@@ -66,13 +66,25 @@ def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def restock_kb(manual_items=None) -> InlineKeyboardMarkup:
+def restock_kb(low_stock_items=None, manual_items=None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    row_sizes = []
+
+    if low_stock_items:
+        for p in low_stock_items:
+            builder.button(text=f"✅ {p['name']} olindi", callback_data=f"lowstock_bought_{p['id']}")
+            builder.button(text=f"❌ {p['name']} olinmadi", callback_data=f"lowstock_notbought_{p['id']}")
+            row_sizes.append(2)
+
     builder.button(text="➕ Qo'lda qo'shish", callback_data="restock_add")
+    row_sizes.append(1)
+
     if manual_items:
         for item in manual_items:
             builder.button(text=f"✅ {item['name']} olindi", callback_data=f"restock_done_{item['id']}")
-    builder.adjust(1)
+            row_sizes.append(1)
+
+    builder.adjust(*row_sizes)
     return builder.as_markup()
 
 
