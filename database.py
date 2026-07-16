@@ -70,10 +70,23 @@ async def init_db():
                 amount REAL NOT NULL,
                 description TEXT,
                 is_paid INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                due_date TEXT,
+                customer_chat_id INTEGER,
+                customer_username TEXT
             )
             """
         )
+        # Eski bazalarda bu ustunlar bo'lmasligi mumkin - xavfsiz qo'shib qo'yamiz.
+        for column, col_type in [
+            ("due_date", "TEXT"),
+            ("customer_chat_id", "INTEGER"),
+            ("customer_username", "TEXT"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE debts ADD COLUMN {column} {col_type}")
+            except Exception:
+                pass
         # Har bir savdo cheki ichidagi mahsulotlar - qaysi tovarlar birga
         # sotilganini bilish uchun (bog'lab sotish taklifi/cross-sell).
         # sale_id - transactions.id (bitta savdo cheki bitta transaction).
@@ -348,12 +361,33 @@ async def get_cross_sell_suggestions(product_ids, exclude_ids=None, limit: int =
 
 # ---------- QARZDORLAR ----------
 
-async def add_debt(customer_name: str, phone: str, amount: float, description: str):
+async def add_debt(customer_name: str, phone: str, amount: float, description: str,
+                    due_date: str = None):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO debts (customer_name, phone, amount, description, is_paid, created_at, due_date) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?)",
+            (customer_name, phone, amount, description, _now(), due_date),
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_debt(debt_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM debts WHERE id = ?", (debt_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def link_debt_customer(debt_id: int, chat_id: int, username: str = None):
+    """Mijoz shaxsiy link orqali botni ochganda uning chat_id/username'ini
+    shu qarz yozuviga bog'laydi (keyin unga to'g'ridan-to'g'ri eslatma yuborish uchun)."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT INTO debts (customer_name, phone, amount, description, is_paid, created_at) "
-            "VALUES (?, ?, ?, ?, 0, ?)",
-            (customer_name, phone, amount, description, _now()),
+            "UPDATE debts SET customer_chat_id = ?, customer_username = ? WHERE id = ?",
+            (chat_id, username, debt_id),
         )
         await db.commit()
 
@@ -380,8 +414,15 @@ async def get_total_debt():
 
 
 async def get_overdue_debts(days: int = 3):
-    """Kamida `days` kundan beri to'lanmagan qarzlar - eng eskisidan boshlab."""
-    cutoff = datetime.now() - timedelta(days=days)
+    """To'lanmagan qarzlar orasidan muddati o'tganlarini qaytaradi - eng eskisidan boshlab.
+
+    Agar qarzda aniq qaytarish sanasi (due_date) belgilangan bo'lsa, o'sha sanadan
+    o'tgan qarzlar "muddati o'tgan" hisoblanadi. due_date belgilanmagan qarzlar uchun
+    eski qoida ishlaydi: yaratilganidan `days` kun o'tgan bo'lsa, muddati o'tgan deb
+    hisoblanadi.
+    """
+    now = datetime.now()
+    cutoff = now - timedelta(days=days)
     debts = await get_debts(only_unpaid=True)
     overdue = []
     for d in debts:
@@ -389,9 +430,22 @@ async def get_overdue_debts(days: int = 3):
             created_dt = datetime.strptime(d["created_at"], "%Y-%m-%d %H:%M:%S")
         except (TypeError, ValueError):
             continue
-        if created_dt <= cutoff:
-            d["days_ago"] = (datetime.now() - created_dt).days
-            overdue.append(d)
+
+        due_date_str = d.get("due_date")
+        if due_date_str:
+            try:
+                due_dt = datetime.strptime(due_date_str, "%Y-%m-%d")
+            except ValueError:
+                due_dt = None
+            if due_dt is None or due_dt.date() >= now.date():
+                continue
+            d["days_ago"] = (now - due_dt).days
+        else:
+            if created_dt > cutoff:
+                continue
+            d["days_ago"] = (now - created_dt).days
+
+        overdue.append(d)
     overdue.sort(key=lambda d: d["days_ago"], reverse=True)
     return overdue
 
