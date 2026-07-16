@@ -16,8 +16,9 @@ def sklad_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="➕ Mahsulot qo'shish")
     builder.button(text="📋 Mahsulotlar ro'yxati")
+    builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1)
+    builder.adjust(1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -62,6 +63,16 @@ def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
     builder.button(text="➕", callback_data=f"inc_qty_{product_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"del_product_{product_id}")
     builder.adjust(2, 1)
+    return builder.as_markup()
+
+
+def restock_kb(manual_items=None) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="➕ Qo'lda qo'shish", callback_data="restock_add")
+    if manual_items:
+        for item in manual_items:
+            builder.button(text=f"✅ {item['name']} olindi", callback_data=f"restock_done_{item['id']}")
+    builder.adjust(1)
     return builder.as_markup()
 
 
