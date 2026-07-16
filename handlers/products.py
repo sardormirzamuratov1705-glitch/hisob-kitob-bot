@@ -55,6 +55,13 @@ async def add_product_sell_price(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Iltimos, faqat raqam kiriting. Masalan: 30000")
         return
+    data = await state.get_data()
+    if sell_price < data["price"]:
+        await message.answer(
+            f"❌ Savdo narxi tannarxdan ({data['price']:.0f} so'm) past bo'lishi mumkin emas, "
+            f"aks holda zararga ketasiz. Qaytadan kiriting:"
+        )
+        return
     await state.update_data(sell_price=sell_price)
     await state.set_state(AddProduct.min_price)
     await message.answer("Eng past narxini kiriting (qanchagacha tushirib berish mumkin):")
@@ -71,6 +78,12 @@ async def add_product_min_price(message: Message, state: FSMContext):
     if min_price > data["sell_price"]:
         await message.answer(
             f"Eng past narx savdo narxidan ({data['sell_price']:.0f} so'm) katta bo'lmasligi kerak. Qaytadan kiriting:"
+        )
+        return
+    if min_price < data["price"]:
+        await message.answer(
+            f"❌ Eng past narx tannarxdan ({data['price']:.0f} so'm) past bo'lishi mumkin emas, "
+            f"aks holda chegirmada zararga ketasiz. Qaytadan kiriting:"
         )
         return
     await state.update_data(min_price=min_price)
