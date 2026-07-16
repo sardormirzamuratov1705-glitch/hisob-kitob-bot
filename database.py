@@ -20,10 +20,16 @@ async def init_db():
                 price REAL NOT NULL,
                 quantity REAL NOT NULL,
                 photo_file_id TEXT,
+                channel_message_id INTEGER,
                 created_at TEXT NOT NULL
             )
             """
         )
+        # Eski bazalarda bu ustun bo'lmasligi mumkin - xavfsiz qo'shib qo'yamiz.
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN channel_message_id INTEGER")
+        except Exception:
+            pass
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS transactions (
@@ -57,12 +63,28 @@ def _now() -> str:
 
 # ---------- MAHSULOTLAR (SKLAD) ----------
 
-async def add_product(name: str, price: float, quantity: float, photo_file_id):
+async def add_product(name: str, price: float, quantity: float, photo_file_id, channel_message_id=None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT INTO products (name, price, quantity, photo_file_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (name, price, quantity, photo_file_id, _now()),
+            "INSERT INTO products (name, price, quantity, photo_file_id, channel_message_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, price, quantity, photo_file_id, channel_message_id, _now()),
+        )
+        await db.commit()
+
+
+async def get_product(product_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def update_product_quantity(product_id: int, quantity: float):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE products SET quantity = ? WHERE id = ?", (quantity, product_id)
         )
         await db.commit()
 
