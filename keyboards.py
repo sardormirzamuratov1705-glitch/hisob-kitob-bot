@@ -60,6 +60,12 @@ def skip_photo_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def skip_due_date_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Sanasiz davom etish", callback_data="skip_due_date")
+    return builder.as_markup()
+
+
 def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="➖", callback_data=f"dec_qty_{product_id}")
