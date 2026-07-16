@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -72,10 +74,24 @@ async def list_debts(message: Message):
     await message.answer(f"Umumiy qarzdorlik: <b>{total:.0f} so'm</b>", parse_mode="HTML")
 
     for d in debts:
+        try:
+            created_dt = datetime.strptime(d["created_at"], "%Y-%m-%d %H:%M:%S")
+            days_ago = (datetime.now() - created_dt).days
+        except (TypeError, ValueError):
+            days_ago = None
+
+        age_line = ""
+        if days_ago is not None:
+            if days_ago >= 3:
+                age_line = f"⏰ {days_ago} kundan beri qarzda\n"
+            else:
+                age_line = f"🕐 {days_ago} kun oldin\n"
+
         text = (
             f"👤 <b>{d['customer_name']}</b>\n"
             f"📞 {d['phone']}\n"
             f"💵 {d['amount']:.0f} so'm\n"
+            f"{age_line}"
             f"📝 {d['description']}"
         )
         await message.answer(text, reply_markup=kb.debt_action_kb(d["id"]), parse_mode="HTML")
