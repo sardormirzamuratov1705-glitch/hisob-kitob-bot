@@ -148,6 +148,12 @@ async def sale_price_input(message: Message, state: FSMContext):
             f"❌ Narx eng past narxdan ({product['min_price']:.0f} so'm) past bo'lishi mumkin emas. Qaytadan kiriting:"
         )
         return
+    if price < product["price"]:
+        await message.answer(
+            f"❌ Narx tannarxdan ({product['price']:.0f} so'm) past bo'lishi mumkin emas, "
+            f"aks holda zararga ketasiz. Qaytadan kiriting:"
+        )
+        return
 
     results = data.get("results", [])
     results.append({
