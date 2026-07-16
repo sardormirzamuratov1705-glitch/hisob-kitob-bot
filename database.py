@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import aiosqlite
 
@@ -34,6 +34,7 @@ async def init_db():
             ("sell_price", "REAL"),
             ("min_price", "REAL"),
             ("alert_quantity", "REAL"),
+            ("last_sold_at", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
@@ -69,6 +70,21 @@ async def init_db():
                 amount REAL NOT NULL,
                 description TEXT,
                 is_paid INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        # Har bir savdo cheki ichidagi mahsulotlar - qaysi tovarlar birga
+        # sotilganini bilish uchun (bog'lab sotish taklifi/cross-sell).
+        # sale_id - transactions.id (bitta savdo cheki bitta transaction).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sale_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                quantity REAL NOT NULL,
+                price REAL NOT NULL,
                 created_at TEXT NOT NULL
             )
             """
@@ -163,6 +179,40 @@ async def delete_product(product_id: int):
         await db.commit()
 
 
+async def mark_product_sold(product_id: int):
+    """Mahsulot sotilganda chaqiriladi - 'oxirgi marta qachon sotilgan' vaqtini yangilaydi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE products SET last_sold_at = ? WHERE id = ?", (_now(), product_id)
+        )
+        await db.commit()
+
+
+async def get_stale_products(days: int = 30):
+    """Skladda bor, lekin oxirgi `days` kun ichida sotilmagan (yoki umuman
+    sotilmagan va shuncha vaqtdan beri turgan) mahsulotlar. Eng uzoq
+    turganidan boshlab tartiblanadi."""
+    cutoff = datetime.now() - timedelta(days=days)
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM products WHERE quantity > 0")
+        rows = [dict(row) for row in await cursor.fetchall()]
+
+    stale = []
+    for p in rows:
+        reference = p.get("last_sold_at") or p.get("created_at")
+        try:
+            reference_dt = datetime.strptime(reference, "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            continue
+        if reference_dt <= cutoff:
+            p["reference_date"] = reference
+            stale.append(p)
+
+    stale.sort(key=lambda p: p["reference_date"])
+    return stale
+
+
 # ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
 
 async def get_low_stock_products():
@@ -212,11 +262,12 @@ async def delete_manual_restock_item(item_id: int):
 
 async def add_transaction(type_: str, amount: float, description: str):
     async with aiosqlite.connect(config.DB_PATH) as db:
-        await db.execute(
+        cursor = await db.execute(
             "INSERT INTO transactions (type, amount, description, created_at) VALUES (?, ?, ?, ?)",
             (type_, amount, description, _now()),
         )
         await db.commit()
+        return cursor.lastrowid
 
 
 async def get_transactions(limit: int = 1000):
@@ -242,6 +293,57 @@ async def get_totals():
         expense = (await cursor.fetchone())[0]
 
         return income, expense
+
+
+# ---------- SAVDO TARKIBI / BOG'LAB SOTISH (CROSS-SELL) ----------
+
+async def add_sale_item(sale_id: int, product_id: int, quantity: float, price: float):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO sale_items (sale_id, product_id, quantity, price, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (sale_id, product_id, quantity, price, _now()),
+        )
+        await db.commit()
+
+
+async def get_cross_sell_suggestions(product_ids, exclude_ids=None, limit: int = 3):
+    """Berilgan mahsulot(lar) bilan tarixda eng ko'p birga sotilgan,
+    hozir skladda bor va savatchada hali yo'q mahsulotlarni qaytaradi."""
+    if not product_ids:
+        return []
+    exclude_ids = set(exclude_ids or []) | set(product_ids)
+
+    placeholders = ",".join("?" for _ in product_ids)
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            f"""
+            SELECT other.product_id AS product_id, COUNT(*) AS times
+            FROM sale_items base
+            JOIN sale_items other
+              ON other.sale_id = base.sale_id AND other.product_id != base.product_id
+            WHERE base.product_id IN ({placeholders})
+            GROUP BY other.product_id
+            ORDER BY times DESC
+            """,
+            list(product_ids),
+        )
+        rows = await cursor.fetchall()
+
+        suggestions = []
+        for row in rows:
+            if row["product_id"] in exclude_ids:
+                continue
+            product = await get_product(row["product_id"])
+            if not product or product["quantity"] <= 0:
+                continue
+            suggestions.append({"product": product, "times": row["times"]})
+            exclude_ids.add(row["product_id"])
+            if len(suggestions) >= limit:
+                break
+
+        return suggestions
 
 
 # ---------- QARZDORLAR ----------
@@ -275,6 +377,23 @@ async def get_total_debt():
             "SELECT COALESCE(SUM(amount), 0) FROM debts WHERE is_paid = 0"
         )
         return (await cursor.fetchone())[0]
+
+
+async def get_overdue_debts(days: int = 3):
+    """Kamida `days` kundan beri to'lanmagan qarzlar - eng eskisidan boshlab."""
+    cutoff = datetime.now() - timedelta(days=days)
+    debts = await get_debts(only_unpaid=True)
+    overdue = []
+    for d in debts:
+        try:
+            created_dt = datetime.strptime(d["created_at"], "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            continue
+        if created_dt <= cutoff:
+            d["days_ago"] = (datetime.now() - created_dt).days
+            overdue.append(d)
+    overdue.sort(key=lambda d: d["days_ago"], reverse=True)
+    return overdue
 
 
 async def mark_debt_paid(debt_id: int):
