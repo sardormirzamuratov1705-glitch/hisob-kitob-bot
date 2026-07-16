@@ -130,7 +130,10 @@ async def sale_quantity_input(message: Message, state: FSMContext):
     hint = ""
     if product.get("sell_price"):
         hint = f" (odatiy savdo narxi: {product['sell_price']:.0f} so'm)"
-    await message.answer(f"Qanchaga sotildi{hint}?")
+    await message.answer(
+        f"Qanchaga sotildi{hint}?",
+        reply_markup=kb.sale_price_kb(product.get("sell_price"), product.get("min_price")),
+    )
 
 
 @router.message(SaleFlow.price)
@@ -141,20 +144,25 @@ async def sale_price_input(message: Message, state: FSMContext):
         await message.answer("Iltimos, faqat raqam kiriting. Masalan: 30000")
         return
 
+    await _record_sale_price(message, price, state)
+
+
+async def _record_sale_price(target: Message, price: float, state: FSMContext) -> bool:
+    """Narxni tekshiradi va saqlaydi. target - javob yozish uchun Message (matn yoki callback.message)."""
     data = await state.get_data()
     product = await db.get_product(data["current_product_id"])
 
     if product.get("min_price") and price < product["min_price"]:
-        await message.answer(
+        await target.answer(
             f"❌ Narx eng past narxdan ({product['min_price']:.0f} so'm) past bo'lishi mumkin emas. Qaytadan kiriting:"
         )
-        return
+        return False
     if price < product["price"]:
-        await message.answer(
+        await target.answer(
             f"❌ Narx tannarxdan ({product['price']:.0f} so'm) past bo'lishi mumkin emas, "
             f"aks holda zararga ketasiz. Qaytadan kiriting:"
         )
-        return
+        return False
 
     results = data.get("results", [])
     results.append({
@@ -165,7 +173,48 @@ async def sale_price_input(message: Message, state: FSMContext):
     })
     await state.update_data(results=results)
 
-    await _advance(message, state)
+    await _advance(target, state)
+    return True
+
+
+@router.callback_query(SaleFlow.price, F.data == "sale_price_sell")
+async def sale_price_sell_cb(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    product = await db.get_product(data["current_product_id"])
+    if not product or not product.get("sell_price"):
+        await callback.answer("Savdo narxi belgilanmagan", show_alert=True)
+        return
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _record_sale_price(callback.message, product["sell_price"], state)
+
+
+@router.callback_query(SaleFlow.price, F.data == "sale_price_min")
+async def sale_price_min_cb(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    product = await db.get_product(data["current_product_id"])
+    if not product or not product.get("min_price"):
+        await callback.answer("Eng past narx belgilanmagan", show_alert=True)
+        return
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _record_sale_price(callback.message, product["min_price"], state)
+
+
+@router.callback_query(SaleFlow.price, F.data == "sale_price_custom")
+async def sale_price_custom_cb(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer("Narxni kiriting:")
 
 
 async def _advance(message: Message, state: FSMContext):
