@@ -94,6 +94,17 @@ def debt_action_kb(debt_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def sale_price_kb(sell_price=None, min_price=None) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if sell_price:
+        builder.button(text=f"💰 Savdo narxi: {sell_price:.0f}", callback_data="sale_price_sell")
+    if min_price:
+        builder.button(text=f"⬇️ Eng past narx: {min_price:.0f}", callback_data="sale_price_min")
+    builder.button(text="✏️ Boshqa narx", callback_data="sale_price_custom")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def sale_products_kb(products, selected_ids) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for p in products:
