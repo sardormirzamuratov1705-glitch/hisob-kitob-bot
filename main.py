@@ -7,11 +7,24 @@ from aiogram.enums import ParseMode
 
 import config
 import database as db
+import alerts
 from handlers import start, products, sales, transactions, debts, reports
+
+
+async def _debt_reminder_loop(bot: Bot):
+    """Har 24 soatda bir marta ADMIN_IDS'ga muddati o'tgan qarzlar
+    ro'yxatini yuboradi (alerts.send_debt_reminders)."""
+    while True:
+        try:
+            await alerts.send_debt_reminders(bot)
+        except Exception as e:
+            logging.warning(f"Qarz eslatmasi tsiklida xato: {e}")
+        await asyncio.sleep(24 * 60 * 60)
 
 
 async def on_startup(bot: Bot):
     await db.init_db()
+    asyncio.create_task(_debt_reminder_loop(bot))
     if config.WEBHOOK_HOST:
         await bot.set_webhook(config.WEBHOOK_URL, drop_pending_updates=True)
         logging.info(f"Webhook o'rnatildi: {config.WEBHOOK_URL}")
