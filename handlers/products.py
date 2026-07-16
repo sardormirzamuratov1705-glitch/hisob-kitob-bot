@@ -530,7 +530,7 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
     alert_line = f"Ogohlantirish chegarasi: {alert_quantity:.0f} dona\n" if alert_quantity else ""
 
     if data["restock_type"] == "product":
-        new_quantity = await db.update_product_purchase(
+        new_quantity, weighted_price = await db.update_product_purchase(
             data["product_id"], data["quantity"], data["price"], data["sell_price"], data["min_price"],
             alert_quantity=alert_quantity,
         )
@@ -548,8 +548,9 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
         await state.clear()
         await message.answer(
             f"✅ <b>{data['name']}</b> skladga qo'shildi.\n"
-            f"Qo'shildi: {data['quantity']:.0f} dona\nYangi umumiy miqdor: {new_quantity:.0f} dona\n"
-            f"Tannarx: {data['price']:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
+            f"Qo'shildi: {data['quantity']:.0f} dona ({data['price']:.0f} so'mdan)\n"
+            f"Yangi umumiy miqdor: {new_quantity:.0f} dona\n"
+            f"O'rtacha tannarx: {weighted_price:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
             f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}",
             reply_markup=kb.sklad_menu(),
             parse_mode="HTML"
