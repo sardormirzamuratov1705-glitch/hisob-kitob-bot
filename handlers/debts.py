@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -21,7 +21,28 @@ class AddDebt(StatesGroup):
     customer_name = State()
     phone = State()
     amount = State()
+    due_date = State()
     description = State()
+
+
+def _parse_due_date(text: str):
+    """Foydalanuvchi kiritgan matnni qaytarish sanasiga aylantiradi.
+
+    Qo'llab-quvvatlanadi:
+    - "-" - sanasiz (None qaytaradi)
+    - butun son (masalan "7") - bugundan shuncha kun keyin
+    - "kun.oy.yil" (masalan "25.07.2026") - aniq sana
+
+    Noto'g'ri format uchun ValueError ko'taradi.
+    """
+    text = text.strip()
+    if text == "-":
+        return None
+    if text.isdigit():
+        due = datetime.now() + timedelta(days=int(text))
+        return due.strftime("%Y-%m-%d")
+    due = datetime.strptime(text, "%d.%m.%Y")
+    return due.strftime("%Y-%m-%d")
 
 
 @router.message(F.text == "➕ Qarz qo'shish")
@@ -52,21 +73,59 @@ async def add_debt_amount(message: Message, state: FSMContext):
         await message.answer("Iltimos, faqat raqam kiriting. Masalan: 500000")
         return
     await state.update_data(amount=amount)
+    await state.set_state(AddDebt.due_date)
+    await message.answer(
+        "Qarzni qaytarish sanasini kiriting:\n"
+        "— aniq sana: kun.oy.yil, masalan 25.07.2026\n"
+        "— yoki necha kundan keyin: masalan 7\n"
+        "— yoki sanasiz davom etish uchun '-' deb yozing",
+        reply_markup=kb.skip_due_date_kb()
+    )
+
+
+@router.message(AddDebt.due_date)
+async def add_debt_due_date(message: Message, state: FSMContext):
+    try:
+        due_date = _parse_due_date(message.text)
+    except ValueError:
+        await message.answer(
+            "Iltimos, sanani to'g'ri formatda kiriting: kun.oy.yil (masalan 25.07.2026), "
+            "necha kundan keyinligini son bilan (masalan 7), yoki '-' deb yozing."
+        )
+        return
+    await state.update_data(due_date=due_date)
     await state.set_state(AddDebt.description)
     await message.answer("Izoh kiriting (masalan: 'Oziq-ovqat qarzi'):")
+
+
+@router.callback_query(AddDebt.due_date, F.data == "skip_due_date")
+async def add_debt_skip_due_date(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(due_date=None)
+    await state.set_state(AddDebt.description)
+    await callback.answer()
+    await callback.message.answer("Izoh kiriting (masalan: 'Oziq-ovqat qarzi'):")
 
 
 @router.message(AddDebt.description)
 async def add_debt_description(message: Message, state: FSMContext):
     data = await state.get_data()
-    debt_id = await db.add_debt(data["customer_name"], data["phone"], data["amount"], message.text.strip())
+    debt_id = await db.add_debt(
+        data["customer_name"], data["phone"], data["amount"], message.text.strip(),
+        due_date=data.get("due_date")
+    )
     await state.clear()
+
+    due_date_line = ""
+    if data.get("due_date"):
+        due_dt = datetime.strptime(data["due_date"], "%Y-%m-%d")
+        due_date_line = f"Qaytarish sanasi: {due_dt.strftime('%d.%m.%Y')}\n"
 
     link = await _debt_link(message.bot, debt_id)
     await message.answer(
         f"✅ Qarz qo'shildi:\n"
         f"Mijoz: {data['customer_name']}\n"
-        f"Summasi: {data['amount']:.0f} so'm",
+        f"Summasi: {data['amount']:.0f} so'm\n"
+        f"{due_date_line}",
         reply_markup=kb.qarz_menu()
     )
     await message.answer(
@@ -101,6 +160,22 @@ async def list_debts(message: Message):
             else:
                 age_line = f"🕐 {days_ago} kun oldin\n"
 
+        due_line = ""
+        due_date_str = d.get("due_date")
+        if due_date_str:
+            try:
+                due_dt = datetime.strptime(due_date_str, "%Y-%m-%d")
+                days_left = (due_dt.date() - datetime.now().date()).days
+                due_fmt = due_dt.strftime("%d.%m.%Y")
+                if days_left < 0:
+                    due_line = f"❗️ Qaytarish sanasi: {due_fmt} ({-days_left} kun kechikdi)\n"
+                elif days_left == 0:
+                    due_line = f"📅 Qaytarish sanasi: {due_fmt} (bugun)\n"
+                else:
+                    due_line = f"📅 Qaytarish sanasi: {due_fmt} ({days_left} kun qoldi)\n"
+            except ValueError:
+                pass
+
         linked = bool(d.get("customer_chat_id"))
         link_line = "\n🔗 Botga ulangan (eslatma yuborish mumkin)" if linked else ""
         text = (
@@ -108,6 +183,7 @@ async def list_debts(message: Message):
             f"📞 {d['phone']}\n"
             f"💵 {d['amount']:.0f} so'm\n"
             f"{age_line}"
+            f"{due_line}"
             f"📝 {d['description']}"
             f"{link_line}"
         )
