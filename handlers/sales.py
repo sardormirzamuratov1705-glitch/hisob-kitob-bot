@@ -8,6 +8,7 @@ from aiogram.fsm.state import StatesGroup, State
 import config
 import database as db
 import keyboards as kb
+import alerts
 
 router = Router()
 
@@ -194,6 +195,7 @@ async def _finalize_sale(message: Message, state: FSMContext):
 
         new_quantity = product["quantity"] - r["qty"]
         await db.update_product_quantity(r["id"], new_quantity)
+        await alerts.notify_stock_change(message.bot, product, product["quantity"], new_quantity)
 
         # Kanaldagi postni ham yangilaymiz.
         if product.get("channel_message_id") and config.CHANNEL_ID:
