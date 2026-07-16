@@ -7,7 +7,7 @@ from aiogram.enums import ParseMode
 
 import config
 import database as db
-from handlers import start, products, transactions, debts, reports
+from handlers import start, products, transactions, sales, debts, reports
 
 
 async def main():
@@ -26,6 +26,7 @@ async def main():
 
     dp.include_router(start.router)
     dp.include_router(products.router)
+    dp.include_router(sales.router)
     dp.include_router(transactions.router)
     dp.include_router(debts.router)
     dp.include_router(reports.router)
