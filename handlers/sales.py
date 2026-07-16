@@ -81,6 +81,18 @@ async def sale_confirm(callback: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await callback.answer()
+
+    suggestions = await db.get_cross_sell_suggestions(selected)
+    if suggestions:
+        lines = "\n".join(
+            f"• {s['product']['name']} ({s['product']['quantity']:.0f} dona bor)"
+            for s in suggestions
+        )
+        await callback.message.answer(
+            "💡 Odatda bu tovar(lar) bilan birga quyidagilar ham sotib olinadi:\n"
+            f"{lines}\n\nMijozga taklif qilib ko'ring!"
+        )
+
     await _ask_quantity(callback.message, state)
 
 
@@ -266,7 +278,11 @@ async def _finalize_sale(message: Message, state: FSMContext):
         lines.append(f"• {r['name']}: {r['qty']:.0f} dona x {r['price']:.0f} so'm = {line_total:.0f} so'm")
 
     description = "Savdo:\n" + "\n".join(lines)
-    await db.add_transaction("income", total, description)
+    sale_id = await db.add_transaction("income", total, description)
+
+    for r in results:
+        await db.add_sale_item(sale_id, r["id"], r["qty"], r["price"])
+        await db.mark_product_sold(r["id"])
 
     await state.clear()
     await message.answer(
