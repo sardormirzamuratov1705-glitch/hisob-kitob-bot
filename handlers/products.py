@@ -65,10 +65,13 @@ async def add_product_quantity(message: Message, state: FSMContext):
 async def add_product_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     photo_file_id = message.photo[-1].file_id
+    channel_message_id = None
 
-    # Rasmni kanalga jo'natib, o'sha yerdagi file_id'ni olamiz.
+    # Rasmni kanalga jo'natib, o'sha yerdagi file_id va message_id'ni olamiz.
     # Shunda rasm botning o'z serverida emas, Telegram kanalida saqlanadi
     # va foydalanuvchi bot bilan chatni o'chirsa ham rasm yo'qolmaydi.
+    # message_id'ni saqlab qo'yamiz - mahsulot o'chirilsa yoki miqdori
+    # o'zgarsa, kanaldagi postni ham shu orqali yangilaymiz.
     if config.CHANNEL_ID:
         try:
             sent = await message.bot.send_photo(
@@ -77,10 +80,11 @@ async def add_product_photo(message: Message, state: FSMContext):
                 caption=f"🆕 {data['name']} | {data['price']:.0f} so'm | {data['quantity']:.0f} dona",
             )
             photo_file_id = sent.photo[-1].file_id
+            channel_message_id = sent.message_id
         except Exception as e:
             logging.warning(f"Rasmni kanalga yuborib bo'lmadi: {e}")
 
-    await db.add_product(data["name"], data["price"], data["quantity"], photo_file_id)
+    await db.add_product(data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id)
     await state.clear()
     await message.answer(
         f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nNarxi: {data['price']:.0f} so'm\n"
@@ -137,9 +141,87 @@ async def list_products(message: Message):
 @router.callback_query(F.data.startswith("del_product_"))
 async def delete_product_cb(callback: CallbackQuery):
     product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(product_id)
+
     await db.delete_product(product_id)
+
+    # Kanaldagi rasm postini ham o'chiramiz.
+    if product and product.get("channel_message_id") and config.CHANNEL_ID:
+        try:
+            await callback.bot.delete_message(
+                chat_id=config.CHANNEL_ID,
+                message_id=product["channel_message_id"],
+            )
+        except Exception as e:
+            logging.warning(f"Kanaldagi postni o'chirib bo'lmadi: {e}")
+
     await callback.answer("Mahsulot o'chirildi ✅")
     try:
         await callback.message.delete()
     except Exception:
         pass
+
+
+# ---------- MIQDORNI O'ZGARTIRISH ----------
+
+async def _channel_caption(product: dict) -> str:
+    return f"📦 {product['name']} | {product['price']:.0f} so'm | {product['quantity']:.0f} dona"
+
+
+@router.callback_query(F.data.startswith("inc_qty_"))
+async def increase_qty_cb(callback: CallbackQuery):
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+
+    new_quantity = product["quantity"] + 1
+    await db.update_product_quantity(product_id, new_quantity)
+    product["quantity"] = new_quantity
+    await _sync_after_qty_change(callback, product)
+
+
+@router.callback_query(F.data.startswith("dec_qty_"))
+async def decrease_qty_cb(callback: CallbackQuery):
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+
+    if product["quantity"] <= 0:
+        await callback.answer("Miqdor 0 dan kam bo'lishi mumkin emas", show_alert=True)
+        return
+
+    new_quantity = product["quantity"] - 1
+    await db.update_product_quantity(product_id, new_quantity)
+    product["quantity"] = new_quantity
+    await _sync_after_qty_change(callback, product)
+
+
+async def _sync_after_qty_change(callback: CallbackQuery, product: dict):
+    caption = (
+        f"<b>{product['name']}</b>\n"
+        f"Narxi: {product['price']:.0f} so'm\n"
+        f"Miqdori: {product['quantity']:.0f}"
+    )
+    try:
+        if callback.message.photo:
+            await callback.message.edit_caption(caption=caption, reply_markup=kb.product_action_kb(product["id"]), parse_mode="HTML")
+        else:
+            await callback.message.edit_text(caption, reply_markup=kb.product_action_kb(product["id"]), parse_mode="HTML")
+    except Exception:
+        pass
+
+    if product.get("channel_message_id") and config.CHANNEL_ID:
+        try:
+            await callback.bot.edit_message_caption(
+                chat_id=config.CHANNEL_ID,
+                message_id=product["channel_message_id"],
+                caption=await _channel_caption(product),
+            )
+        except Exception as e:
+            logging.warning(f"Kanaldagi postni yangilab bo'lmadi: {e}")
+
+    await callback.answer()
