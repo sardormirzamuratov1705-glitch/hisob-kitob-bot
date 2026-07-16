@@ -1,8 +1,11 @@
+import logging
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
+import config
 import database as db
 import keyboards as kb
 
@@ -60,8 +63,23 @@ async def add_product_quantity(message: Message, state: FSMContext):
 
 @router.message(AddProduct.photo, F.photo)
 async def add_product_photo(message: Message, state: FSMContext):
-    photo_file_id = message.photo[-1].file_id
     data = await state.get_data()
+    photo_file_id = message.photo[-1].file_id
+
+    # Rasmni kanalga jo'natib, o'sha yerdagi file_id'ni olamiz.
+    # Shunda rasm botning o'z serverida emas, Telegram kanalida saqlanadi
+    # va foydalanuvchi bot bilan chatni o'chirsa ham rasm yo'qolmaydi.
+    if config.CHANNEL_ID:
+        try:
+            sent = await message.bot.send_photo(
+                chat_id=config.CHANNEL_ID,
+                photo=photo_file_id,
+                caption=f"🆕 {data['name']} | {data['price']:.0f} so'm | {data['quantity']:.0f} dona",
+            )
+            photo_file_id = sent.photo[-1].file_id
+        except Exception as e:
+            logging.warning(f"Rasmni kanalga yuborib bo'lmadi: {e}")
+
     await db.add_product(data["name"], data["price"], data["quantity"], photo_file_id)
     await state.clear()
     await message.answer(
