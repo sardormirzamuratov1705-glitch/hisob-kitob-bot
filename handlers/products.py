@@ -33,6 +33,7 @@ class RestockPurchase(StatesGroup):
     price = State()
     sell_price = State()
     min_price = State()
+    alert_quantity = State()
 
 
 # ---------- MAHSULOT QO'SHISH ----------
@@ -505,15 +506,33 @@ async def restock_purchase_min_price(message: Message, state: FSMContext):
         return
 
     await state.update_data(min_price=min_price)
+    await state.set_state(RestockPurchase.alert_quantity)
+    await message.answer(
+        "Mahsulot nechta qolganda ogohlantirish yuborilsin?\n"
+        "(Kerak bo'lmasa 0 deb yozing)"
+    )
+
+
+@router.message(RestockPurchase.alert_quantity)
+async def restock_purchase_alert_quantity(message: Message, state: FSMContext):
+    try:
+        alert_quantity = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 5 (kerak bo'lmasa 0)")
+        return
+    await state.update_data(alert_quantity=alert_quantity if alert_quantity > 0 else None)
     await _finalize_restock_purchase(message, state)
 
 
 async def _finalize_restock_purchase(message: Message, state: FSMContext):
     data = await state.get_data()
+    alert_quantity = data.get("alert_quantity")
+    alert_line = f"Ogohlantirish chegarasi: {alert_quantity:.0f} dona\n" if alert_quantity else ""
 
     if data["restock_type"] == "product":
         new_quantity = await db.update_product_purchase(
-            data["product_id"], data["quantity"], data["price"], data["sell_price"], data["min_price"]
+            data["product_id"], data["quantity"], data["price"], data["sell_price"], data["min_price"],
+            alert_quantity=alert_quantity,
         )
         product = await db.get_product(data["product_id"])
         if product and product.get("channel_message_id") and config.CHANNEL_ID:
@@ -531,7 +550,7 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"✅ <b>{data['name']}</b> skladga qo'shildi.\n"
             f"Qo'shildi: {data['quantity']:.0f} dona\nYangi umumiy miqdor: {new_quantity:.0f} dona\n"
             f"Tannarx: {data['price']:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
-            f"Eng past narx: {data['min_price']:.0f} so'm",
+            f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}",
             reply_markup=kb.sklad_menu(),
             parse_mode="HTML"
         )
@@ -539,13 +558,15 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
         await db.add_product(
             data["name"], data["price"], data["quantity"], None,
             sell_price=data["sell_price"], min_price=data["min_price"],
+            alert_quantity=alert_quantity,
         )
         await db.delete_manual_restock_item(data["manual_id"])
         await state.clear()
         await message.answer(
             f"✅ <b>{data['name']}</b> yangi mahsulot sifatida skladga qo'shildi.\n"
             f"Miqdori: {data['quantity']:.0f} dona\nTannarx: {data['price']:.0f} so'm\n"
-            f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm",
+            f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
+            f"{alert_line}",
             reply_markup=kb.sklad_menu(),
             parse_mode="HTML"
         )
