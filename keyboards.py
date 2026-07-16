@@ -91,9 +91,14 @@ def restock_kb(low_stock_items=None, manual_items=None) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def debt_action_kb(debt_id: int) -> InlineKeyboardMarkup:
+def debt_action_kb(debt_id: int, customer_linked: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ To'landi", callback_data=f"pay_debt_{debt_id}")
+    if customer_linked:
+        builder.button(text="🔔 Eslatma yuborish", callback_data=f"remind_debt_{debt_id}")
+    else:
+        builder.button(text="🔗 Link yaratish", callback_data=f"debt_link_{debt_id}")
+    builder.adjust(1)
     return builder.as_markup()
 
 
