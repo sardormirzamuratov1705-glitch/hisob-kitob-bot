@@ -23,11 +23,12 @@ def sklad_menu() -> ReplyKeyboardMarkup:
 
 def kirim_chiqim_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
+    builder.button(text="🛒 Savdo")
     builder.button(text="➕ Kirim qo'shish")
     builder.button(text="➖ Chiqim qo'shish")
     builder.button(text="📈 Bugungi holat")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(2, 1, 1)
+    builder.adjust(1, 2, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -67,4 +68,18 @@ def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
 def debt_action_kb(debt_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ To'landi", callback_data=f"pay_debt_{debt_id}")
+    return builder.as_markup()
+
+
+def sale_products_kb(products, selected_ids) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for p in products:
+        mark = "☑️" if p["id"] in selected_ids else "⬜"
+        builder.button(
+            text=f"{mark} {p['name']} ({p['quantity']:.0f} dona)",
+            callback_data=f"sale_toggle_{p['id']}",
+        )
+    builder.button(text="✅ Tanlovni tasdiqlash", callback_data="sale_confirm")
+    builder.button(text="❌ Bekor qilish", callback_data="sale_cancel")
+    builder.adjust(1)
     return builder.as_markup()
