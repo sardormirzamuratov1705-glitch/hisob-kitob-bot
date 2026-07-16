@@ -334,9 +334,7 @@ async def _sync_after_qty_change(callback: CallbackQuery, product: dict):
 
 # ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
 
-@router.message(F.text == "🧾 Olinishi kerak bo'lgan tovarlar")
-async def restock_list(message: Message, state: FSMContext):
-    await state.clear()
+async def _send_restock_list(message: Message):
     low_stock = await db.get_low_stock_products()
     manual_items = await db.get_manual_restock_items()
 
@@ -366,6 +364,13 @@ async def restock_list(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=kb.restock_kb(low_stock, manual_items), parse_mode="HTML")
 
 
+@router.message(F.text == "🧾 Olinishi kerak bo'lgan tovarlar")
+async def restock_list(message: Message, state: FSMContext):
+    await state.clear()
+    await _send_restock_list(message)
+
+
+
 @router.callback_query(F.data == "restock_add")
 async def restock_add_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AddRestockItem.name)
@@ -389,9 +394,9 @@ async def restock_add_note(message: Message, state: FSMContext):
     await db.add_manual_restock_item(data["name"], note)
     await state.clear()
     await message.answer(
-        f"✅ \"{data['name']}\" olinishi kerak bo'lgan tovarlar ro'yxatiga qo'shildi.",
-        reply_markup=kb.sklad_menu(),
+        f"✅ \"{data['name']}\" olinishi kerak bo'lgan tovarlar ro'yxatiga qo'shildi."
     )
+    await _send_restock_list(message)
 
 
 @router.callback_query(F.data.startswith("lowstock_notbought_"))
@@ -552,9 +557,9 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"Yangi umumiy miqdor: {new_quantity:.0f} dona\n"
             f"O'rtacha tannarx: {weighted_price:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
             f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}",
-            reply_markup=kb.sklad_menu(),
             parse_mode="HTML"
         )
+        await _send_restock_list(message)
     else:
         await db.add_product(
             data["name"], data["price"], data["quantity"], None,
@@ -568,6 +573,6 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"Miqdori: {data['quantity']:.0f} dona\nTannarx: {data['price']:.0f} so'm\n"
             f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
             f"{alert_line}",
-            reply_markup=kb.sklad_menu(),
             parse_mode="HTML"
         )
+        await _send_restock_list(message)
