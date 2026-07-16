@@ -332,6 +332,27 @@ async def _sync_after_qty_change(callback: CallbackQuery, product: dict):
     await callback.answer()
 
 
+# ---------- SEKIN SOTILADIGAN TOVARLAR ----------
+
+@router.message(F.text == "🐌 Sekin sotiladigan tovarlar")
+async def stale_products(message: Message):
+    stale = await db.get_stale_products(days=30)
+    if not stale:
+        await message.answer("✅ Hozircha 30 kundan beri sotilmagan tovar yo'q.")
+        return
+
+    text = (
+        "🐌 <b>Sekin sotiladigan tovarlar</b>\n"
+        "(30 kundan ortiq sotilmagan, pul band bo'lib turibdi)\n\n"
+    )
+    for p in stale:
+        reference = p["reference_date"][:10]
+        text += f"• {p['name']} — {p['quantity']:.0f} dona qoldi (oxirgi harakat: {reference})\n"
+    text += "\n💡 Bularga chegirma qilib tezroq sotib, pulni aylantirish tavsiya etiladi."
+
+    await message.answer(text, parse_mode="HTML")
+
+
 # ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
 
 async def _send_restock_list(message: Message):
