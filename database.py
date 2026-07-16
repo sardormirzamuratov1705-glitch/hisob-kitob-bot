@@ -112,23 +112,41 @@ async def update_product_quantity(product_id: int, quantity: float):
 
 
 async def update_product_purchase(product_id: int, add_quantity: float,
-                                    price: float, sell_price: float, min_price: float,
+                                    purchase_price: float, sell_price: float, min_price: float,
                                     alert_quantity=None):
-    """Kam qolgan mahsulot qayta sotib olinganda: miqdorni qo'shadi va narxlarni yangilaydi."""
+    """Kam qolgan mahsulot qayta sotib olinganda: miqdorni qo'shadi.
+
+    Tannarx (price) o'rtacha tannarx (weighted average) usulida hisoblanadi -
+    eskisi butunlay yangisiga almashtirilmaydi, aks holda foyda hisobi buziladi.
+    Masalan: skladda 5 dona 20 000 so'mdan bor edi, endi 10 dona 50 000 so'mdan
+    qo'shilsa - yangi tannarx (5*20000 + 10*50000) / 15 = 40 000 so'm bo'ladi.
+    Savdo narxi va eng past narx esa xodim kiritgan yangi qiymatga to'g'ridan-to'g'ri o'zgaradi.
+    """
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT quantity FROM products WHERE id = ?", (product_id,))
+        cursor = await db.execute("SELECT quantity, price FROM products WHERE id = ?", (product_id,))
         row = await cursor.fetchone()
         if not row:
             return None
-        new_quantity = row["quantity"] + add_quantity
+
+        old_quantity = row["quantity"]
+        old_price = row["price"] or 0
+        new_quantity = old_quantity + add_quantity
+
+        if new_quantity > 0:
+            weighted_price = (
+                (old_quantity * old_price) + (add_quantity * purchase_price)
+            ) / new_quantity
+        else:
+            weighted_price = purchase_price
+
         await db.execute(
             "UPDATE products SET quantity = ?, price = ?, sell_price = ?, min_price = ?, "
             "alert_quantity = ? WHERE id = ?",
-            (new_quantity, price, sell_price, min_price, alert_quantity, product_id),
+            (new_quantity, weighted_price, sell_price, min_price, alert_quantity, product_id),
         )
         await db.commit()
-        return new_quantity
+        return new_quantity, weighted_price
 
 
 async def get_all_products():
