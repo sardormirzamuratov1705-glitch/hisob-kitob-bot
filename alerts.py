@@ -46,29 +46,65 @@ async def notify_stock_change(bot, product: dict, old_quantity: float, new_quant
                 logging.warning(f"Ogohlantirish yuborib bo'lmadi ({chat_id}): {e}")
 
 
+def build_customer_reminder_text(debt: dict) -> str:
+    """Mijozga to'g'ridan-to'g'ri yuboriladigan qarz eslatmasi matni."""
+    days_ago = debt.get("days_ago")
+    days_line = f"Bu qarz <b>{days_ago} kundan</b> beri to'lanmagan.\n" if days_ago is not None else ""
+    description = f" ({debt['description']})" if debt.get("description") else ""
+    return (
+        f"🔔 Assalomu alaykum, <b>{debt['customer_name']}</b>!\n\n"
+        f"Sizda <b>{debt['amount']:.0f} so'm</b> miqdorida qarzdorlik mavjud{description}.\n"
+        f"{days_line}"
+        f"Iltimos, imkon qadar tezroq to'lovni amalga oshirishingizni so'raymiz.\n"
+        f"Savolingiz bo'lsa, biz bilan bog'laning. Rahmat! 🙏"
+    )
+
+
+async def send_customer_debt_reminder(bot, debt: dict) -> bool:
+    """Mijozga bevosita eslatma yuboradi (agar u start-link orqali bog'langan bo'lsa).
+    Muvaffaqiyatli yuborilsa True, aks holda False qaytaradi."""
+    if not debt.get("customer_chat_id"):
+        return False
+    try:
+        await bot.send_message(
+            debt["customer_chat_id"],
+            build_customer_reminder_text(debt),
+            parse_mode="HTML",
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"Mijozga eslatma yuborib bo'lmadi (debt {debt['id']}): {e}")
+        return False
+
+
 async def send_debt_reminders(bot, days_threshold: int = 3):
     """Har kuni bir marta chaqiriladi (main.py'dagi fon vazifadan).
 
-    Bot mijozning shaxsiy Telegram chat_id'sini bilmaydi (faqat ism/telefon
-    saqlanadi), shuning uchun eslatma to'g'ridan-to'g'ri mijozga emas,
-    ADMIN_IDS'dagi do'kon xodimlariga yuboriladi - ular ro'yxatni ko'rib,
-    mijozga qo'ng'iroq qilishi yoki xabar yozishi mumkin.
+    Har bir muddati o'tgan qarz uchun:
+    - agar mijoz start-link orqali botga ulangan bo'lsa - unga to'g'ridan-to'g'ri eslatma yuboriladi;
+    - shu bilan birga ADMIN_IDS'dagi do'kon xodimlariga ham umumiy ro'yxat yuboriladi
+      (mijoz hali ulanmagan bo'lsa ham, ular ko'rib qo'ng'iroq qilishi mumkin).
     """
-    if not config.ADMIN_IDS:
-        return
-
     overdue = await db.get_overdue_debts(days=days_threshold)
     if not overdue:
+        return
+
+    for d in overdue:
+        await send_customer_debt_reminder(bot, d)
+
+    if not config.ADMIN_IDS:
         return
 
     lines = [
         f"• {d['customer_name']} ({d['phone']}) — {d['amount']:.0f} so'm, "
         f"{d['days_ago']} kundan beri qarzda"
+        + (" 🔗" if d.get("customer_chat_id") else "")
         for d in overdue
     ]
     text = (
         f"🔔 <b>Qarzdorlar eslatmasi</b>\n"
-        f"{days_threshold}+ kundan beri to'lanmagan qarzlar:\n\n" + "\n".join(lines)
+        f"{days_threshold}+ kundan beri to'lanmagan qarzlar:\n\n" + "\n".join(lines) +
+        "\n\n🔗 belgisi — mijozga eslatma avtomatik yuborildi."
     )
 
     for chat_id in config.ADMIN_IDS:
