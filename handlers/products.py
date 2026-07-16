@@ -28,6 +28,13 @@ class AddRestockItem(StatesGroup):
     note = State()
 
 
+class RestockPurchase(StatesGroup):
+    quantity = State()
+    price = State()
+    sell_price = State()
+    min_price = State()
+
+
 # ---------- MAHSULOT QO'SHISH ----------
 
 @router.message(F.text == "➕ Mahsulot qo'shish")
@@ -336,7 +343,7 @@ async def restock_list(message: Message, state: FSMContext):
         await message.answer(
             "✅ Hozircha olinishi kerak bo'lgan tovar yo'q.\n"
             "Kerak bo'lsa, pastdagi tugma orqali qo'lda qo'shishingiz mumkin.",
-            reply_markup=kb.restock_kb(manual_items),
+            reply_markup=kb.restock_kb(low_stock, manual_items),
         )
         return
 
@@ -355,7 +362,7 @@ async def restock_list(message: Message, state: FSMContext):
             note = f" — {item['note']}" if item.get("note") else ""
             text += f"• {item['name']}{note}\n"
 
-    await message.answer(text, reply_markup=kb.restock_kb(manual_items), parse_mode="HTML")
+    await message.answer(text, reply_markup=kb.restock_kb(low_stock, manual_items), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "restock_add")
@@ -386,12 +393,159 @@ async def restock_add_note(message: Message, state: FSMContext):
     )
 
 
+@router.callback_query(F.data.startswith("lowstock_notbought_"))
+async def lowstock_not_bought_cb(callback: CallbackQuery):
+    await callback.answer("Belgilandi, tovar ro'yxatda qolaveradi.")
+
+
+@router.callback_query(F.data.startswith("lowstock_bought_"))
+async def lowstock_bought_cb(callback: CallbackQuery, state: FSMContext):
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+
+    await state.set_state(RestockPurchase.quantity)
+    await state.update_data(restock_type="product", product_id=product_id, name=product["name"])
+    await callback.message.answer(
+        f"<b>{product['name']}</b> — necha dona sotib olindi?", parse_mode="HTML"
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("restock_done_"))
-async def restock_done_cb(callback: CallbackQuery):
+async def restock_done_cb(callback: CallbackQuery, state: FSMContext):
     item_id = int(callback.data.split("_")[-1])
-    await db.delete_manual_restock_item(item_id)
-    await callback.answer("Olindi deb belgilandi ✅")
+    item = await db.get_manual_restock_item(item_id)
+    if not item:
+        await callback.answer("Topilmadi", show_alert=True)
+        return
+
+    await state.set_state(RestockPurchase.quantity)
+    await state.update_data(restock_type="manual", manual_id=item_id, name=item["name"])
+    await callback.message.answer(
+        f"<b>{item['name']}</b> — necha dona sotib olindi?", parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ---------- SOTIB OLINGAN TOVARNI SKLADGA AVTOMATIK QO'SHISH ----------
+
+@router.message(RestockPurchase.quantity)
+async def restock_purchase_quantity(message: Message, state: FSMContext):
     try:
-        await callback.message.delete()
-    except Exception:
-        pass
+        quantity = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 10")
+        return
+    if quantity <= 0:
+        await message.answer("Miqdor 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
+        return
+
+    await state.update_data(quantity=quantity)
+    await state.set_state(RestockPurchase.price)
+    await message.answer("Qanchaga olindi (tannarxi, faqat raqam)?")
+
+
+@router.message(RestockPurchase.price)
+async def restock_purchase_price(message: Message, state: FSMContext):
+    try:
+        price = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 25000")
+        return
+
+    await state.update_data(price=price)
+    await state.set_state(RestockPurchase.sell_price)
+    await message.answer("Qanchaga sotasiz (savdo narxi)?")
+
+
+@router.message(RestockPurchase.sell_price)
+async def restock_purchase_sell_price(message: Message, state: FSMContext):
+    try:
+        sell_price = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 30000")
+        return
+
+    data = await state.get_data()
+    if sell_price < data["price"]:
+        await message.answer(
+            f"❌ Savdo narxi tannarxdan ({data['price']:.0f} so'm) past bo'lishi mumkin emas. "
+            f"Qaytadan kiriting:"
+        )
+        return
+
+    await state.update_data(sell_price=sell_price)
+    await state.set_state(RestockPurchase.min_price)
+    await message.answer("Qanchagacha tushirib berish mumkin (eng past narx)?")
+
+
+@router.message(RestockPurchase.min_price)
+async def restock_purchase_min_price(message: Message, state: FSMContext):
+    try:
+        min_price = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 27000")
+        return
+
+    data = await state.get_data()
+    if min_price > data["sell_price"]:
+        await message.answer(
+            f"Eng past narx savdo narxidan ({data['sell_price']:.0f} so'm) katta bo'lmasligi kerak. "
+            f"Qaytadan kiriting:"
+        )
+        return
+    if min_price < data["price"]:
+        await message.answer(
+            f"❌ Eng past narx tannarxdan ({data['price']:.0f} so'm) past bo'lishi mumkin emas. "
+            f"Qaytadan kiriting:"
+        )
+        return
+
+    await state.update_data(min_price=min_price)
+    await _finalize_restock_purchase(message, state)
+
+
+async def _finalize_restock_purchase(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    if data["restock_type"] == "product":
+        new_quantity = await db.update_product_purchase(
+            data["product_id"], data["quantity"], data["price"], data["sell_price"], data["min_price"]
+        )
+        product = await db.get_product(data["product_id"])
+        if product and product.get("channel_message_id") and config.CHANNEL_ID:
+            try:
+                await message.bot.edit_message_caption(
+                    chat_id=config.CHANNEL_ID,
+                    message_id=product["channel_message_id"],
+                    caption=await _channel_caption(product),
+                )
+            except Exception as e:
+                logging.warning(f"Kanaldagi postni yangilab bo'lmadi: {e}")
+
+        await state.clear()
+        await message.answer(
+            f"✅ <b>{data['name']}</b> skladga qo'shildi.\n"
+            f"Qo'shildi: {data['quantity']:.0f} dona\nYangi umumiy miqdor: {new_quantity:.0f} dona\n"
+            f"Tannarx: {data['price']:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
+            f"Eng past narx: {data['min_price']:.0f} so'm",
+            reply_markup=kb.sklad_menu(),
+            parse_mode="HTML"
+        )
+    else:
+        await db.add_product(
+            data["name"], data["price"], data["quantity"], None,
+            sell_price=data["sell_price"], min_price=data["min_price"],
+        )
+        await db.delete_manual_restock_item(data["manual_id"])
+        await state.clear()
+        await message.answer(
+            f"✅ <b>{data['name']}</b> yangi mahsulot sifatida skladga qo'shildi.\n"
+            f"Miqdori: {data['quantity']:.0f} dona\nTannarx: {data['price']:.0f} so'm\n"
+            f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm",
+            reply_markup=kb.sklad_menu(),
+            parse_mode="HTML"
+        )
