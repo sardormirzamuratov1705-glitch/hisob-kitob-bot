@@ -21,15 +21,22 @@ async def init_db():
                 quantity REAL NOT NULL,
                 photo_file_id TEXT,
                 channel_message_id INTEGER,
+                sell_price REAL,
+                min_price REAL,
                 created_at TEXT NOT NULL
             )
             """
         )
-        # Eski bazalarda bu ustun bo'lmasligi mumkin - xavfsiz qo'shib qo'yamiz.
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN channel_message_id INTEGER")
-        except Exception:
-            pass
+        # Eski bazalarda bu ustunlar bo'lmasligi mumkin - xavfsiz qo'shib qo'yamiz.
+        for column, col_type in [
+            ("channel_message_id", "INTEGER"),
+            ("sell_price", "REAL"),
+            ("min_price", "REAL"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
+            except Exception:
+                pass
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS transactions (
@@ -63,12 +70,13 @@ def _now() -> str:
 
 # ---------- MAHSULOTLAR (SKLAD) ----------
 
-async def add_product(name: str, price: float, quantity: float, photo_file_id, channel_message_id=None):
+async def add_product(name: str, price: float, quantity: float, photo_file_id,
+                       channel_message_id=None, sell_price=None, min_price=None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT INTO products (name, price, quantity, photo_file_id, channel_message_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, price, quantity, photo_file_id, channel_message_id, _now()),
+            "INSERT INTO products (name, price, quantity, photo_file_id, channel_message_id, "
+            "sell_price, min_price, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, price, quantity, photo_file_id, channel_message_id, sell_price, min_price, _now()),
         )
         await db.commit()
 
