@@ -47,10 +47,15 @@ async def init_db():
                 type TEXT NOT NULL,
                 amount REAL NOT NULL,
                 description TEXT,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                payment_method TEXT
             )
             """
         )
+        try:
+            await db.execute("ALTER TABLE transactions ADD COLUMN payment_method TEXT")
+        except Exception:
+            pass
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS restock_manual (
@@ -288,14 +293,31 @@ async def delete_manual_restock_item(item_id: int):
 
 # ---------- KIRIM / CHIQIM (TRANSAKSIYALAR) ----------
 
-async def add_transaction(type_: str, amount: float, description: str):
+async def add_transaction(type_: str, amount: float, description: str, payment_method: str = None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO transactions (type, amount, description, created_at) VALUES (?, ?, ?, ?)",
-            (type_, amount, description, _now()),
+            "INSERT INTO transactions (type, amount, description, created_at, payment_method) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (type_, amount, description, _now(), payment_method),
         )
         await db.commit()
         return cursor.lastrowid
+
+
+async def get_payment_method_totals(type_: str = "income"):
+    """Naqd va plastik bo'yicha jami summalarni qaytaradi (masalan savdo hisobotida)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type=? AND payment_method='naqd'",
+            (type_,),
+        )
+        naqd = (await cursor.fetchone())[0]
+        cursor = await db.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type=? AND payment_method='plastik'",
+            (type_,),
+        )
+        plastik = (await cursor.fetchone())[0]
+        return {"naqd": naqd, "plastik": plastik}
 
 
 async def get_transactions(limit: int = 1000):
