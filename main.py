@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 import config
 import database as db
 import alerts
+from access_control import OwnerOnlyMiddleware
 from handlers import start, products, sales, transactions, debts, reports
 
 
@@ -49,6 +50,13 @@ def main():
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
+
+    # MUHIM: botning barcha funksiyalari faqat ADMIN_IDS'dagi foydalanuvchilar
+    # uchun ochiq. Bu yo'q bo'lsa, botni Telegram'da topgan yoki qarz eslatma
+    # linkini bosgan HAR QANDAY odam Sklad/Kirim-Chiqim/Qarz daftar/Hisobot
+    # bo'limlariga kirib, barcha ma'lumotlarni ko'rishi mumkin edi.
+    dp.message.outer_middleware(OwnerOnlyMiddleware())
+    dp.callback_query.outer_middleware(OwnerOnlyMiddleware())
 
     dp.include_router(start.router)
     dp.include_router(products.router)
