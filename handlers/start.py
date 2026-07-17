@@ -8,12 +8,9 @@ from aiogram.fsm.context import FSMContext
 import config
 import database as db
 import keyboards as kb
+from access_control import is_admin, is_authorized
 
 router = Router()
-
-
-def _is_admin(user_id: int) -> bool:
-    return user_id in config.ADMIN_IDS
 
 
 @router.message(CommandStart(deep_link=True))
@@ -43,7 +40,8 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
                 "shu bot orqali olasiz."
             )
 
-            for admin_id in config.ADMIN_IDS:
+            recipients = set(config.ADMIN_IDS) | set(await db.get_owner_ids())
+            for admin_id in recipients:
                 try:
                     await message.bot.send_message(
                         admin_id,
@@ -56,7 +54,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             return
 
     # Noto'g'ri yoki eskirgan link bo'lsa, oddiy /start kabi davom etamiz.
-    if not _is_admin(message.from_user.id):
+    if not await is_authorized(message.from_user.id):
         await message.answer(
             "Assalomu alaykum! Bu link amal qilmaydi yoki muddati o'tgan."
         )
@@ -64,14 +62,14 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
-        reply_markup=kb.main_menu()
+        reply_markup=kb.main_menu(is_admin(message.from_user.id))
     )
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    if not _is_admin(message.from_user.id):
+    if not await is_authorized(message.from_user.id):
         await message.answer(
             "Assalomu alaykum! Bu bot faqat do'kon egasi/xodimlari uchun mo'ljallangan."
         )
@@ -79,14 +77,14 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
-        reply_markup=kb.main_menu()
+        reply_markup=kb.main_menu(is_admin(message.from_user.id))
     )
 
 
 @router.message(F.text == "⬅️ Orqaga")
 async def go_back(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=kb.main_menu())
+    await message.answer("Asosiy menyu:", reply_markup=kb.main_menu(is_admin(message.from_user.id)))
 
 
 @router.message(F.text == "📦 Sklad")
