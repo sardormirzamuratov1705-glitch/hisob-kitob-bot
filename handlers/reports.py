@@ -28,10 +28,13 @@ async def general_report(message: Message):
     total_debt = await db.get_total_debt()
     products = await db.get_all_products()
     total_stock_value = sum(p["price"] * p["quantity"] for p in products)
+    payment_totals = await db.get_payment_method_totals("income")
 
     text = (
         "📊 <b>Umumiy hisobot</b>\n\n"
         f"💰 Kirim: {income:.0f} so'm\n"
+        f"   💵 Naqd: {payment_totals['naqd']:.0f} so'm\n"
+        f"   💳 Plastik: {payment_totals['plastik']:.0f} so'm\n"
         f"💸 Chiqim: {expense:.0f} so'm\n"
         f"📈 Balans: <b>{balance:.0f} so'm</b>\n\n"
         f"📦 Skladdagi mahsulotlar soni: {len(products)} xil\n"
@@ -67,13 +70,15 @@ async def export_excel(message: Message):
 
     # ---- Kirim/Chiqim ----
     ws2 = wb.create_sheet("Kirim-Chiqim")
-    ws2.append(["ID", "Turi", "Summasi", "Izoh", "Sana"])
+    ws2.append(["ID", "Turi", "Summasi", "To'lov turi", "Izoh", "Sana"])
     for cell in ws2[1]:
         cell.font = header_font
         cell.fill = header_fill
     for t in transactions:
         label = "Kirim" if t["type"] == "income" else "Chiqim"
-        ws2.append([t["id"], label, t["amount"], t["description"], t["created_at"][:16]])
+        method_map = {"naqd": "Naqd", "plastik": "Plastik"}
+        method_label = method_map.get(t.get("payment_method"), "")
+        ws2.append([t["id"], label, t["amount"], method_label, t["description"], t["created_at"][:16]])
 
     # ---- Qarz daftar ----
     ws3 = wb.create_sheet("Qarz daftar")
