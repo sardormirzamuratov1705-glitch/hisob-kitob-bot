@@ -73,7 +73,8 @@ async def init_db():
                 created_at TEXT NOT NULL,
                 due_date TEXT,
                 customer_chat_id INTEGER,
-                customer_username TEXT
+                customer_username TEXT,
+                taken_date TEXT
             )
             """
         )
@@ -82,6 +83,7 @@ async def init_db():
             ("due_date", "TEXT"),
             ("customer_chat_id", "INTEGER"),
             ("customer_username", "TEXT"),
+            ("taken_date", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE debts ADD COLUMN {column} {col_type}")
@@ -362,12 +364,14 @@ async def get_cross_sell_suggestions(product_ids, exclude_ids=None, limit: int =
 # ---------- QARZDORLAR ----------
 
 async def add_debt(customer_name: str, phone: str, amount: float, description: str,
-                    due_date: str = None):
+                    due_date: str = None, taken_date: str = None):
+    if not taken_date:
+        taken_date = _now()[:10]  # ustoz/sotuvchi belgilamasa - bugungi sana
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO debts (customer_name, phone, amount, description, is_paid, created_at, due_date) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?)",
-            (customer_name, phone, amount, description, _now(), due_date),
+            "INSERT INTO debts (customer_name, phone, amount, description, is_paid, created_at, due_date, taken_date) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+            (customer_name, phone, amount, description, _now(), due_date, taken_date),
         )
         await db.commit()
         return cursor.lastrowid
