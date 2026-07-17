@@ -16,6 +16,7 @@ router = Router()
 
 class SaleFlow(StatesGroup):
     choosing = State()
+    searching = State()
     quantity = State()
     price = State()
     payment_method = State()
@@ -41,6 +42,15 @@ async def _require_shop_cb(callback: CallbackQuery):
     return shop_id
 
 
+async def _sellable_products(shop_id, query: str = ""):
+    """Skladda bor mahsulotlar ro'yxati, kerak bo'lsa nomi bo'yicha filtrlangan."""
+    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
+    if query:
+        q = query.strip().lower()
+        products = [p for p in products if q in p["name"].lower()]
+    return products
+
+
 # ---------- MAHSULOT TANLASH (CHECKBOX) ----------
 
 @router.message(F.text == "🛒 Savdo")
@@ -49,13 +59,13 @@ async def sale_start(message: Message, state: FSMContext):
     if shop_id is None:
         return
 
-    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
+    products = await _sellable_products(shop_id)
     if not products:
         await message.answer("Skladda savdo qilish uchun mahsulot yo'q.")
         return
 
     await state.set_state(SaleFlow.choosing)
-    await state.update_data(selected=[], page=0)
+    await state.update_data(selected=[], page=0, search_query="")
     await message.answer(
         "Sotiladigan mahsulot(lar)ni belgilang:",
         reply_markup=kb.sale_products_kb(products, [], page=0)
@@ -72,6 +82,7 @@ async def sale_toggle(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected = data.get("selected", [])
     page = data.get("page", 0)
+    query = data.get("search_query", "")
 
     if product_id in selected:
         selected.remove(product_id)
@@ -79,9 +90,11 @@ async def sale_toggle(callback: CallbackQuery, state: FSMContext):
         selected.append(product_id)
     await state.update_data(selected=selected)
 
-    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
+    products = await _sellable_products(shop_id, query)
     try:
-        await callback.message.edit_reply_markup(reply_markup=kb.sale_products_kb(products, selected, page=page))
+        await callback.message.edit_reply_markup(
+            reply_markup=kb.sale_products_kb(products, selected, page=page, search_active=bool(query))
+        )
     except Exception:
         pass
     await callback.answer()
@@ -104,14 +117,17 @@ async def _sale_change_page(callback: CallbackQuery, state: FSMContext, delta: i
 
     data = await state.get_data()
     selected = data.get("selected", [])
+    query = data.get("search_query", "")
     page = data.get("page", 0) + delta
     if page < 0:
         page = 0
     await state.update_data(page=page)
 
-    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
+    products = await _sellable_products(shop_id, query)
     try:
-        await callback.message.edit_reply_markup(reply_markup=kb.sale_products_kb(products, selected, page=page))
+        await callback.message.edit_reply_markup(
+            reply_markup=kb.sale_products_kb(products, selected, page=page, search_active=bool(query))
+        )
     except Exception:
         pass
     await callback.answer()
@@ -119,6 +135,75 @@ async def _sale_change_page(callback: CallbackQuery, state: FSMContext, delta: i
 
 @router.callback_query(SaleFlow.choosing, F.data == "sale_noop")
 async def sale_noop(callback: CallbackQuery):
+    await callback.answer()
+
+
+@router.callback_query(SaleFlow.choosing, F.data == "sale_search")
+async def sale_search_start(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
+    await state.set_state(SaleFlow.searching)
+    await callback.answer()
+    await callback.message.answer("Mahsulot nomini (yoki nomining bir qismini) yozing:")
+
+
+@router.message(SaleFlow.searching)
+async def sale_search_input(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
+    if not message.text:
+        await message.answer("Iltimos, mahsulot nomini matn ko'rinishida yozing:")
+        return
+
+    query = message.text.strip()
+    data = await state.get_data()
+    selected = data.get("selected", [])
+
+    products = await _sellable_products(shop_id, query)
+    await state.update_data(search_query=query, page=0)
+    await state.set_state(SaleFlow.choosing)
+
+    if not products:
+        await message.answer(
+            f"\"{query}\" bo'yicha mahsulot topilmadi. Boshqa nom bilan qidiring yoki qidiruvni bekor qiling:",
+            reply_markup=kb.sale_products_kb([], selected, page=0, search_active=True)
+        )
+        return
+
+    await message.answer(
+        f"🔎 \"{query}\" bo'yicha natijalar:",
+        reply_markup=kb.sale_products_kb(products, selected, page=0, search_active=True)
+    )
+
+
+@router.callback_query(SaleFlow.choosing, F.data == "sale_search_clear")
+async def sale_search_clear(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
+    data = await state.get_data()
+    selected = data.get("selected", [])
+    await state.update_data(search_query="", page=0)
+
+    products = await _sellable_products(shop_id)
+    try:
+        await callback.message.edit_text(
+            "Sotiladigan mahsulot(lar)ni belgilang:",
+            reply_markup=kb.sale_products_kb(products, selected, page=0)
+        )
+    except Exception:
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=kb.sale_products_kb(products, selected, page=0)
+            )
+        except Exception:
+            pass
     await callback.answer()
 
 
