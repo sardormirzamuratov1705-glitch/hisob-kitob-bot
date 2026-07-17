@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import datetime, timedelta
 
 import aiosqlite
@@ -155,6 +156,22 @@ async def init_db():
                 username TEXT,
                 added_by INTEGER,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        # Bosh admin tomonidan yaratiladigan bir martalik taklif linklari -
+        # har bir link faqat BITTA odam tomonidan ishlatilishi mumkin
+        # (link.used_by bo'sh bo'lsa - hali ishlatilmagan, ishlatilgach
+        # boshqa hech kim shu link orqali qo'shila olmaydi).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS owner_invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                created_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                used_by INTEGER,
+                used_at TEXT
             )
             """
         )
@@ -498,6 +515,43 @@ async def is_owner(telegram_id: int) -> bool:
         cursor = await db.execute("SELECT 1 FROM owners WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
         return row is not None
+
+
+# ---------- BIR MARTALIK TAKLIF LINKLARI ----------
+
+async def create_owner_invite(created_by: int) -> str:
+    """Yangi bir martalik taklif tokeni yaratadi va qaytaradi.
+    Token faqat bitta marta, bitta odam tomonidan ishlatilishi mumkin."""
+    token = secrets.token_urlsafe(12)  # URL/deep-link uchun xavfsiz belgilar
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO owner_invites (token, created_by, created_at) VALUES (?, ?, ?)",
+            (token, created_by, _now()),
+        )
+        await db.commit()
+    return token
+
+
+async def get_owner_invite(token: str):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM owner_invites WHERE token = ?", (token,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def use_owner_invite(token: str, used_by: int) -> bool:
+    """Tokenni 'ishlatilgan' deb belgilaydi - lekin faqat u hali ishlatilmagan
+    bo'lsa (used_by IS NULL). Shu tekshiruv orqali 2 kishi bir vaqtda bir xil
+    linkni bosib qolsa ham, faqat biri muvaffaqiyatli bo'ladi (race-safe)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE owner_invites SET used_by = ?, used_at = ? "
+            "WHERE token = ? AND used_by IS NULL",
+            (used_by, _now(), token),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 # ---------- QARZDORLAR ----------
