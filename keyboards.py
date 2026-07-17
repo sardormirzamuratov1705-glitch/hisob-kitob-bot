@@ -72,7 +72,7 @@ def sklad_menu() -> ReplyKeyboardMarkup:
     builder.button(text="➕ Mahsulot qo'shish")
     builder.button(text="📋 Mahsulotlar ro'yxati")
     builder.button(text="🔍 Qidirish")
-    builder.button(text="🗂 Kategoriyalar")
+    builder.button(text="🗂 Bo'limlar")
     builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
     builder.button(text="🐌 Sekin sotiladigan tovarlar")
     builder.button(text="⬅️ Orqaga")
@@ -149,34 +149,40 @@ def payment_method_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def product_action_kb(product_id: int, allow_manage: bool = True):
+def product_action_kb(product_id: int, allow_manage: bool = True, category_id=None):
     """allow_manage=False bo'lsa (sotuvchi) - hech qanday tugma qaytarilmaydi
     (None), chunki miqdor FAQAT savdo orqali kamayishi kerak - qo'lda
-    o'zgartirish yoki o'chirish faqat do'kon egasiga tegishli."""
+    o'zgartirish yoki o'chirish faqat do'kon egasiga tegishli.
+
+    category_id - mahsulotning hozirgi bo'limi. Agar mahsulot biror bo'limga
+    tegishli bo'lsa, "Bo'limdan chiqarish" tugmasi ham ko'rsatiladi."""
     if not allow_manage:
         return None
     builder = InlineKeyboardBuilder()
+    builder.button(text="🔀 Bo'limni o'zgartirish", callback_data=f"prod_move_{product_id}")
+    if category_id is not None:
+        builder.button(text="🚫 Bo'limdan chiqarish", callback_data=f"prod_unassign_{product_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"del_product_{product_id}")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def category_pick_kb(categories, include_none: bool = True) -> InlineKeyboardMarkup:
-    """Mahsulot qo'shishda kategoriya tanlash uchun - mavjud kategoriyalar
-    tugma sifatida chiqadi, shuningdek yangi kategoriya yaratish va
-    kategoriyasiz qoldirish imkoniyati beriladi."""
+    """Mahsulot qo'shishda bo'lim tanlash uchun - mavjud bo'limlar
+    tugma sifatida chiqadi, shuningdek yangi bo'lim yaratish va
+    bo'limsiz qoldirish imkoniyati beriladi."""
     builder = InlineKeyboardBuilder()
     for c in categories:
         builder.button(text=f"📁 {c['name']}", callback_data=f"cat_pick_{c['id']}")
-    builder.button(text="➕ Yangi kategoriya", callback_data="cat_pick_new")
+    builder.button(text="➕ Yangi bo'lim", callback_data="cat_pick_new")
     if include_none:
-        builder.button(text="🚫 Kategoriyasiz", callback_data="cat_pick_none")
+        builder.button(text="🚫 Bo'limsiz", callback_data="cat_pick_none")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def category_browse_kb(categories, uncategorized_count: int = 0) -> InlineKeyboardMarkup:
-    """Mahsulotlar ro'yxatini kategoriya bo'yicha ko'rish uchun menyu."""
+    """Mahsulotlar ro'yxatini bo'lim bo'yicha ko'rish uchun menyu."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📋 Barchasi", callback_data="cat_view_all")
     for c in categories:
@@ -185,22 +191,36 @@ def category_browse_kb(categories, uncategorized_count: int = 0) -> InlineKeyboa
             callback_data=f"cat_view_{c['id']}",
         )
     if uncategorized_count:
-        builder.button(text=f"🚫 Kategoriyasiz ({uncategorized_count})", callback_data="cat_view_none")
+        builder.button(text=f"🚫 Bo'limsiz ({uncategorized_count})", callback_data="cat_view_none")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def category_manage_kb(categories) -> InlineKeyboardMarkup:
-    """Kategoriyalarni boshqarish (o'chirish) va yangisini qo'shish uchun menyu."""
+    """Bo'limlarni boshqarish (o'chirish) va yangisini qo'shish uchun menyu."""
     builder = InlineKeyboardBuilder()
     row_sizes = []
     for c in categories:
         builder.button(text=f"📁 {c['name']} ({c['product_count']:.0f})", callback_data=f"cat_noop_{c['id']}")
         builder.button(text="🗑", callback_data=f"cat_delete_{c['id']}")
         row_sizes.append(2)
-    builder.button(text="➕ Kategoriya qo'shish", callback_data="cat_manage_new")
+    builder.button(text="➕ Bo'lim qo'shish", callback_data="cat_manage_new")
     row_sizes.append(1)
     builder.adjust(*row_sizes)
+    return builder.as_markup()
+
+
+def category_move_kb(categories, product_id: int, current_category_id=None) -> InlineKeyboardMarkup:
+    """Mahsulotni boshqa bo'limga ko'chirish uchun bo'lim tanlash menyusi.
+    Mahsulot hozir turgan bo'lim ro'yxatda ko'rsatilmaydi."""
+    builder = InlineKeyboardBuilder()
+    for c in categories:
+        if c["id"] == current_category_id:
+            continue
+        builder.button(text=f"📁 {c['name']}", callback_data=f"prod_move_to_{product_id}_{c['id']}")
+    if current_category_id is not None:
+        builder.button(text="🚫 Bo'limdan chiqarish", callback_data=f"prod_unassign_{product_id}")
+    builder.adjust(1)
     return builder.as_markup()
 
 
