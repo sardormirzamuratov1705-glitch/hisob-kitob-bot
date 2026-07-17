@@ -175,6 +175,47 @@ async def init_db():
             )
             """
         )
+        # Sotuvchilar - do'kon egasi tomonidan o'z do'koniga qo'shiladigan xodimlar.
+        # Har bir sotuvchi FAQAT bitta do'konga (shop_id) tegishli - do'kon egasi
+        # boshqa do'konning sotuvchisini ko'rmaydi/boshqara olmaydi. Sotuvchining
+        # o'z do'koni yo'q, ruxsatlari cheklangan (narx belgilash, qo'lda miqdor
+        # o'zgartirish, kirim/chiqim, hisobot - unga yopiq, access_control.py'ga qarang).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sellers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL UNIQUE,
+                shop_id INTEGER NOT NULL,
+                full_name TEXT,
+                username TEXT,
+                added_by INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        # Sotuvchi uchun bir martalik taklif linklari - owner_invites'ga o'xshaydi,
+        # lekin shop_id bilan bog'langan (faqat shu do'konga sotuvchi qo'shadi).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS seller_invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                shop_id INTEGER NOT NULL,
+                created_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                used_by INTEGER,
+                used_at TEXT
+            )
+            """
+        )
+        # Har bir yozuvni KIM bajarganini bilish uchun (do'kon egasimi, qaysi
+        # sotuvchimi) - bir nechta sotuvchi bo'lsa, egasi keyin kim qancha savdo
+        # qilgani/kamomad bormi tekshira oladi. Eski bazalarda yo'q - xavfsiz qo'shamiz.
+        for table in ("transactions", "sale_items", "debts", "debt_payments"):
+            try:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN performed_by INTEGER")
+            except Exception:
+                pass
         await db.commit()
 
 
@@ -367,12 +408,12 @@ async def delete_manual_restock_item(shop_id: int, item_id: int):
 # ---------- KIRIM / CHIQIM (TRANSAKSIYALAR) ----------
 
 async def add_transaction(shop_id: int, type_: str, amount: float, description: str,
-                           payment_method: str = None):
+                           payment_method: str = None, performed_by: int = None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO transactions (shop_id, type, amount, description, created_at, payment_method) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (shop_id, type_, amount, description, _now(), payment_method),
+            "INSERT INTO transactions (shop_id, type, amount, description, created_at, payment_method, "
+            "performed_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (shop_id, type_, amount, description, _now(), payment_method, performed_by),
         )
         await db.commit()
         return cursor.lastrowid
@@ -426,12 +467,13 @@ async def get_totals(shop_id: int):
 
 # ---------- SAVDO TARKIBI / BOG'LAB SOTISH (CROSS-SELL) ----------
 
-async def add_sale_item(shop_id: int, sale_id: int, product_id: int, quantity: float, price: float):
+async def add_sale_item(shop_id: int, sale_id: int, product_id: int, quantity: float, price: float,
+                         performed_by: int = None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT INTO sale_items (shop_id, sale_id, product_id, quantity, price, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (shop_id, sale_id, product_id, quantity, price, _now()),
+            "INSERT INTO sale_items (shop_id, sale_id, product_id, quantity, price, created_at, "
+            "performed_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (shop_id, sale_id, product_id, quantity, price, _now(), performed_by),
         )
         await db.commit()
 
@@ -557,14 +599,14 @@ async def use_owner_invite(token: str, used_by: int) -> bool:
 # ---------- QARZDORLAR ----------
 
 async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, description: str,
-                    due_date: str = None, taken_date: str = None):
+                    due_date: str = None, taken_date: str = None, performed_by: int = None):
     if not taken_date:
         taken_date = _now()[:10]  # ustoz/sotuvchi belgilamasa - bugungi sana
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             "INSERT INTO debts (shop_id, customer_name, phone, amount, description, is_paid, "
-            "created_at, due_date, taken_date) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
-            (shop_id, customer_name, phone, amount, description, _now(), due_date, taken_date),
+            "created_at, due_date, taken_date, performed_by) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (shop_id, customer_name, phone, amount, description, _now(), due_date, taken_date, performed_by),
         )
         await db.commit()
         return cursor.lastrowid
@@ -674,7 +716,7 @@ async def mark_debt_paid(shop_id: int, debt_id: int):
         await db.commit()
 
 
-async def add_debt_payment(shop_id: int, debt_id: int, amount: float):
+async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_by: int = None):
     """Qarzga to'lov qo'shadi - qisman yoki to'liq.
     Natija: {'status': 'full'|'partial', 'paid_amount': ..., 'remaining': ...} yoki None (qarz topilmasa)."""
     debt = await get_debt(shop_id, debt_id)
@@ -687,8 +729,8 @@ async def add_debt_payment(shop_id: int, debt_id: int, amount: float):
 
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT INTO debt_payments (debt_id, amount, paid_at) VALUES (?, ?, ?)",
-            (debt_id, amount, _now()),
+            "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by) VALUES (?, ?, ?, ?)",
+            (debt_id, amount, _now(), performed_by),
         )
         if new_paid >= total:
             await db.execute(
@@ -721,3 +763,99 @@ async def get_debt_payments(shop_id: int, debt_id: int):
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+# ---------- SOTUVCHILAR ----------
+# Har bir sotuvchi bitta do'konga (shop_id = do'kon egasining telegram_id'si)
+# tegishli. Faqat shu do'kon egasi o'z sotuvchilarini qo'sha/o'chira oladi
+# (handlers/sellers.py buni har doim shop_id bilan tekshiradi).
+
+async def add_seller(telegram_id: int, shop_id: int, full_name: str = None,
+                      username: str = None, added_by: int = None):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO sellers (telegram_id, shop_id, full_name, username, added_by, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (telegram_id, shop_id, full_name, username, added_by, _now()),
+        )
+        await db.commit()
+
+
+async def remove_seller(shop_id: int, telegram_id: int) -> bool:
+    """shop_id bilan birga tekshiradi - do'kon egasi faqat O'Z sotuvchisini
+    o'chira oladi, boshqa do'konning sotuvchisini emas."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM sellers WHERE telegram_id = ? AND shop_id = ?", (telegram_id, shop_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_sellers(shop_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM sellers WHERE shop_id = ? ORDER BY id DESC", (shop_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def is_seller(telegram_id: int) -> bool:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("SELECT 1 FROM sellers WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        return row is not None
+
+
+async def get_seller_shop_id(telegram_id: int):
+    """Sotuvchi qaysi do'konga tegishli ekanini qaytaradi (topilmasa None)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT shop_id FROM sellers WHERE telegram_id = ?", (telegram_id,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+async def get_seller(telegram_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM sellers WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+# ---------- SOTUVCHI UCHUN BIR MARTALIK TAKLIF LINKLARI ----------
+
+async def create_seller_invite(shop_id: int, created_by: int) -> str:
+    """Yangi bir martalik sotuvchi taklif tokenini yaratadi (faqat shu do'konga
+    tegishli). Token faqat bitta marta, bitta odam tomonidan ishlatilishi mumkin."""
+    token = secrets.token_urlsafe(12)
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO seller_invites (token, shop_id, created_by, created_at) VALUES (?, ?, ?, ?)",
+            (token, shop_id, created_by, _now()),
+        )
+        await db.commit()
+    return token
+
+
+async def get_seller_invite(token: str):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM seller_invites WHERE token = ?", (token,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def use_seller_invite(token: str, used_by: int) -> bool:
+    """Race-safe: token faqat used_by hali NULL bo'lsa ishlaydi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE seller_invites SET used_by = ?, used_at = ? WHERE token = ? AND used_by IS NULL",
+            (used_by, _now(), token),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
