@@ -4,16 +4,18 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 def main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.button(text="📦 Sklad")
-    builder.button(text="💰 Kirim/Chiqim")
-    builder.button(text="📒 Qarz daftar")
-    builder.button(text="📊 Hisobot")
     if is_admin:
-        # Faqat bosh admin (config.ADMIN_IDS) do'kon egalarini qo'sha/o'chira oladi -
-        # shuning uchun bu tugma do'kon egalariga umuman ko'rsatilmaydi.
+        # Bosh adminning o'z do'koni yo'q (Sklad/Savdo/Qarz/Hisobot) - uning
+        # yagona vazifasi do'kon egalarini boshqarish va butun tizim zaxira
+        # nusxasini olish/tiklash.
         builder.button(text="👥 Foydalanuvchilar")
-        builder.adjust(2, 2, 1)
+        builder.button(text="🗄 Zaxira nusxa")
+        builder.adjust(1, 1)
     else:
+        builder.button(text="📦 Sklad")
+        builder.button(text="💰 Kirim/Chiqim")
+        builder.button(text="📒 Qarz daftar")
+        builder.button(text="📊 Hisobot")
         builder.adjust(2, 2)
     return builder.as_markup(resize_keyboard=True)
 
@@ -68,10 +70,19 @@ def hisobot_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="📊 Umumiy hisobot")
     builder.button(text="📥 Excel yuklab olish")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
+
+
+def admin_backup_menu() -> ReplyKeyboardMarkup:
+    """Faqat bosh adminga ko'rinadi - butun baza (BARCHA do'konlar) zaxira
+    nusxasini olish/tiklash uchun."""
+    builder = ReplyKeyboardBuilder()
     builder.button(text="🗄 DB faylni yuklab olish")
     builder.button(text="📤 DB faylni tiklash")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
