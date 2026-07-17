@@ -142,7 +142,8 @@ def payment_method_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="💵 Naqd", callback_data="pay_method_naqd")
     builder.button(text="💳 Plastik", callback_data="pay_method_plastik")
-    builder.adjust(2)
+    builder.button(text="🔀 Aralash (naqd + plastik)", callback_data="pay_method_aralash")
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 
