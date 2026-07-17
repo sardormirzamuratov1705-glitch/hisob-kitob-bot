@@ -222,7 +222,7 @@ async def init_db():
         # emas, balki tanish nom bilan bir-biridan ajratib olishi uchun.
         # Eski bazalarda yo'q - xavfsiz qo'shamiz (ALTER TABLE ADD COLUMN
         # allaqachon mavjud bo'lsa xato beradi, shuning uchun try/except).
-        for col in ("owner_name", "shop_name"):
+        for col in ("owner_name", "shop_name", "phone_number"):
             try:
                 await db.execute(f"ALTER TABLE owners ADD COLUMN {col} TEXT")
             except Exception:
@@ -564,14 +564,14 @@ async def get_owner(telegram_id: int):
         return dict(row) if row else None
 
 
-async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str):
+async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str, phone_number: str = None):
     """Do'kon egasi o'zi haqida va do'koni haqida kiritgan ma'lumotlarni saqlaydi
     (birinchi /start bosganda so'raladigan qisqa so'rovnoma - bosh admin uchun
     do'konlarni bir-biridan ajratib ko'rish maqsadida)."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "UPDATE owners SET owner_name = ?, shop_name = ? WHERE telegram_id = ?",
-            (owner_name, shop_name, telegram_id),
+            "UPDATE owners SET owner_name = ?, shop_name = ?, phone_number = ? WHERE telegram_id = ?",
+            (owner_name, shop_name, phone_number, telegram_id),
         )
         await db.commit()
 
