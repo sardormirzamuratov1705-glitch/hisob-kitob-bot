@@ -4,12 +4,73 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
 import database as db
 import keyboards as kb
 from access_control import is_admin, is_authorized, get_role
 
 router = Router()
+
+
+# ---------- DO'KON EGASI UCHUN QISQA SO'ROVNOMA ----------
+# Yangi do'kon egasi (link orqali yoki bosh admin tomonidan forward/ID bilan
+# qo'shilgan bo'lsin - farqi yo'q) birinchi marta botga /start bosganda,
+# ismi va do'koni nomi/turi so'raladi. Bu bosh adminga bir nechta do'kon
+# egasini Telegram ID/username emas, balki tanish nom bilan ajratib
+# ko'rish imkonini beradi ("📋 Do'kon egalari ro'yxati"da ko'rinadi).
+
+class OwnerOnboarding(StatesGroup):
+    waiting_owner_name = State()
+    waiting_shop_name = State()
+
+
+async def _start_owner_onboarding(message: Message, state: FSMContext):
+    await state.set_state(OwnerOnboarding.waiting_owner_name)
+    await message.answer(
+        "Yana ikkita qisqa savol qoldi - bu bosh adminga do'konlarni "
+        "bir-biridan oson ajratishga yordam beradi.\n\n"
+        "👤 Ismingizni (yoki F.I.Sh) kiriting:"
+    )
+
+
+@router.message(OwnerOnboarding.waiting_owner_name)
+async def owner_onboarding_name(message: Message, state: FSMContext):
+    if not await db.is_owner(message.from_user.id):
+        await state.clear()
+        return
+    if not message.text:
+        await message.answer("Iltimos, ismingizni matn ko'rinishida kiriting.")
+        return
+
+    await state.update_data(owner_name=message.text.strip())
+    await state.set_state(OwnerOnboarding.waiting_shop_name)
+    await message.answer(
+        "🏪 Endi do'koningiz nomi yoki turini kiriting "
+        "(masalan: \"Bahor market\" yoki \"Oziq-ovqat do'koni\"):"
+    )
+
+
+@router.message(OwnerOnboarding.waiting_shop_name)
+async def owner_onboarding_shop(message: Message, state: FSMContext):
+    if not await db.is_owner(message.from_user.id):
+        await state.clear()
+        return
+    if not message.text:
+        await message.answer("Iltimos, do'koningiz nomi yoki turini matn ko'rinishida kiriting.")
+        return
+
+    data = await state.get_data()
+    owner_name = data.get("owner_name")
+    shop_name = message.text.strip()
+    await db.set_owner_profile(message.from_user.id, owner_name, shop_name)
+    await state.clear()
+
+    await message.answer(
+        f"✅ Rahmat! Ma'lumotlar saqlandi:\n👤 {owner_name}\n🏪 {shop_name}\n\n"
+        "Quyidagi bo'limlardan birini tanlang:",
+        reply_markup=kb.main_menu("owner"),
+    )
 
 
 @router.message(CommandStart(deep_link=True))
@@ -60,9 +121,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             added_by=invite["created_by"],
         )
         await message.answer(
-            "✅ Tabriklaymiz! Siz do'kon egasi sifatida ro'yxatdan o'tdingiz.\n\n"
-            "Quyidagi bo'limlardan birini tanlang:",
-            reply_markup=kb.main_menu("owner")
+            "✅ Tabriklaymiz! Siz do'kon egasi sifatida ro'yxatdan o'tdingiz."
         )
         try:
             await message.bot.send_message(
@@ -72,6 +131,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             )
         except Exception as e:
             logging.warning(f"Adminga xabar yuborib bo'lmadi: {e}")
+        await _start_owner_onboarding(message, state)
         return
 
     if payload.startswith("seller_"):
@@ -171,6 +231,12 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             "Assalomu alaykum! Bu link amal qilmaydi yoki muddati o'tgan."
         )
         return
+    if role == "owner":
+        owner = await db.get_owner(message.from_user.id)
+        if owner and not owner.get("owner_name"):
+            await message.answer("Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.")
+            await _start_owner_onboarding(message, state)
+            return
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
@@ -187,6 +253,15 @@ async def cmd_start(message: Message, state: FSMContext):
             "Assalomu alaykum! Bu bot faqat do'kon egasi/xodimlari uchun mo'ljallangan."
         )
         return
+    if role == "owner":
+        # Do'kon egasi hali ismi/do'kon nomini kiritmagan bo'lsa (masalan,
+        # bosh admin uni forward/ID orqali qo'shgan va u birinchi marta
+        # /start bosyapti) - avval qisqa so'rovnomani to'ldirtiramiz.
+        owner = await db.get_owner(message.from_user.id)
+        if owner and not owner.get("owner_name"):
+            await message.answer("Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.")
+            await _start_owner_onboarding(message, state)
+            return
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
