@@ -9,6 +9,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
+from access_control import get_shop_id
 
 router = Router()
 
@@ -20,11 +21,34 @@ class SaleFlow(StatesGroup):
     payment_method = State()
 
 
+# Bu bo'lim tugmalari faqat do'kon egalariga ko'rsatiladi (bosh adminning o'z
+# do'koni yo'q). Shunga qaramay, har bir handler shop_id'ni qayta tekshiradi -
+# bosh admin adashib shu bo'limga kirib qolsa ham, hech qanday do'kon
+# ma'lumotiga ega bo'lmaydi.
+
+async def _require_shop(message: Message):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await message.answer("Bu bo'lim faqat do'kon egalari uchun.")
+    return shop_id
+
+
+async def _require_shop_cb(callback: CallbackQuery):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
+    return shop_id
+
+
 # ---------- MAHSULOT TANLASH (CHECKBOX) ----------
 
 @router.message(F.text == "🛒 Savdo")
 async def sale_start(message: Message, state: FSMContext):
-    products = [p for p in await db.get_all_products() if p["quantity"] > 0]
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
     if not products:
         await message.answer("Skladda savdo qilish uchun mahsulot yo'q.")
         return
@@ -39,6 +63,10 @@ async def sale_start(message: Message, state: FSMContext):
 
 @router.callback_query(SaleFlow.choosing, F.data.startswith("sale_toggle_"))
 async def sale_toggle(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     product_id = int(callback.data.split("_")[-1])
     data = await state.get_data()
     selected = data.get("selected", [])
@@ -49,7 +77,7 @@ async def sale_toggle(callback: CallbackQuery, state: FSMContext):
         selected.append(product_id)
     await state.update_data(selected=selected)
 
-    products = [p for p in await db.get_all_products() if p["quantity"] > 0]
+    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
     try:
         await callback.message.edit_reply_markup(reply_markup=kb.sale_products_kb(products, selected))
     except Exception:
@@ -70,6 +98,10 @@ async def sale_cancel(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(SaleFlow.choosing, F.data == "sale_confirm")
 async def sale_confirm(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     data = await state.get_data()
     selected = data.get("selected", [])
     if not selected:
@@ -83,7 +115,7 @@ async def sale_confirm(callback: CallbackQuery, state: FSMContext):
         pass
     await callback.answer()
 
-    suggestions = await db.get_cross_sell_suggestions(selected)
+    suggestions = await db.get_cross_sell_suggestions(shop_id, selected)
     if suggestions:
         lines = "\n".join(
             f"• {s['product']['name']} ({s['product']['quantity']:.0f} dona bor)"
@@ -100,9 +132,18 @@ async def sale_confirm(callback: CallbackQuery, state: FSMContext):
 # ---------- SON VA NARX SO'RASH (BIRMA-BIR) ----------
 
 async def _ask_quantity(message: Message, state: FSMContext):
+    # Diqqat: bu funksiyaga ba'zan callback.message (botning o'z xabari) uzatiladi,
+    # shunda message.from_user - bot bo'ladi, foydalanuvchi emas. Shaxsiy chatda
+    # chat.id har doim foydalanuvchining o'zi bilan bir xil bo'lgani uchun shop_id'ni
+    # shu orqali aniqlaymiz.
+    shop_id = await get_shop_id(message.chat.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
     data = await state.get_data()
     product_id = data["queue"][data["index"]]
-    product = await db.get_product(product_id)
+    product = await db.get_product(shop_id, product_id)
 
     if not product or product["quantity"] <= 0:
         await _advance(message, state)
@@ -119,6 +160,11 @@ async def _ask_quantity(message: Message, state: FSMContext):
 
 @router.message(SaleFlow.quantity)
 async def sale_quantity_input(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
     try:
         qty = float(message.text.replace(",", ".").replace(" ", ""))
     except ValueError:
@@ -126,7 +172,7 @@ async def sale_quantity_input(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
-    product = await db.get_product(data["current_product_id"])
+    product = await db.get_product(shop_id, data["current_product_id"])
 
     if qty <= 0:
         await message.answer("Miqdor 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
@@ -161,9 +207,18 @@ async def sale_price_input(message: Message, state: FSMContext):
 
 
 async def _record_sale_price(target: Message, price: float, state: FSMContext) -> bool:
-    """Narxni tekshiradi va saqlaydi. target - javob yozish uchun Message (matn yoki callback.message)."""
+    """Narxni tekshiradi va saqlaydi. target - javob yozish uchun Message (matn yoki callback.message).
+
+    target ba'zan callback.message (botning o'z xabari) bo'ladi - shuning uchun
+    shop_id'ni target.from_user.id emas, target.chat.id orqali aniqlaymiz
+    (shaxsiy chatda chat.id = foydalanuvchi id'si)."""
+    shop_id = await get_shop_id(target.chat.id)
     data = await state.get_data()
-    product = await db.get_product(data["current_product_id"])
+    product = await db.get_product(shop_id, data["current_product_id"])
+    if not product:
+        await target.answer("❌ Mahsulot topilmadi.")
+        await state.clear()
+        return False
 
     if product.get("min_price") and price < product["min_price"]:
         await target.answer(
@@ -192,8 +247,12 @@ async def _record_sale_price(target: Message, price: float, state: FSMContext) -
 
 @router.callback_query(SaleFlow.price, F.data == "sale_price_sell")
 async def sale_price_sell_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     data = await state.get_data()
-    product = await db.get_product(data["current_product_id"])
+    product = await db.get_product(shop_id, data["current_product_id"])
     if not product or not product.get("sell_price"):
         await callback.answer("Savdo narxi belgilanmagan", show_alert=True)
         return
@@ -207,8 +266,12 @@ async def sale_price_sell_cb(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(SaleFlow.price, F.data == "sale_price_min")
 async def sale_price_min_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     data = await state.get_data()
-    product = await db.get_product(data["current_product_id"])
+    product = await db.get_product(shop_id, data["current_product_id"])
     if not product or not product.get("min_price"):
         await callback.answer("Eng past narx belgilanmagan", show_alert=True)
         return
@@ -265,21 +328,28 @@ async def sale_payment_method_cb(callback: CallbackQuery, state: FSMContext):
 # ---------- YAKUNLASH: SKLADNI KAMAYTIRISH + KIRIM YOZISH ----------
 
 async def _finalize_sale(message: Message, state: FSMContext):
+    # message bu yerda callback.message (botning o'z xabari) - shuning uchun
+    # chat.id orqali shop_id aniqlanadi (from_user bot bo'lib qolgan bo'lardi).
+    shop_id = await get_shop_id(message.chat.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
     data = await state.get_data()
     results = data.get("results", [])
 
     total = 0.0
     lines = []
     for r in results:
-        product = await db.get_product(r["id"])
+        product = await db.get_product(shop_id, r["id"])
         if not product:
             continue
 
         new_quantity = product["quantity"] - r["qty"]
-        await db.update_product_quantity(r["id"], new_quantity)
+        await db.update_product_quantity(shop_id, r["id"], new_quantity)
         await alerts.notify_stock_change(
             message.bot, product, product["quantity"], new_quantity,
-            also_notify_chat_id=message.from_user.id,
+            also_notify_chat_id=message.chat.id,
         )
 
         # Kanaldagi postni ham yangilaymiz.
@@ -300,11 +370,11 @@ async def _finalize_sale(message: Message, state: FSMContext):
 
     description = "Savdo:\n" + "\n".join(lines)
     payment_method = data.get("payment_method")
-    sale_id = await db.add_transaction("income", total, description, payment_method=payment_method)
+    sale_id = await db.add_transaction(shop_id, "income", total, description, payment_method=payment_method)
 
     for r in results:
-        await db.add_sale_item(sale_id, r["id"], r["qty"], r["price"])
-        await db.mark_product_sold(r["id"])
+        await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"])
+        await db.mark_product_sold(shop_id, r["id"])
 
     await state.clear()
 
