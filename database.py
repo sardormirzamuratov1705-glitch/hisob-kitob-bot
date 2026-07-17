@@ -38,11 +38,25 @@ async def init_db():
             ("alert_quantity", "REAL"),
             ("last_sold_at", "TEXT"),
             ("shop_id", "INTEGER"),
+            ("category_id", "INTEGER"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
             except Exception:
                 pass
+        # Mahsulot kategoriyalari - har bir do'kon egasi o'zi xohlagancha
+        # kategoriya yarata oladi (masalan "Ichimliklar", "Non mahsulotlari").
+        # Kategoriyaga bog'lanish ixtiyoriy - mahsulot kategoriyasiz ham qolishi mumkin.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS transactions (
@@ -247,13 +261,14 @@ def _now() -> str:
 
 async def add_product(shop_id: int, name: str, price: float, quantity: float, photo_file_id,
                        channel_message_id=None, sell_price=None, min_price=None,
-                       alert_quantity=None):
+                       alert_quantity=None, category_id=None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
             "INSERT INTO products (shop_id, name, price, quantity, photo_file_id, channel_message_id, "
-            "sell_price, min_price, alert_quantity, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "sell_price, min_price, alert_quantity, category_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (shop_id, name, price, quantity, photo_file_id, channel_message_id, sell_price, min_price,
-             alert_quantity, _now()),
+             alert_quantity, category_id, _now()),
         )
         await db.commit()
 
@@ -341,6 +356,124 @@ async def get_all_products(shop_id: int):
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_products_by_category(shop_id: int, category_id):
+    """category_id=None bo'lsa - kategoriyaga bog'lanmagan (kategoriyasiz)
+    mahsulotlarni qaytaradi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if category_id is None:
+            cursor = await db.execute(
+                "SELECT * FROM products WHERE shop_id = ? AND category_id IS NULL ORDER BY id DESC",
+                (shop_id,),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM products WHERE shop_id = ? AND category_id = ? ORDER BY id DESC",
+                (shop_id, category_id),
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def search_products(shop_id: int, query: str):
+    """Mahsulot nomi bo'yicha qidiradi (nom ichida qidiruv so'zi uchrasa yetarli,
+    katta-kichik harfga qaramaydi)."""
+    query = (query or "").strip()
+    if not query:
+        return []
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM products WHERE shop_id = ? AND LOWER(name) LIKE LOWER(?) ORDER BY name",
+            (shop_id, f"%{query}%"),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+# ---------- KATEGORIYALAR ----------
+# Erkin tuzilma - do'kon egasi (yoki sotuvchi) xohlagancha kategoriya yaratishi
+# mumkin, mahsulot kategoriyaga bog'lanishi shart emas.
+
+async def add_category(shop_id: int, name: str):
+    """Bir xil nomli kategoriya (katta-kichik harf/bo'sh joydan qat'i nazar)
+    ikki marta yaratilmasligi uchun avval mavjudligini tekshiradi."""
+    name = name.strip()
+    existing = await find_category_by_name(shop_id, name)
+    if existing:
+        return existing
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO categories (shop_id, name, created_at) VALUES (?, ?, ?)",
+            (shop_id, name, _now()),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "shop_id": shop_id, "name": name}
+
+
+async def find_category_by_name(shop_id: int, name: str):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM categories WHERE shop_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            (shop_id, name),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def get_category(shop_id: int, category_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM categories WHERE id = ? AND shop_id = ?", (category_id, shop_id)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def get_categories(shop_id: int):
+    """Har bir kategoriyani ichidagi mahsulotlar sonini (product_count) bilan qaytaradi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT c.id, c.shop_id, c.name, c.created_at, "
+            "COUNT(p.id) AS product_count "
+            "FROM categories c "
+            "LEFT JOIN products p ON p.category_id = c.id AND p.shop_id = c.shop_id "
+            "WHERE c.shop_id = ? "
+            "GROUP BY c.id "
+            "ORDER BY c.name COLLATE NOCASE ASC",
+            (shop_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_uncategorized_count(shop_id: int) -> int:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM products WHERE shop_id = ? AND category_id IS NULL",
+            (shop_id,),
+        )
+        return (await cursor.fetchone())[0]
+
+
+async def delete_category(shop_id: int, category_id: int) -> bool:
+    """Kategoriyani o'chiradi - ichidagi mahsulotlar o'chmaydi, faqat
+    kategoriyasiz holatga o'tadi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE products SET category_id = NULL WHERE category_id = ? AND shop_id = ?",
+            (category_id, shop_id),
+        )
+        cursor = await db.execute(
+            "DELETE FROM categories WHERE id = ? AND shop_id = ?", (category_id, shop_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def delete_product(shop_id: int, product_id: int):
