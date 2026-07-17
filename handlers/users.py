@@ -142,8 +142,9 @@ async def list_owners(message: Message, state: FSMContext):
         telegram_label = o["full_name"] or (f"@{o['username']}" if o["username"] else str(o["telegram_id"]))
         name_line = f"👤 {o['owner_name']}" if o.get("owner_name") else f"👤 {telegram_label}"
         shop_line = f"\n🏪 {o['shop_name']}" if o.get("shop_name") else "\n🏪 (hali kiritmagan)"
+        phone_line = f"\n📞 {o['phone_number']}" if o.get("phone_number") else "\n📞 (hali kiritmagan)"
         await message.answer(
-            f"{name_line}{shop_line}\nTelegram: {telegram_label}\nID: {o['telegram_id']}",
+            f"{name_line}{shop_line}{phone_line}\nTelegram: {telegram_label}\nID: {o['telegram_id']}",
             reply_markup=kb.owner_action_kb(o["telegram_id"]),
         )
 
