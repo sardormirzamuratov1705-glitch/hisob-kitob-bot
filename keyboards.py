@@ -9,11 +9,9 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
       tizim zaxira nusxasini oladi/tiklaydi.
     - owner: do'konning barcha bo'limlariga (shu jumladan sotuvchilarni
       boshqarish) to'liq kirish huquqi bor.
-    - seller: faqat kundalik savdo ishlari uchun kerakli bo'limlar - Savdo,
-      mahsulotlar ro'yxati, olinishi kerak bo'lgan tovarlar (faqat
-      ko'rish/qo'lda qo'shish - "sotib olindi" tugmasisiz), chiqim qo'shish
-      va qarz daftar. Narx belgilash, qo'lda miqdor o'zgartirish, kirim
-      qo'shish, hisobot va sotuvchi boshqaruvi unga ko'rsatilmaydi.
+    - seller: faqat kundalik savdo ishlari uchun kerakli 3 ta bo'lim -
+      narx belgilash, qo'lda miqdor o'zgartirish, kirim/chiqim, hisobot va
+      sotuvchi boshqaruvi unga ko'rsatilmaydi.
     """
     builder = ReplyKeyboardBuilder()
     if role == "admin":
@@ -23,9 +21,9 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
     elif role == "seller":
         builder.button(text="🛒 Savdo")
         builder.button(text="📋 Mahsulotlar ro'yxati")
-        builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
-        builder.button(text="➖ Chiqim qo'shish")
         builder.button(text="📒 Qarz daftar")
+        builder.button(text="➖ Chiqim qo'shish")
+        builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
         builder.adjust(1, 1, 1, 1, 1)
     else:
         builder.button(text="📦 Sklad")
@@ -162,16 +160,15 @@ def product_action_kb(product_id: int, allow_manage: bool = True):
     return builder.as_markup()
 
 
-def restock_kb(low_stock_items=None, manual_items=None, allow_manage: bool = True) -> InlineKeyboardMarkup:
-    """allow_manage=False bo'lsa (sotuvchi) - "... olindi" (sotib olindi)
-    tugmalari umuman ko'rsatilmaydi, chunki ular skladga narx/miqdor bilan
-    tovar qo'shadi - bu faqat do'kon egasiga tegishli amal. Sotuvchi faqat
-    ro'yxatni ko'radi va xohlasa "Qo'lda qo'shish" orqali kerakli tovar
-    nomini ro'yxatga qo'sha oladi (bu narx/miqdorga ta'sir qilmaydi)."""
+def restock_kb(low_stock_items=None, manual_items=None, manage: bool = True) -> InlineKeyboardMarkup:
+    """manage=False bo'lsa (sotuvchi) - "✅ ... olindi" / "❌ ... olinmadi" tugmalari
+    ko'rsatilmaydi, chunki tovar sotib olinganini faqat do'kon egasi belgilashi kerak.
+    "➕ Qo'lda qo'shish" tugmasi esa sotuvchiga ham qoldiriladi - u kerakli tovarni
+    ro'yxatga qo'shib qo'ya oladi."""
     builder = InlineKeyboardBuilder()
     row_sizes = []
 
-    if low_stock_items and allow_manage:
+    if manage and low_stock_items:
         for p in low_stock_items:
             builder.button(text=f"✅ {p['name']} olindi", callback_data=f"lowstock_bought_{p['id']}")
             builder.button(text=f"❌ {p['name']} olinmadi", callback_data=f"lowstock_notbought_{p['id']}")
@@ -180,7 +177,7 @@ def restock_kb(low_stock_items=None, manual_items=None, allow_manage: bool = Tru
     builder.button(text="➕ Qo'lda qo'shish", callback_data="restock_add")
     row_sizes.append(1)
 
-    if manual_items and allow_manage:
+    if manage and manual_items:
         for item in manual_items:
             builder.button(text=f"✅ {item['name']} olindi", callback_data=f"restock_done_{item['id']}")
             row_sizes.append(1)
