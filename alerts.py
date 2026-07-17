@@ -1,10 +1,9 @@
 import logging
 
-import config
 import database as db
 
 
-async def notify_stock_change(bot, product: dict, old_quantity: float, new_quantity: float,
+async def notify_stock_change(bot, shop_id: int, product: dict, old_quantity: float, new_quantity: float,
                                also_notify_chat_id: int = None):
     """Mahsulot miqdori kamaygandan keyin chaqiriladi.
 
@@ -13,10 +12,12 @@ async def notify_stock_change(bot, product: dict, old_quantity: float, new_quant
     Xabar faqat chegaradan "o'tilgan" paytda yuboriladi (spam bo'lmasligi uchun),
     ya'ni oldingi miqdor chegaradan yuqori, yangisi esa past yoki teng bo'lsa.
 
-    Xabar config.ADMIN_IDS'dagilarga, shuningdek amalni bajargan foydalanuvchiga
-    ham yuboriladi (also_notify_chat_id) - shunda ADMIN_IDS noto'g'ri sozlangan
-    yoki admin botga hali /start bosmagan bo'lsa ham, harakatni bajargan odam
-    ogohlantirishni ko'radi.
+    Bu - shu DO'KONGA tegishli ogohlantirish, shuning uchun faqat shop_id'ga
+    (do'kon egasining o'ziga) yuboriladi. Bosh admin (config.ADMIN_IDS) endi
+    o'z do'koniga ega emas, shuning uchun sklad ogohlantirishlarini olmaydi.
+    also_notify_chat_id - amalni bajargan xodimning chat_id'si (odatda shop_id
+    bilan bir xil, lekin kelajakda bir nechta xodim bo'lsa ham xabar yetib borsin
+    uchun qoldirildi).
     """
     threshold = product.get("alert_quantity")
     messages = []
@@ -32,11 +33,9 @@ async def notify_stock_change(bot, product: dict, old_quantity: float, new_quant
     if not messages:
         return
 
-    recipients = set(config.ADMIN_IDS)
+    recipients = {shop_id}
     if also_notify_chat_id:
         recipients.add(also_notify_chat_id)
-    if not recipients:
-        return
 
     for chat_id in recipients:
         for text in messages:
@@ -80,35 +79,40 @@ async def send_customer_debt_reminder(bot, debt: dict) -> bool:
 async def send_debt_reminders(bot, days_threshold: int = 3):
     """Har kuni bir marta chaqiriladi (main.py'dagi fon vazifadan).
 
+    Endi har bir DO'KON alohida ko'rib chiqiladi (bir necha mustaqil do'kon
+    bor bo'lgani uchun): har bir do'kon egasi faqat O'Z qarzdorlari haqida
+    xabar oladi, boshqa do'konning qarzdorlari haqida hech narsa ko'rmaydi.
+
     Har bir muddati o'tgan qarz uchun:
     - agar mijoz start-link orqali botga ulangan bo'lsa - unga to'g'ridan-to'g'ri eslatma yuboriladi;
-    - shu bilan birga ADMIN_IDS'dagi do'kon xodimlariga ham umumiy ro'yxat yuboriladi
-      (mijoz hali ulanmagan bo'lsa ham, ular ko'rib qo'ng'iroq qilishi mumkin).
+    - shu bilan birga o'sha do'kon egasiga ham umumiy ro'yxat yuboriladi
+      (mijoz hali ulanmagan bo'lsa ham, u ko'rib qo'ng'iroq qilishi mumkin).
+
+    Bosh admin (config.ADMIN_IDS) endi hech qanday do'konga ega emas, shuning
+    uchun bu xabarlarni olmaydi - uning yagona vazifasi do'kon egalarini
+    boshqarish.
     """
-    overdue = await db.get_overdue_debts(days=days_threshold)
-    if not overdue:
-        return
+    owner_ids = await db.get_owner_ids()
+    for shop_id in owner_ids:
+        overdue = await db.get_overdue_debts(shop_id, days=days_threshold)
+        if not overdue:
+            continue
 
-    for d in overdue:
-        await send_customer_debt_reminder(bot, d)
+        for d in overdue:
+            await send_customer_debt_reminder(bot, d)
 
-    if not config.ADMIN_IDS:
-        return
-
-    lines = [
-        f"• {d['customer_name']} ({d['phone']}) — {d['amount']:.0f} so'm, "
-        f"{d['days_ago']} kundan beri qarzda"
-        + (" 🔗" if d.get("customer_chat_id") else "")
-        for d in overdue
-    ]
-    text = (
-        f"🔔 <b>Qarzdorlar eslatmasi</b>\n"
-        f"{days_threshold}+ kundan beri to'lanmagan qarzlar:\n\n" + "\n".join(lines) +
-        "\n\n🔗 belgisi — mijozga eslatma avtomatik yuborildi."
-    )
-
-    for chat_id in config.ADMIN_IDS:
+        lines = [
+            f"• {d['customer_name']} ({d['phone']}) — {d['amount']:.0f} so'm, "
+            f"{d['days_ago']} kundan beri qarzda"
+            + (" 🔗" if d.get("customer_chat_id") else "")
+            for d in overdue
+        ]
+        text = (
+            f"🔔 <b>Qarzdorlar eslatmasi</b>\n"
+            f"{days_threshold}+ kundan beri to'lanmagan qarzlar:\n\n" + "\n".join(lines) +
+            "\n\n🔗 belgisi — mijozga eslatma avtomatik yuborildi."
+        )
         try:
-            await bot.send_message(chat_id, text, parse_mode="HTML")
+            await bot.send_message(shop_id, text, parse_mode="HTML")
         except Exception as e:
-            logging.warning(f"Qarz eslatmasini yuborib bo'lmadi ({chat_id}): {e}")
+            logging.warning(f"Qarz eslatmasini yuborib bo'lmadi (shop {shop_id}): {e}")
