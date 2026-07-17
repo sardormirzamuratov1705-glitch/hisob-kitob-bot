@@ -104,9 +104,10 @@ def qarz_menu() -> ReplyKeyboardMarkup:
 def hisobot_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="📊 Umumiy hisobot")
+    builder.button(text="🏆 Top mahsulotlar")
     builder.button(text="📥 Excel yuklab olish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1)
+    builder.adjust(1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
