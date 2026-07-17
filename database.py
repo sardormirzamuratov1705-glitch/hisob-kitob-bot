@@ -216,6 +216,17 @@ async def init_db():
                 await db.execute(f"ALTER TABLE {table} ADD COLUMN performed_by INTEGER")
             except Exception:
                 pass
+
+        # Do'kon egasining o'zi kiritgan ismi va do'kon nomi/turi - bosh admin
+        # bir nechta do'kon egasini boshqarganda ularni Telegram ID/username
+        # emas, balki tanish nom bilan bir-biridan ajratib olishi uchun.
+        # Eski bazalarda yo'q - xavfsiz qo'shamiz (ALTER TABLE ADD COLUMN
+        # allaqachon mavjud bo'lsa xato beradi, shuning uchun try/except).
+        for col in ("owner_name", "shop_name"):
+            try:
+                await db.execute(f"ALTER TABLE owners ADD COLUMN {col} TEXT")
+            except Exception:
+                pass
         await db.commit()
 
 
@@ -543,6 +554,26 @@ async def get_owners():
         cursor = await db.execute("SELECT * FROM owners ORDER BY id DESC")
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_owner(telegram_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM owners WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str):
+    """Do'kon egasi o'zi haqida va do'koni haqida kiritgan ma'lumotlarni saqlaydi
+    (birinchi /start bosganda so'raladigan qisqa so'rovnoma - bosh admin uchun
+    do'konlarni bir-biridan ajratib ko'rish maqsadida)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE owners SET owner_name = ?, shop_name = ? WHERE telegram_id = ?",
+            (owner_name, shop_name, telegram_id),
+        )
+        await db.commit()
 
 
 async def get_owner_ids():
