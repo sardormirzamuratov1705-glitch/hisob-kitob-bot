@@ -44,9 +44,9 @@ async def init_db():
                 await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
             except Exception:
                 pass
-        # Mahsulot kategoriyalari - har bir do'kon egasi o'zi xohlagancha
-        # kategoriya yarata oladi (masalan "Ichimliklar", "Non mahsulotlari").
-        # Kategoriyaga bog'lanish ixtiyoriy - mahsulot kategoriyasiz ham qolishi mumkin.
+        # Mahsulot bo'limlari - har bir do'kon egasi o'zi xohlagancha
+        # bo'lim yarata oladi (masalan "Ichimliklar", "Non mahsulotlari").
+        # Bo'limga bog'lanish ixtiyoriy - mahsulot bo'limsiz ham qolishi mumkin.
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS categories (
@@ -258,9 +258,9 @@ def _now() -> str:
 
 
 async def _ensure_category_schema(db):
-    """Himoya chorasi: agar biror sababdan init_db() yangi kategoriya sxemasini
+    """Himoya chorasi: agar biror sababdan init_db() yangi bo'lim sxemasini
     hali yaratmagan bo'lsa (masalan eski jarayon hali qayta ishga tushmagan bo'lsa),
-    har bir kategoriya bilan ishlaydigan funksiya chaqirilganda sxema shu yerda
+    har bir bo'lim bilan ishlaydigan funksiya chaqirilganda sxema shu yerda
     ham xavfsiz tarzda yaratib/qo'shib qo'yiladi."""
     await db.execute(
         """
@@ -382,7 +382,7 @@ async def get_all_products(shop_id: int):
 
 
 async def get_products_by_category(shop_id: int, category_id):
-    """category_id=None bo'lsa - kategoriyaga bog'lanmagan (kategoriyasiz)
+    """category_id=None bo'lsa - bo'limga bog'lanmagan (bo'limsiz)
     mahsulotlarni qaytaradi."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -417,12 +417,12 @@ async def search_products(shop_id: int, query: str):
         return [dict(row) for row in rows]
 
 
-# ---------- KATEGORIYALAR ----------
-# Erkin tuzilma - do'kon egasi (yoki sotuvchi) xohlagancha kategoriya yaratishi
-# mumkin, mahsulot kategoriyaga bog'lanishi shart emas.
+# ---------- BO'LIMLAR ----------
+# Erkin tuzilma - do'kon egasi (yoki sotuvchi) xohlagancha bo'lim yaratishi
+# mumkin, mahsulot bo'limga bog'lanishi shart emas.
 
 async def add_category(shop_id: int, name: str):
-    """Bir xil nomli kategoriya (katta-kichik harf/bo'sh joydan qat'i nazar)
+    """Bir xil nomli bo'lim (katta-kichik harf/bo'sh joydan qat'i nazar)
     ikki marta yaratilmasligi uchun avval mavjudligini tekshiradi."""
     name = name.strip()
     existing = await find_category_by_name(shop_id, name)
@@ -462,7 +462,7 @@ async def get_category(shop_id: int, category_id: int):
 
 
 async def get_categories(shop_id: int):
-    """Har bir kategoriyani ichidagi mahsulotlar sonini (product_count) bilan qaytaradi."""
+    """Har bir bo'limni ichidagi mahsulotlar sonini (product_count) bilan qaytaradi."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_category_schema(db)
@@ -490,9 +490,29 @@ async def get_uncategorized_count(shop_id: int) -> int:
         return (await cursor.fetchone())[0]
 
 
+async def set_product_category(shop_id: int, product_id: int, category_id) -> bool:
+    """Mahsulotni boshqa bo'limga ko'chiradi yoki bo'limdan chiqaradi
+    (category_id=None bo'lsa - bo'limsiz holatga o'tadi). category_id berilgan
+    bo'lsa, avval o'sha bo'lim shu do'konga tegishli ekanini tekshiradi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await _ensure_category_schema(db)
+        if category_id is not None:
+            cursor = await db.execute(
+                "SELECT 1 FROM categories WHERE id = ? AND shop_id = ?", (category_id, shop_id)
+            )
+            if not await cursor.fetchone():
+                return False
+        cursor = await db.execute(
+            "UPDATE products SET category_id = ? WHERE id = ? AND shop_id = ?",
+            (category_id, product_id, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def delete_category(shop_id: int, category_id: int) -> bool:
-    """Kategoriyani o'chiradi - ichidagi mahsulotlar o'chmaydi, faqat
-    kategoriyasiz holatga o'tadi."""
+    """Bo'limni o'chiradi - ichidagi mahsulotlar o'chmaydi, faqat
+    bo'limsiz holatga o'tadi."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         await _ensure_category_schema(db)
         await db.execute(
