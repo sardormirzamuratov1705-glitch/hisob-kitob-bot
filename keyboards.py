@@ -86,8 +86,9 @@ def kirim_chiqim_menu() -> ReplyKeyboardMarkup:
     builder.button(text="➕ Kirim qo'shish")
     builder.button(text="➖ Chiqim qo'shish")
     builder.button(text="📈 Bugungi holat")
+    builder.button(text="🔎 Savdolarni qidirish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 2, 1, 1)
+    builder.adjust(1, 2, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -275,12 +276,14 @@ def sale_price_kb(sell_price=None, min_price=None) -> InlineKeyboardMarkup:
 SALE_PRODUCTS_PAGE_SIZE = 10
 
 
-def sale_products_kb(products, selected_ids, page: int = 0) -> InlineKeyboardMarkup:
+def sale_products_kb(products, selected_ids, page: int = 0, search_active: bool = False) -> InlineKeyboardMarkup:
     """Mahsulotlarni 10tadan sahifalab ko'rsatadi.
 
     Belgilangan mahsulotlar (selected_ids) sahifa almashtirilganda ham
     saqlanib qoladi - chunki tanlov ro'yxati state'da alohida saqlanadi,
     faqat joriy sahifadagi tugmalar mark bilan yangilanadi.
+    search_active=True bo'lsa, ro'yxat qidiruv natijasi ekanini bildiruvchi
+    "Qidiruvni bekor qilish" tugmasi ko'rsatiladi.
     """
     page_size = SALE_PRODUCTS_PAGE_SIZE
     total_pages = max(1, (len(products) + page_size - 1) // page_size)
@@ -310,6 +313,12 @@ def sale_products_kb(products, selected_ids, page: int = 0) -> InlineKeyboardMar
         nav_row += 1
     if nav_row:
         rows.append(nav_row)
+
+    if search_active:
+        builder.button(text="❌ Qidiruvni bekor qilish", callback_data="sale_search_clear")
+    else:
+        builder.button(text="🔎 Nomi bo'yicha qidirish", callback_data="sale_search")
+    rows.append(1)
 
     builder.button(text="✅ Tanlovni tasdiqlash", callback_data="sale_confirm")
     builder.button(text="❌ Bekor qilish", callback_data="sale_cancel")
