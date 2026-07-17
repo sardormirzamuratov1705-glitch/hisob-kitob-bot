@@ -56,6 +56,32 @@ async def general_report(message: Message):
     await message.answer(text, parse_mode="HTML")
 
 
+@router.message(F.text == "🏆 Top mahsulotlar")
+async def top_products_report(message: Message):
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    top_selling = await db.get_top_selling_products(shop_id, limit=10)
+    top_profit = await db.get_top_profit_products(shop_id, limit=10)
+
+    lines = ["🏆 <b>Top 10 - eng ko'p sotilgan</b>\n"]
+    if top_selling:
+        for i, r in enumerate(top_selling, 1):
+            lines.append(f"{i}. {r['name']} — {r['total_qty']:.0f} dona ({r['total_sum']:.0f} so'm)")
+    else:
+        lines.append("Ma'lumot yo'q.")
+
+    lines.append("\n💰 <b>Top 10 - eng ko'p foyda keltirgan</b>\n")
+    if top_profit:
+        for i, r in enumerate(top_profit, 1):
+            lines.append(f"{i}. {r['name']} — {r['total_profit']:.0f} so'm foyda")
+    else:
+        lines.append("Ma'lumot yo'q.")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @router.message(F.text == "📥 Excel yuklab olish")
 async def export_excel(message: Message):
     shop_id = await _require_shop(message)
