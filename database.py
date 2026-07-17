@@ -122,6 +122,23 @@ async def init_db():
             )
             """
         )
+        # Do'kon egalari (bosh admin tomonidan bot orqali qo'shiladigan foydalanuvchilar).
+        # Bosh admin - config.ADMIN_IDS (.env), faqat shu ro'yxatdagilar bu jadvalga
+        # yozuv qo'sha/o'chira oladi. Bu yerga qo'shilganlar boshqa hamma bo'limga
+        # (Sklad, Kirim/Chiqim, Qarz daftar, Hisobot) to'liq kirishi mumkin, lekin
+        # "Foydalanuvchilar" bo'limini ko'rmaydi/ishlata olmaydi.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS owners (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL UNIQUE,
+                full_name TEXT,
+                username TEXT,
+                added_by INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         await db.commit()
 
 
@@ -394,6 +411,48 @@ async def get_cross_sell_suggestions(product_ids, exclude_ids=None, limit: int =
                 break
 
         return suggestions
+
+
+# ---------- FOYDALANUVCHILAR (DO'KON EGALARI) ----------
+
+async def add_owner(telegram_id: int, full_name: str = None, username: str = None,
+                     added_by: int = None):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (telegram_id, full_name, username, added_by, _now()),
+        )
+        await db.commit()
+
+
+async def remove_owner(telegram_id: int) -> bool:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM owners WHERE telegram_id = ?", (telegram_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_owners():
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM owners ORDER BY id DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_owner_ids():
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("SELECT telegram_id FROM owners")
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def is_owner(telegram_id: int) -> bool:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("SELECT 1 FROM owners WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        return row is not None
 
 
 # ---------- QARZDORLAR ----------
