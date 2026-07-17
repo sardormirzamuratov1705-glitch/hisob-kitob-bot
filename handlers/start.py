@@ -96,6 +96,67 @@ async def owner_onboarding_phone(message: Message, state: FSMContext):
     )
 
 
+# ---------- SOTUVCHI UCHUN QISQA SO'ROVNOMA ----------
+# Xuddi do'kon egasidagi kabi - yangi sotuvchi (link orqali yoki do'kon
+# egasi tomonidan forward/ID bilan qo'shilgan bo'lsin) birinchi marta
+# /start bosganda, ismi va telefon raqami so'raladi. Do'kon nomi so'ralmaydi,
+# chunki sotuvchi allaqachon ma'lum bir do'konga (shop_id) biriktirilgan.
+
+class SellerOnboarding(StatesGroup):
+    waiting_seller_name = State()
+    waiting_phone = State()
+
+
+async def _start_seller_onboarding(message: Message, state: FSMContext):
+    await state.set_state(SellerOnboarding.waiting_seller_name)
+    await message.answer(
+        "Yana ikkita qisqa savol qoldi - bu do'kon egasiga sotuvchilarni "
+        "bir-biridan oson ajratishga yordam beradi.\n\n"
+        "👤 Ismingizni (yoki F.I.Sh) kiriting:"
+    )
+
+
+@router.message(SellerOnboarding.waiting_seller_name)
+async def seller_onboarding_name(message: Message, state: FSMContext):
+    if not await db.is_seller(message.from_user.id):
+        await state.clear()
+        return
+    if not message.text:
+        await message.answer("Iltimos, ismingizni matn ko'rinishida kiriting.")
+        return
+
+    await state.update_data(seller_name=message.text.strip())
+    await state.set_state(SellerOnboarding.waiting_phone)
+    await message.answer("📞 Endi telefon raqamingizni kiriting (masalan: +998901234567):")
+
+
+@router.message(SellerOnboarding.waiting_phone)
+async def seller_onboarding_phone(message: Message, state: FSMContext):
+    if not await db.is_seller(message.from_user.id):
+        await state.clear()
+        return
+
+    phone_number = None
+    if message.contact and message.contact.phone_number:
+        phone_number = message.contact.phone_number
+    elif message.text:
+        phone_number = message.text.strip()
+    else:
+        await message.answer("Iltimos, telefon raqamingizni matn ko'rinishida kiriting.")
+        return
+
+    data = await state.get_data()
+    seller_name = data.get("seller_name")
+    await db.set_seller_profile(message.from_user.id, seller_name, phone_number)
+    await state.clear()
+
+    await message.answer(
+        f"✅ Rahmat! Ma'lumotlar saqlandi:\n👤 {seller_name}\n📞 {phone_number}\n\n"
+        "Quyidagi bo'limlardan birini tanlang:",
+        reply_markup=kb.main_menu("seller"),
+    )
+
+
 @router.message(CommandStart(deep_link=True))
 async def cmd_start_deep_link(message: Message, state: FSMContext, command: CommandObject):
     """Mijoz "Qarz qo'shish" bo'limida yaratilgan shaxsiy link orqali
@@ -196,9 +257,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             added_by=invite["created_by"],
         )
         await message.answer(
-            "✅ Tabriklaymiz! Siz sotuvchi sifatida ro'yxatdan o'tdingiz.\n\n"
-            "Quyidagi bo'limlardan birini tanlang:",
-            reply_markup=kb.main_menu("seller")
+            "✅ Tabriklaymiz! Siz sotuvchi sifatida ro'yxatdan o'tdingiz."
         )
         try:
             await message.bot.send_message(
@@ -208,6 +267,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             )
         except Exception as e:
             logging.warning(f"Do'kon egasiga xabar yuborib bo'lmadi: {e}")
+        await _start_seller_onboarding(message, state)
         return
 
     if payload.startswith("debt_"):
@@ -260,6 +320,12 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             await message.answer("Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.")
             await _start_owner_onboarding(message, state)
             return
+    if role == "seller":
+        seller = await db.get_seller(message.from_user.id)
+        if seller and not seller.get("seller_name"):
+            await message.answer("Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.")
+            await _start_seller_onboarding(message, state)
+            return
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
@@ -284,6 +350,14 @@ async def cmd_start(message: Message, state: FSMContext):
         if owner and not owner.get("owner_name"):
             await message.answer("Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.")
             await _start_owner_onboarding(message, state)
+            return
+    if role == "seller":
+        # Xuddi shunday - sotuvchi ham do'kon egasi tomonidan forward/ID orqali
+        # qo'shilgan bo'lsa, birinchi /start'da ismi/telefonini kiritadi.
+        seller = await db.get_seller(message.from_user.id)
+        if seller and not seller.get("seller_name"):
+            await message.answer("Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.")
+            await _start_seller_onboarding(message, state)
             return
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
