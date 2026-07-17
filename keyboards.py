@@ -272,15 +272,49 @@ def sale_price_kb(sell_price=None, min_price=None) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def sale_products_kb(products, selected_ids) -> InlineKeyboardMarkup:
+SALE_PRODUCTS_PAGE_SIZE = 10
+
+
+def sale_products_kb(products, selected_ids, page: int = 0) -> InlineKeyboardMarkup:
+    """Mahsulotlarni 10tadan sahifalab ko'rsatadi.
+
+    Belgilangan mahsulotlar (selected_ids) sahifa almashtirilganda ham
+    saqlanib qoladi - chunki tanlov ro'yxati state'da alohida saqlanadi,
+    faqat joriy sahifadagi tugmalar mark bilan yangilanadi.
+    """
+    page_size = SALE_PRODUCTS_PAGE_SIZE
+    total_pages = max(1, (len(products) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    start = page * page_size
+    page_products = products[start:start + page_size]
+
     builder = InlineKeyboardBuilder()
-    for p in products:
+    for p in page_products:
         mark = "☑️" if p["id"] in selected_ids else "⬜"
         builder.button(
             text=f"{mark} {p['name']} ({p['quantity']:.0f} dona)",
             callback_data=f"sale_toggle_{p['id']}",
         )
+
+    rows = [1] * len(page_products)
+
+    nav_row = 0
+    if page > 0:
+        builder.button(text="⬅️ Avvalgisi", callback_data="sale_page_prev")
+        nav_row += 1
+    if total_pages > 1:
+        builder.button(text=f"📄 {page + 1}/{total_pages}", callback_data="sale_noop")
+        nav_row += 1
+    if page < total_pages - 1:
+        builder.button(text="Keyingisi ➡️", callback_data="sale_page_next")
+        nav_row += 1
+    if nav_row:
+        rows.append(nav_row)
+
     builder.button(text="✅ Tanlovni tasdiqlash", callback_data="sale_confirm")
     builder.button(text="❌ Bekor qilish", callback_data="sale_cancel")
-    builder.adjust(1)
+    rows.append(1)
+    rows.append(1)
+
+    builder.adjust(*rows)
     return builder.as_markup()
