@@ -19,6 +19,7 @@ class SaleFlow(StatesGroup):
     quantity = State()
     price = State()
     payment_method = State()
+    mixed_cash_amount = State()
 
 
 # Bu bo'lim tugmalari faqat do'kon egalariga ko'rsatiladi (bosh adminning o'z
@@ -335,14 +336,51 @@ async def _ask_payment_method(message: Message, state: FSMContext):
 
 @router.callback_query(SaleFlow.payment_method, F.data.startswith("pay_method_"))
 async def sale_payment_method_cb(callback: CallbackQuery, state: FSMContext):
-    method = callback.data.replace("pay_method_", "")  # "naqd" | "plastik"
-    await state.update_data(payment_method=method)
+    method = callback.data.replace("pay_method_", "")  # "naqd" | "plastik" | "aralash"
     await callback.answer()
+
+    if method == "aralash":
+        data = await state.get_data()
+        total = sum(r["qty"] * r["price"] for r in data.get("results", []))
+        await state.update_data(payment_method=method, mixed_total=total)
+        await state.set_state(SaleFlow.mixed_cash_amount)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            f"Jami: {total:.0f} so'm.\nShundan qanchasi <b>naqd</b> to'landi (so'mda)?",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.update_data(payment_method=method)
     try:
         await callback.message.delete()
     except Exception:
         pass
     await _finalize_sale(callback.message, state)
+
+
+@router.message(SaleFlow.mixed_cash_amount)
+async def sale_mixed_cash_amount(message: Message, state: FSMContext):
+    try:
+        cash = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 50000")
+        return
+
+    data = await state.get_data()
+    total = data.get("mixed_total", 0.0)
+    if cash < 0 or cash > total:
+        await message.answer(
+            f"Naqd summasi 0 dan {total:.0f} so'mgacha bo'lishi kerak. Qaytadan kiriting:"
+        )
+        return
+
+    card = total - cash
+    await state.update_data(mixed_cash=cash, mixed_card=card)
+    await _finalize_sale(message, state)
 
 
 # ---------- YAKUNLASH: SKLADNI KAMAYTIRISH + KIRIM YOZISH ----------
@@ -390,7 +428,22 @@ async def _finalize_sale(message: Message, state: FSMContext):
 
     description = "Savdo:\n" + "\n".join(lines)
     payment_method = data.get("payment_method")
-    sale_id = await db.add_transaction(shop_id, "income", total, description, payment_method=payment_method)
+
+    if payment_method == "aralash":
+        cash = data.get("mixed_cash", 0.0)
+        card = data.get("mixed_card", 0.0)
+        if cash > 0:
+            sale_id = await db.add_transaction(shop_id, "income", cash, description, payment_method="naqd")
+            if card > 0:
+                await db.add_transaction(
+                    shop_id, "income", card,
+                    description + "\n(aralash to'lovning plastik qismi)",
+                    payment_method="plastik",
+                )
+        else:
+            sale_id = await db.add_transaction(shop_id, "income", card, description, payment_method="plastik")
+    else:
+        sale_id = await db.add_transaction(shop_id, "income", total, description, payment_method=payment_method)
 
     for r in results:
         await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"])
@@ -398,8 +451,13 @@ async def _finalize_sale(message: Message, state: FSMContext):
 
     await state.clear()
 
-    method_label = {"naqd": "💵 Naqd", "plastik": "💳 Plastik"}.get(payment_method, "")
-    method_line = f"\nTo'lov turi: {method_label}" if method_label else ""
+    if payment_method == "aralash":
+        cash = data.get("mixed_cash", 0.0)
+        card = data.get("mixed_card", 0.0)
+        method_line = f"\nTo'lov turi: 🔀 Aralash (💵 {cash:.0f} so'm + 💳 {card:.0f} so'm)"
+    else:
+        method_label = {"naqd": "💵 Naqd", "plastik": "💳 Plastik"}.get(payment_method, "")
+        method_line = f"\nTo'lov turi: {method_label}" if method_label else ""
 
     await message.answer(
         f"✅ Savdo yakunlandi!\n\n" + "\n".join(lines) + f"\n\n<b>Jami: {total:.0f} so'm</b>{method_line}",
