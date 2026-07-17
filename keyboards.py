@@ -66,6 +66,14 @@ def skip_due_date_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def taken_date_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📅 Bugun", callback_data="taken_today")
+    builder.button(text="🗓 Boshqa sana", callback_data="taken_custom")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="➖", callback_data=f"dec_qty_{product_id}")
