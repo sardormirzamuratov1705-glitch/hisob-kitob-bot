@@ -110,7 +110,9 @@ async def add_owner_finish(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Do'kon egasi qo'shildi{name_part}. ID: {target_id}\n\n"
         f"Endi u botga /start bosib to'liq kira oladi (lekin foydalanuvchi "
-        f"qo'sha/o'chira olmaydi).",
+        f"qo'sha/o'chira olmaydi). Birinchi /start'da undan ismi va do'koni "
+        f"nomi/turi so'raladi - shu ma'lumot \"📋 Do'kon egalari ro'yxati\"da "
+        f"ko'rinadi.",
         reply_markup=kb.users_menu(),
     )
 
@@ -137,9 +139,11 @@ async def list_owners(message: Message, state: FSMContext):
 
     await message.answer("👥 <b>Do'kon egalari:</b>", parse_mode="HTML", reply_markup=kb.users_menu())
     for o in owners:
-        label = o["full_name"] or (f"@{o['username']}" if o["username"] else str(o["telegram_id"]))
+        telegram_label = o["full_name"] or (f"@{o['username']}" if o["username"] else str(o["telegram_id"]))
+        name_line = f"👤 {o['owner_name']}" if o.get("owner_name") else f"👤 {telegram_label}"
+        shop_line = f"\n🏪 {o['shop_name']}" if o.get("shop_name") else "\n🏪 (hali kiritmagan)"
         await message.answer(
-            f"👤 {label}\nID: {o['telegram_id']}",
+            f"{name_line}{shop_line}\nTelegram: {telegram_label}\nID: {o['telegram_id']}",
             reply_markup=kb.owner_action_kb(o["telegram_id"]),
         )
 
