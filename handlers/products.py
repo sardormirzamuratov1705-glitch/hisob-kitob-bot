@@ -16,12 +16,22 @@ router = Router()
 
 class AddProduct(StatesGroup):
     name = State()
+    category = State()
+    new_category = State()
     price = State()
     sell_price = State()
     min_price = State()
     quantity = State()
     alert_quantity = State()
     photo = State()
+
+
+class CategoryManage(StatesGroup):
+    new_name = State()
+
+
+class SearchProduct(StatesGroup):
+    query = State()
 
 
 class AddRestockItem(StatesGroup):
@@ -93,8 +103,72 @@ async def add_product_name(message: Message, state: FSMContext):
         return
 
     await state.update_data(name=name)
+    categories = await db.get_categories(shop_id)
+    await state.set_state(AddProduct.category)
+    if categories:
+        await message.answer(
+            "Qaysi kategoriyaga tegishli? Mavjudlaridan tanlang yoki yangisini qo'shing:",
+            reply_markup=kb.category_pick_kb(categories),
+        )
+    else:
+        await message.answer(
+            "Hozircha kategoriya yo'q. Yangi kategoriya qo'shing yoki kategoriyasiz davom eting:",
+            reply_markup=kb.category_pick_kb(categories),
+        )
+
+
+async def _ask_price(message: Message, state: FSMContext):
     await state.set_state(AddProduct.price)
     await message.answer("Tannarxini kiriting (necha so'mga tushdi, faqat raqam):")
+
+
+@router.callback_query(AddProduct.category, F.data == "cat_pick_new")
+async def add_product_category_new(callback: CallbackQuery, state: FSMContext):
+    if await _require_shop_cb(callback) is None:
+        return
+    await state.set_state(AddProduct.new_category)
+    await callback.message.answer("Yangi kategoriya nomini kiriting:")
+    await callback.answer()
+
+
+@router.message(AddProduct.new_category)
+async def add_product_category_new_name(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+    name = message.text.strip()
+    if not name:
+        await message.answer("Kategoriya nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
+        return
+    category = await db.add_category(shop_id, name)
+    await state.update_data(category_id=category["id"])
+    await message.answer(f"✅ \"{category['name']}\" kategoriyasi tanlandi.")
+    await _ask_price(message, state)
+
+
+@router.callback_query(AddProduct.category, F.data == "cat_pick_none")
+async def add_product_category_none(callback: CallbackQuery, state: FSMContext):
+    if await _require_shop_cb(callback) is None:
+        return
+    await state.update_data(category_id=None)
+    await callback.answer()
+    await _ask_price(callback.message, state)
+
+
+@router.callback_query(AddProduct.category, F.data.startswith("cat_pick_"))
+async def add_product_category_pick(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    category_id = int(callback.data.split("_")[-1])
+    category = await db.get_category(shop_id, category_id)
+    if not category:
+        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        return
+    await state.update_data(category_id=category_id)
+    await callback.answer(f"\"{category['name']}\" tanlandi")
+    await _ask_price(callback.message, state)
 
 
 @router.message(AddProduct.price)
@@ -215,7 +289,7 @@ async def add_product_photo(message: Message, state: FSMContext):
     await db.add_product(
         shop_id, data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id,
         sell_price=data["sell_price"], min_price=data["min_price"],
-        alert_quantity=data.get("alert_quantity"),
+        alert_quantity=data.get("alert_quantity"), category_id=data.get("category_id"),
     )
     await state.clear()
     alert_line = ""
@@ -241,7 +315,7 @@ async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
     await db.add_product(
         shop_id, data["name"], data["price"], data["quantity"], None,
         sell_price=data["sell_price"], min_price=data["min_price"],
-        alert_quantity=data.get("alert_quantity"),
+        alert_quantity=data.get("alert_quantity"), category_id=data.get("category_id"),
     )
     await state.clear()
     alert_line = ""
@@ -257,30 +331,27 @@ async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ---------- MAHSULOTLAR RO'YXATI ----------
+# ---------- MAHSULOTLAR RO'YXATI (KATEGORIYA BO'YICHA) ----------
 
-@router.message(F.text == "📋 Mahsulotlar ro'yxati")
-async def list_products(message: Message):
-    shop_id = await _require_shop(message)
-    if shop_id is None:
-        return
-    products = await db.get_all_products(shop_id)
-    if not products:
-        await message.answer("Sklad hozircha bo'sh.")
-        return
+def _product_caption(p: dict) -> str:
+    caption = (
+        f"<b>{p['name']}</b>\n"
+        f"Tannarx: {p['price']:.0f} so'm\n"
+    )
+    if p.get("sell_price"):
+        caption += f"Savdo narxi: {p['sell_price']:.0f} so'm\n"
+    if p.get("min_price"):
+        caption += f"Eng past narx: {p['min_price']:.0f} so'm\n"
+    caption += f"Miqdori: {p['quantity']:.0f}"
+    if p.get("alert_quantity"):
+        caption += f"\nOgohlantirish chegarasi: {p['alert_quantity']:.0f} dona"
+    return caption
 
+
+async def _send_products(message: Message, products):
+    """Berilgan mahsulotlar ro'yxatini bittalab, rasm bilan/rasmsiz chiqaradi."""
     for p in products:
-        caption = (
-            f"<b>{p['name']}</b>\n"
-            f"Tannarx: {p['price']:.0f} so'm\n"
-        )
-        if p.get("sell_price"):
-            caption += f"Savdo narxi: {p['sell_price']:.0f} so'm\n"
-        if p.get("min_price"):
-            caption += f"Eng past narx: {p['min_price']:.0f} so'm\n"
-        caption += f"Miqdori: {p['quantity']:.0f}"
-        if p.get("alert_quantity"):
-            caption += f"\nOgohlantirish chegarasi: {p['alert_quantity']:.0f} dona"
+        caption = _product_caption(p)
         if p["photo_file_id"]:
             await message.answer_photo(
                 photo=p["photo_file_id"],
@@ -294,6 +365,170 @@ async def list_products(message: Message):
                 reply_markup=kb.product_action_kb(p["id"]),
                 parse_mode="HTML"
             )
+
+
+@router.message(F.text == "📋 Mahsulotlar ro'yxati")
+async def list_products(message: Message):
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+    products = await db.get_all_products(shop_id)
+    if not products:
+        await message.answer("Sklad hozircha bo'sh.")
+        return
+
+    categories = await db.get_categories(shop_id)
+    uncategorized_count = await db.get_uncategorized_count(shop_id)
+    await message.answer(
+        f"Jami {len(products)} ta mahsulot. Qaysi bo'limni ko'rmoqchisiz?",
+        reply_markup=kb.category_browse_kb(categories, uncategorized_count),
+    )
+
+
+@router.callback_query(F.data == "cat_view_all")
+async def cat_view_all_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    products = await db.get_all_products(shop_id)
+    await callback.answer()
+    if not products:
+        await callback.message.answer("Sklad hozircha bo'sh.")
+        return
+    await _send_products(callback.message, products)
+
+
+@router.callback_query(F.data == "cat_view_none")
+async def cat_view_none_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    products = await db.get_products_by_category(shop_id, None)
+    await callback.answer()
+    if not products:
+        await callback.message.answer("Kategoriyasiz mahsulot yo'q.")
+        return
+    await _send_products(callback.message, products)
+
+
+@router.callback_query(F.data.startswith("cat_view_"))
+async def cat_view_one_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    category_id = int(callback.data.split("_")[-1])
+    category = await db.get_category(shop_id, category_id)
+    if not category:
+        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        return
+    products = await db.get_products_by_category(shop_id, category_id)
+    await callback.answer()
+    if not products:
+        await callback.message.answer(f"\"{category['name']}\" kategoriyasida mahsulot yo'q.")
+        return
+    await _send_products(callback.message, products)
+
+
+# ---------- MAHSULOT QIDIRISH ----------
+
+@router.message(F.text == "🔍 Qidirish")
+async def search_product_start(message: Message, state: FSMContext):
+    if await _require_shop(message) is None:
+        return
+    await state.set_state(SearchProduct.query)
+    await message.answer("Qidirilayotgan mahsulot nomini kiriting:")
+
+
+@router.message(SearchProduct.query)
+async def search_product_query(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+    await state.clear()
+    query = message.text.strip()
+    results = await db.search_products(shop_id, query)
+    if not results:
+        await message.answer(f"\"{query}\" bo'yicha hech narsa topilmadi.")
+        return
+    await message.answer(f"\"{query}\" bo'yicha {len(results)} ta natija topildi:")
+    await _send_products(message, results)
+
+
+# ---------- KATEGORIYALARNI BOSHQARISH ----------
+
+@router.message(F.text == "🗂 Kategoriyalar")
+async def categories_menu(message: Message):
+    if await _require_shop(message) is None:
+        return
+    shop_id = await get_shop_id(message.from_user.id)
+    categories = await db.get_categories(shop_id)
+    if not categories:
+        await message.answer(
+            "Hozircha kategoriya yo'q. Yangi kategoriya qo'shishingiz mumkin:",
+            reply_markup=kb.category_manage_kb(categories),
+        )
+        return
+    await message.answer(
+        "Mavjud kategoriyalar (qavsda mahsulotlar soni):",
+        reply_markup=kb.category_manage_kb(categories),
+    )
+
+
+@router.callback_query(F.data == "cat_manage_new")
+async def category_manage_new_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    await state.set_state(CategoryManage.new_name)
+    await callback.message.answer("Yangi kategoriya nomini kiriting:")
+    await callback.answer()
+
+
+@router.message(CategoryManage.new_name)
+async def category_manage_new_name(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+    name = message.text.strip()
+    if not name:
+        await message.answer("Kategoriya nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
+        return
+    await state.clear()
+    category = await db.add_category(shop_id, name)
+    categories = await db.get_categories(shop_id)
+    await message.answer(
+        f"✅ \"{category['name']}\" kategoriyasi tayyor.",
+        reply_markup=kb.category_manage_kb(categories),
+    )
+
+
+@router.callback_query(F.data.startswith("cat_noop_"))
+async def category_noop_cb(callback: CallbackQuery):
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cat_delete_"))
+async def category_delete_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    category_id = int(callback.data.split("_")[-1])
+    deleted = await db.delete_category(shop_id, category_id)
+    if not deleted:
+        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        return
+    await callback.answer("Kategoriya o'chirildi. Ichidagi mahsulotlar kategoriyasiz bo'lib qoldi.", show_alert=True)
+    categories = await db.get_categories(shop_id)
+    try:
+        await callback.message.edit_text(
+            "Mavjud kategoriyalar (qavsda mahsulotlar soni):" if categories else
+            "Hozircha kategoriya yo'q. Yangi kategoriya qo'shishingiz mumkin:",
+            reply_markup=kb.category_manage_kb(categories),
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.startswith("del_product_"))
