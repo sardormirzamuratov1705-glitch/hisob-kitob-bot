@@ -9,6 +9,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
+from access_control import get_shop_id
 
 router = Router()
 
@@ -36,10 +37,31 @@ class RestockPurchase(StatesGroup):
     alert_quantity = State()
 
 
+# Bu bo'lim tugmalari faqat do'kon egalariga ko'rsatiladi (bosh adminning o'z
+# do'koni yo'q). Shunga qaramay, har bir handler shop_id'ni qayta tekshiradi -
+# bosh admin adashib shu bo'limga kirib qolsa ham, hech qanday do'kon
+# ma'lumotiga ega bo'lmaydi.
+
+async def _require_shop(message: Message):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await message.answer("Bu bo'lim faqat do'kon egalari uchun.")
+    return shop_id
+
+
+async def _require_shop_cb(callback: CallbackQuery):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
+    return shop_id
+
+
 # ---------- MAHSULOT QO'SHISH ----------
 
 @router.message(F.text == "➕ Mahsulot qo'shish")
 async def add_product_start(message: Message, state: FSMContext):
+    if await _require_shop(message) is None:
+        return
     await state.set_state(AddProduct.name)
     await message.answer("Mahsulot nomini kiriting:")
 
@@ -138,6 +160,10 @@ async def add_product_alert_quantity(message: Message, state: FSMContext):
 
 @router.message(AddProduct.photo, F.photo)
 async def add_product_photo(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
     data = await state.get_data()
     photo_file_id = message.photo[-1].file_id
     channel_message_id = None
@@ -163,7 +189,7 @@ async def add_product_photo(message: Message, state: FSMContext):
             logging.warning(f"Rasmni kanalga yuborib bo'lmadi: {e}")
 
     await db.add_product(
-        data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id,
+        shop_id, data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id,
         sell_price=data["sell_price"], min_price=data["min_price"],
         alert_quantity=data.get("alert_quantity"),
     )
@@ -182,9 +208,14 @@ async def add_product_photo(message: Message, state: FSMContext):
 
 @router.callback_query(AddProduct.photo, F.data == "skip_photo")
 async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        await callback.answer()
+        return
     data = await state.get_data()
     await db.add_product(
-        data["name"], data["price"], data["quantity"], None,
+        shop_id, data["name"], data["price"], data["quantity"], None,
         sell_price=data["sell_price"], min_price=data["min_price"],
         alert_quantity=data.get("alert_quantity"),
     )
@@ -206,7 +237,10 @@ async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
 
 @router.message(F.text == "📋 Mahsulotlar ro'yxati")
 async def list_products(message: Message):
-    products = await db.get_all_products()
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+    products = await db.get_all_products(shop_id)
     if not products:
         await message.answer("Sklad hozircha bo'sh.")
         return
@@ -240,10 +274,13 @@ async def list_products(message: Message):
 
 @router.callback_query(F.data.startswith("del_product_"))
 async def delete_product_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
     product_id = int(callback.data.split("_")[-1])
-    product = await db.get_product(product_id)
+    product = await db.get_product(shop_id, product_id)
 
-    await db.delete_product(product_id)
+    await db.delete_product(shop_id, product_id)
 
     # Kanaldagi rasm postini ham o'chiramiz.
     if product and product.get("channel_message_id") and config.CHANNEL_ID:
@@ -270,22 +307,28 @@ async def _channel_caption(product: dict) -> str:
 
 @router.callback_query(F.data.startswith("inc_qty_"))
 async def increase_qty_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
     product_id = int(callback.data.split("_")[-1])
-    product = await db.get_product(product_id)
+    product = await db.get_product(shop_id, product_id)
     if not product:
         await callback.answer("Mahsulot topilmadi", show_alert=True)
         return
 
     new_quantity = product["quantity"] + 1
-    await db.update_product_quantity(product_id, new_quantity)
+    await db.update_product_quantity(shop_id, product_id, new_quantity)
     product["quantity"] = new_quantity
     await _sync_after_qty_change(callback, product)
 
 
 @router.callback_query(F.data.startswith("dec_qty_"))
 async def decrease_qty_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
     product_id = int(callback.data.split("_")[-1])
-    product = await db.get_product(product_id)
+    product = await db.get_product(shop_id, product_id)
     if not product:
         await callback.answer("Mahsulot topilmadi", show_alert=True)
         return
@@ -295,12 +338,12 @@ async def decrease_qty_cb(callback: CallbackQuery):
         return
 
     new_quantity = product["quantity"] - 1
-    await db.update_product_quantity(product_id, new_quantity)
+    await db.update_product_quantity(shop_id, product_id, new_quantity)
     old_quantity = product["quantity"]
     product["quantity"] = new_quantity
     await _sync_after_qty_change(callback, product)
     await alerts.notify_stock_change(
-        callback.bot, product, old_quantity, new_quantity,
+        callback.bot, shop_id, product, old_quantity, new_quantity,
         also_notify_chat_id=callback.from_user.id,
     )
 
@@ -336,7 +379,10 @@ async def _sync_after_qty_change(callback: CallbackQuery, product: dict):
 
 @router.message(F.text == "🐌 Sekin sotiladigan tovarlar")
 async def stale_products(message: Message):
-    stale = await db.get_stale_products(days=30)
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+    stale = await db.get_stale_products(shop_id, days=30)
     if not stale:
         await message.answer("✅ Hozircha 30 kundan beri sotilmagan tovar yo'q.")
         return
@@ -355,9 +401,9 @@ async def stale_products(message: Message):
 
 # ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
 
-async def _send_restock_list(message: Message):
-    low_stock = await db.get_low_stock_products()
-    manual_items = await db.get_manual_restock_items()
+async def _send_restock_list(message: Message, shop_id: int):
+    low_stock = await db.get_low_stock_products(shop_id)
+    manual_items = await db.get_manual_restock_items(shop_id)
 
     if not low_stock and not manual_items:
         await message.answer(
@@ -388,12 +434,16 @@ async def _send_restock_list(message: Message):
 @router.message(F.text == "🧾 Olinishi kerak bo'lgan tovarlar")
 async def restock_list(message: Message, state: FSMContext):
     await state.clear()
-    await _send_restock_list(message)
-
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+    await _send_restock_list(message, shop_id)
 
 
 @router.callback_query(F.data == "restock_add")
 async def restock_add_start(callback: CallbackQuery, state: FSMContext):
+    if await _require_shop_cb(callback) is None:
+        return
     await state.set_state(AddRestockItem.name)
     await callback.message.answer("Olinishi kerak bo'lgan tovar nomini kiriting:")
     await callback.answer()
@@ -408,16 +458,20 @@ async def restock_add_name(message: Message, state: FSMContext):
 
 @router.message(AddRestockItem.note)
 async def restock_add_note(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
     note = message.text.strip()
     if note == "-":
         note = None
     data = await state.get_data()
-    await db.add_manual_restock_item(data["name"], note)
+    await db.add_manual_restock_item(shop_id, data["name"], note)
     await state.clear()
     await message.answer(
         f"✅ \"{data['name']}\" olinishi kerak bo'lgan tovarlar ro'yxatiga qo'shildi."
     )
-    await _send_restock_list(message)
+    await _send_restock_list(message, shop_id)
 
 
 @router.callback_query(F.data.startswith("lowstock_notbought_"))
@@ -427,8 +481,11 @@ async def lowstock_not_bought_cb(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("lowstock_bought_"))
 async def lowstock_bought_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
     product_id = int(callback.data.split("_")[-1])
-    product = await db.get_product(product_id)
+    product = await db.get_product(shop_id, product_id)
     if not product:
         await callback.answer("Mahsulot topilmadi", show_alert=True)
         return
@@ -443,8 +500,11 @@ async def lowstock_bought_cb(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("restock_done_"))
 async def restock_done_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
     item_id = int(callback.data.split("_")[-1])
-    item = await db.get_manual_restock_item(item_id)
+    item = await db.get_manual_restock_item(shop_id, item_id)
     if not item:
         await callback.answer("Topilmadi", show_alert=True)
         return
@@ -551,16 +611,25 @@ async def restock_purchase_alert_quantity(message: Message, state: FSMContext):
 
 
 async def _finalize_restock_purchase(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
     data = await state.get_data()
     alert_quantity = data.get("alert_quantity")
     alert_line = f"Ogohlantirish chegarasi: {alert_quantity:.0f} dona\n" if alert_quantity else ""
 
     if data["restock_type"] == "product":
-        new_quantity, weighted_price = await db.update_product_purchase(
-            data["product_id"], data["quantity"], data["price"], data["sell_price"], data["min_price"],
-            alert_quantity=alert_quantity,
+        result = await db.update_product_purchase(
+            shop_id, data["product_id"], data["quantity"], data["price"], data["sell_price"],
+            data["min_price"], alert_quantity=alert_quantity,
         )
-        product = await db.get_product(data["product_id"])
+        if result is None:
+            await state.clear()
+            await message.answer("❌ Mahsulot topilmadi.")
+            return
+        new_quantity, weighted_price = result
+        product = await db.get_product(shop_id, data["product_id"])
         if product and product.get("channel_message_id") and config.CHANNEL_ID:
             try:
                 await message.bot.edit_message_caption(
@@ -580,14 +649,14 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}",
             parse_mode="HTML"
         )
-        await _send_restock_list(message)
+        await _send_restock_list(message, shop_id)
     else:
         await db.add_product(
-            data["name"], data["price"], data["quantity"], None,
+            shop_id, data["name"], data["price"], data["quantity"], None,
             sell_price=data["sell_price"], min_price=data["min_price"],
             alert_quantity=alert_quantity,
         )
-        await db.delete_manual_restock_item(data["manual_id"])
+        await db.delete_manual_restock_item(shop_id, data["manual_id"])
         await state.clear()
         await message.answer(
             f"✅ <b>{data['name']}</b> yangi mahsulot sifatida skladga qo'shildi.\n"
@@ -596,4 +665,4 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"{alert_line}",
             parse_mode="HTML"
         )
-        await _send_restock_list(message)
+        await _send_restock_list(message, shop_id)
