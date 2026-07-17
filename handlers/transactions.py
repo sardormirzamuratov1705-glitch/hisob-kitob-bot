@@ -33,6 +33,9 @@ async def _require_shop(message: Message):
 async def add_income_start(message: Message, state: FSMContext):
     if await _require_shop(message) is None:
         return
+    if not await db.is_owner(message.from_user.id):
+        await message.answer("Bu bo'lim faqat do'kon egasi uchun.")
+        return
     await state.update_data(type="income")
     await state.set_state(AddTransaction.amount)
     await message.answer("Kirim summasini kiriting (so'mda):")
@@ -73,9 +76,11 @@ async def add_transaction_description(message: Message, state: FSMContext):
     await state.clear()
 
     label = "Kirim" if data["type"] == "income" else "Chiqim"
+    is_owner = await db.is_owner(message.from_user.id)
+    reply_markup = kb.kirim_chiqim_menu() if is_owner else kb.main_menu("seller")
     await message.answer(
         f"✅ {label} qo'shildi: {data['amount']:.0f} so'm\nIzoh: {message.text.strip()}",
-        reply_markup=kb.kirim_chiqim_menu()
+        reply_markup=reply_markup
     )
 
 
