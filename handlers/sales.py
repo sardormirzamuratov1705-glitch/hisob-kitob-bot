@@ -306,10 +306,30 @@ async def _advance(message: Message, state: FSMContext):
 
 
 async def _ask_payment_method(message: Message, state: FSMContext):
+    # Barcha mahsulotlar tanlanib, narxlari kiritib bo'lingach, to'lov turini
+    # (naqd/plastik) FAQAT BIR MARTA so'raymiz - har bir mahsulot uchun emas.
+    # Shu bilan birga, to'lov turini tanlashdan oldin JAMI summani ko'rsatamiz,
+    # shunda sotuvchi hech qanday kalkulyatorsiz umumiy summani ko'rib,
+    # keyin bitta tugma bosib to'lov turini belgilaydi.
+    data = await state.get_data()
+    results = data.get("results", [])
+
+    lines = []
+    total = 0.0
+    for r in results:
+        line_total = r["qty"] * r["price"]
+        total += line_total
+        lines.append(f"• {r['name']}: {r['qty']:.0f} dona x {r['price']:.0f} so'm = {line_total:.0f} so'm")
+
+    summary = "\n".join(lines)
+
     await state.set_state(SaleFlow.payment_method)
     await message.answer(
-        "To'lov turi qanday bo'ldi?",
+        f"🧾 <b>Savdo xulosasi:</b>\n{summary}\n\n"
+        f"<b>Jami: {total:.0f} so'm</b>\n\n"
+        f"To'lov turi qanday bo'ldi?",
         reply_markup=kb.payment_method_kb(),
+        parse_mode="HTML",
     )
 
 
