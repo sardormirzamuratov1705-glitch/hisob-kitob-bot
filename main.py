@@ -13,8 +13,9 @@ from handlers import start, products, sales, transactions, debts, reports, users
 
 
 async def _debt_reminder_loop(bot: Bot):
-    """Har 24 soatda bir marta ADMIN_IDS'ga muddati o'tgan qarzlar
-    ro'yxatini yuboradi (alerts.send_debt_reminders)."""
+    """Har 24 soatda bir marta ishga tushadi - har bir do'kon egasiga FAQAT
+    o'ZINING muddati o'tgan qarzlari haqida xabar yuboradi
+    (alerts.send_debt_reminders do'konlar bo'yicha alohida-alohida ishlaydi)."""
     while True:
         try:
             await alerts.send_debt_reminders(bot)
