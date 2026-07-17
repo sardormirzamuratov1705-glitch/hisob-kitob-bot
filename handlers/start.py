@@ -7,17 +7,16 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 import keyboards as kb
-from access_control import is_admin, is_authorized
+from access_control import is_admin, is_authorized, get_role
 
 router = Router()
 
 
 @router.message(CommandStart(deep_link=True))
 async def cmd_start_deep_link(message: Message, state: FSMContext, command: CommandObject):
-    """Mijoz \"Qarz qo'shish\" bo'limida yaratilgan shaxsiy link orqali
-    (t.me/bot?start=debt_<id>) botni ochganda ishga tushadi. Mijozning
-    Telegram chat_id/username'ini shu qarz yozuviga bog'laydi, shundan
-    keyin bot unga to'g'ridan-to'g'ri eslatma yubora oladi."""
+    """Mijoz "Qarz qo'shish" bo'limida yaratilgan shaxsiy link orqali
+    (t.me/bot?start=debt_<id>) botni ochganda, yoki do'kon egasi/sotuvchi
+    bir martalik taklif linki orqali botni ochganda ishga tushadi."""
     await state.clear()
     payload = command.args or ""
 
@@ -41,6 +40,9 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
         if await db.is_owner(message.from_user.id):
             await message.answer("Siz allaqachon do'kon egasi sifatida ro'yxatdasiz.")
             return
+        if await db.is_seller(message.from_user.id):
+            await message.answer("Siz allaqachon bir do'konga sotuvchi sifatida ulangansiz.")
+            return
 
         # Race-safe: agar shu vaqtda boshqa birov ham xuddi shu tokenni
         # ishlatmoqchi bo'lsa, faqat biri muvaffaqiyatli bo'ladi.
@@ -60,7 +62,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
         await message.answer(
             "✅ Tabriklaymiz! Siz do'kon egasi sifatida ro'yxatdan o'tdingiz.\n\n"
             "Quyidagi bo'limlardan birini tanlang:",
-            reply_markup=kb.main_menu(is_admin(message.from_user.id))
+            reply_markup=kb.main_menu("owner")
         )
         try:
             await message.bot.send_message(
@@ -70,6 +72,59 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             )
         except Exception as e:
             logging.warning(f"Adminga xabar yuborib bo'lmadi: {e}")
+        return
+
+    if payload.startswith("seller_"):
+        token = payload.split("_", 1)[1]
+        invite = await db.get_seller_invite(token)
+
+        if not invite:
+            await message.answer("❌ Bu link amal qilmaydi (noto'g'ri yoki eskirgan).")
+            return
+        if invite.get("used_by"):
+            await message.answer(
+                "❌ Bu link allaqachon ishlatilgan. Har bir taklif linki faqat "
+                "BITTA marta, bitta odam uchun amal qiladi. Yangi link so'rang."
+            )
+            return
+
+        if is_admin(message.from_user.id):
+            await message.answer("Siz bosh adminsiz - bu link sizga kerak emas.")
+            return
+        if await db.is_owner(message.from_user.id):
+            await message.answer("Siz allaqachon do'kon egasisiz - bu link sizga kerak emas.")
+            return
+        if await db.is_seller(message.from_user.id):
+            await message.answer("Siz allaqachon bir do'konga sotuvchi sifatida ulangansiz.")
+            return
+
+        claimed = await db.use_seller_invite(token, message.from_user.id)
+        if not claimed:
+            await message.answer(
+                "❌ Bu link boshqa birov tomonidan sizdan bir zum oldin ishlatib bo'lingan."
+            )
+            return
+
+        await db.add_seller(
+            message.from_user.id,
+            invite["shop_id"],
+            message.from_user.full_name,
+            message.from_user.username,
+            added_by=invite["created_by"],
+        )
+        await message.answer(
+            "✅ Tabriklaymiz! Siz sotuvchi sifatida ro'yxatdan o'tdingiz.\n\n"
+            "Quyidagi bo'limlardan birini tanlang:",
+            reply_markup=kb.main_menu("seller")
+        )
+        try:
+            await message.bot.send_message(
+                invite["created_by"],
+                f"✅ Yangi sotuvchi taklif linki orqali qo'shildi: "
+                f"{message.from_user.full_name} (ID: {message.from_user.id})",
+            )
+        except Exception as e:
+            logging.warning(f"Do'kon egasiga xabar yuborib bo'lmadi: {e}")
         return
 
     if payload.startswith("debt_"):
@@ -110,7 +165,8 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             return
 
     # Noto'g'ri yoki eskirgan link bo'lsa, oddiy /start kabi davom etamiz.
-    if not await is_authorized(message.from_user.id):
+    role = await get_role(message.from_user.id)
+    if role is None:
         await message.answer(
             "Assalomu alaykum! Bu link amal qilmaydi yoki muddati o'tgan."
         )
@@ -118,14 +174,15 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
-        reply_markup=kb.main_menu(is_admin(message.from_user.id))
+        reply_markup=kb.main_menu(role)
     )
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    if not await is_authorized(message.from_user.id):
+    role = await get_role(message.from_user.id)
+    if role is None:
         await message.answer(
             "Assalomu alaykum! Bu bot faqat do'kon egasi/xodimlari uchun mo'ljallangan."
         )
@@ -133,23 +190,37 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
-        reply_markup=kb.main_menu(is_admin(message.from_user.id))
+        reply_markup=kb.main_menu(role)
     )
 
 
 @router.message(F.text == "⬅️ Orqaga")
 async def go_back(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=kb.main_menu(is_admin(message.from_user.id)))
+    role = await get_role(message.from_user.id)
+    if role is None:
+        return
+    await message.answer("Asosiy menyu:", reply_markup=kb.main_menu(role))
 
 
-# Quyidagi 4 ta bo'lim (Sklad, Kirim/Chiqim, Qarz daftar, Hisobot) faqat
-# do'kon egalariga tegishli - bosh adminning o'z do'koni yo'q. kb.main_menu()
-# bosh adminga bu tugmalarni umuman ko'rsatmaydi, lekin himoyani ikki marta
-# ta'minlash uchun (masalan eski chatdan matnni qayta yuborsa) har bir
-# handlerda ham qayta tekshiramiz.
+# Quyidagi bo'limlar (Sklad, Kirim/Chiqim, Hisobot, Sotuvchilar) faqat
+# HAQIQIY do'kon egalariga tegishli - na bosh adminda, na sotuvchida bunga
+# ruxsat yo'q. kb.main_menu() bu tugmalarni ularga umuman ko'rsatmaydi,
+# lekin himoyani ikki marta ta'minlash uchun (masalan eski chatdan matnni
+# qayta yuborsa) har bir handlerda ham qayta tekshiramiz.
 
-async def _require_owner(message: Message) -> bool:
+async def _require_owner_only(message: Message) -> bool:
+    if not await db.is_owner(message.from_user.id):
+        await message.answer("Bu bo'lim faqat do'kon egasi uchun.")
+        return False
+    return True
+
+
+# "📒 Qarz daftar" esa do'kon egasi VA sotuvchi uchun ham ochiq (faqat bosh
+# admin kira olmaydi) - qarz qo'shish/to'lov qabul qilish sotuvchining
+# kundalik ishi.
+
+async def _require_shop_access(message: Message) -> bool:
     if is_admin(message.from_user.id):
         await message.answer("Bu bo'lim faqat do'kon egalari uchun.")
         return False
@@ -159,7 +230,7 @@ async def _require_owner(message: Message) -> bool:
 @router.message(F.text == "📦 Sklad")
 async def open_sklad(message: Message, state: FSMContext):
     await state.clear()
-    if not await _require_owner(message):
+    if not await _require_owner_only(message):
         return
     await message.answer("Sklad bo'limi:", reply_markup=kb.sklad_menu())
 
@@ -167,7 +238,7 @@ async def open_sklad(message: Message, state: FSMContext):
 @router.message(F.text == "💰 Kirim/Chiqim")
 async def open_kirim_chiqim(message: Message, state: FSMContext):
     await state.clear()
-    if not await _require_owner(message):
+    if not await _require_owner_only(message):
         return
     await message.answer("Kirim/Chiqim bo'limi:", reply_markup=kb.kirim_chiqim_menu())
 
@@ -175,7 +246,7 @@ async def open_kirim_chiqim(message: Message, state: FSMContext):
 @router.message(F.text == "📒 Qarz daftar")
 async def open_qarz(message: Message, state: FSMContext):
     await state.clear()
-    if not await _require_owner(message):
+    if not await _require_shop_access(message):
         return
     await message.answer("Qarz daftar bo'limi:", reply_markup=kb.qarz_menu())
 
@@ -183,7 +254,7 @@ async def open_qarz(message: Message, state: FSMContext):
 @router.message(F.text == "📊 Hisobot")
 async def open_hisobot(message: Message, state: FSMContext):
     await state.clear()
-    if not await _require_owner(message):
+    if not await _require_owner_only(message):
         return
     await message.answer("Hisobot bo'limi:", reply_markup=kb.hisobot_menu())
 
