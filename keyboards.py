@@ -154,10 +154,8 @@ def product_action_kb(product_id: int, allow_manage: bool = True):
     if not allow_manage:
         return None
     builder = InlineKeyboardBuilder()
-    builder.button(text="➖", callback_data=f"dec_qty_{product_id}")
-    builder.button(text="➕", callback_data=f"inc_qty_{product_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"del_product_{product_id}")
-    builder.adjust(2, 1)
+    builder.adjust(1)
     return builder.as_markup()
 
 
