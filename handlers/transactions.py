@@ -5,6 +5,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 import database as db
 import keyboards as kb
+from access_control import get_shop_id
 
 router = Router()
 
@@ -14,10 +15,24 @@ class AddTransaction(StatesGroup):
     description = State()
 
 
+# Bu bo'lim tugmalari faqat do'kon egalariga ko'rsatiladi (bosh adminning o'z
+# do'koni yo'q). Shunga qaramay, har bir handler shop_id'ni qayta tekshiradi -
+# bosh admin adashib shu bo'limga kirib qolsa ham, hech qanday do'kon
+# ma'lumotiga ega bo'lmaydi.
+
+async def _require_shop(message: Message):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await message.answer("Bu bo'lim faqat do'kon egalari uchun.")
+    return shop_id
+
+
 # ---------- KIRIM ----------
 
 @router.message(F.text == "➕ Kirim qo'shish")
 async def add_income_start(message: Message, state: FSMContext):
+    if await _require_shop(message) is None:
+        return
     await state.update_data(type="income")
     await state.set_state(AddTransaction.amount)
     await message.answer("Kirim summasini kiriting (so'mda):")
@@ -27,6 +42,8 @@ async def add_income_start(message: Message, state: FSMContext):
 
 @router.message(F.text == "➖ Chiqim qo'shish")
 async def add_expense_start(message: Message, state: FSMContext):
+    if await _require_shop(message) is None:
+        return
     await state.update_data(type="expense")
     await state.set_state(AddTransaction.amount)
     await message.answer("Chiqim summasini kiriting (so'mda):")
@@ -46,8 +63,13 @@ async def add_transaction_amount(message: Message, state: FSMContext):
 
 @router.message(AddTransaction.description)
 async def add_transaction_description(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
     data = await state.get_data()
-    await db.add_transaction(data["type"], data["amount"], message.text.strip())
+    await db.add_transaction(shop_id, data["type"], data["amount"], message.text.strip())
     await state.clear()
 
     label = "Kirim" if data["type"] == "income" else "Chiqim"
@@ -61,7 +83,11 @@ async def add_transaction_description(message: Message, state: FSMContext):
 
 @router.message(F.text == "📈 Bugungi holat")
 async def today_status(message: Message):
-    income, expense = await db.get_totals()
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    income, expense = await db.get_totals(shop_id)
     balance = income - expense
     await message.answer(
         f"📈 <b>Umumiy holat</b>\n\n"
