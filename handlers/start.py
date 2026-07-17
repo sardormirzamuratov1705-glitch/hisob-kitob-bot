@@ -12,6 +12,10 @@ import keyboards as kb
 router = Router()
 
 
+def _is_admin(user_id: int) -> bool:
+    return user_id in config.ADMIN_IDS
+
+
 @router.message(CommandStart(deep_link=True))
 async def cmd_start_deep_link(message: Message, state: FSMContext, command: CommandObject):
     """Mijoz \"Qarz qo'shish\" bo'limida yaratilgan shaxsiy link orqali
@@ -52,6 +56,11 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             return
 
     # Noto'g'ri yoki eskirgan link bo'lsa, oddiy /start kabi davom etamiz.
+    if not _is_admin(message.from_user.id):
+        await message.answer(
+            "Assalomu alaykum! Bu link amal qilmaydi yoki muddati o'tgan."
+        )
+        return
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
@@ -62,6 +71,11 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    if not _is_admin(message.from_user.id):
+        await message.answer(
+            "Assalomu alaykum! Bu bot faqat do'kon egasi/xodimlari uchun mo'ljallangan."
+        )
+        return
     await message.answer(
         "Assalomu alaykum! Do'kon boshqaruv botiga xush kelibsiz.\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
