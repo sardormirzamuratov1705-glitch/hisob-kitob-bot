@@ -10,17 +10,32 @@ import database as db
 def is_admin(user_id: int) -> bool:
     """Bosh admin - faqat .env dagi config.ADMIN_IDS ro'yxatidagilar.
     Faqat shular yangi do'kon egalarini bazaga qo'sha/o'chira oladi
-    ("Foydalanuvchilar" bo'limi faqat shularga ko'rinadi)."""
+    ("Foydalanuvchilar" bo'limi faqat shularga ko'rinadi). Bosh adminning
+    o'zining alohida do'koni (Sklad/Savdo/Qarz/Hisobot) yo'q - u faqat
+    do'kon egalarini boshqaradi."""
     return user_id in config.ADMIN_IDS
 
 
 async def is_authorized(user_id: int) -> bool:
-    """Botning ish bo'limlariga (Sklad, Kirim/Chiqim, Qarz daftar, Hisobot) kirish
-    huquqi bor-yo'qligini tekshiradi: bosh admin YOKI bosh admin tomonidan
-    bazaga do'kon egasi sifatida qo'shilgan foydalanuvchi."""
+    """Botga umuman kirish huquqi bor-yo'qligini tekshiradi: bosh admin YOKI
+    bosh admin tomonidan bazaga do'kon egasi sifatida qo'shilgan foydalanuvchi."""
     if is_admin(user_id):
         return True
     return await db.is_owner(user_id)
+
+
+async def get_shop_id(user_id: int):
+    """Foydalanuvchining do'koni (shop_id) - do'kon egasi uchun har doim
+    o'zining telegram_id'siga teng (1 egа = 1 mustaqil do'kon).
+
+    Bosh adminning o'z do'koni yo'q - shuning uchun bosh admin uchun None
+    qaytariladi. Sklad/Savdo/Qarz/Hisobot bo'limlaridagi har bir handler
+    ishlatishdan oldin shop_id None emasligini tekshirishi kerak (u holat
+    faqat bosh admin adashib shu bo'limga kirmoqchi bo'lganda yuz beradi -
+    normal holatda bunday tugmalar bosh adminga ko'rsatilmaydi)."""
+    if await db.is_owner(user_id):
+        return user_id
+    return None
 
 
 class OwnerOnlyMiddleware(BaseMiddleware):
