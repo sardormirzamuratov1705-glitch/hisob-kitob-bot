@@ -52,6 +52,8 @@ class AddDebt(StatesGroup):
 
 class PayDebt(StatesGroup):
     amount = State()
+    payment_method = State()
+    mixed_cash_amount = State()
 
 
 def _parse_taken_date(text: str) -> str:
@@ -363,7 +365,79 @@ async def pay_debt_amount(message: Message, state: FSMContext):
         )
         return
 
-    result = await db.add_debt_payment(shop_id, debt_id, amount)
+    data = await state.update_data(pay_amount=amount)
+    await state.set_state(PayDebt.payment_method)
+    await message.answer(
+        f"To'lov qanday qabul qilindi? ({amount:.0f} so'm)",
+        reply_markup=kb.payment_method_kb(),
+    )
+
+
+@router.callback_query(PayDebt.payment_method, F.data.startswith("pay_method_"))
+async def pay_debt_method_cb(callback: CallbackQuery, state: FSMContext):
+    method = callback.data.replace("pay_method_", "")  # "naqd" | "plastik" | "aralash"
+    data = await state.get_data()
+    amount = data["pay_amount"]
+
+    if method == "aralash":
+        await state.update_data(payment_method=method)
+        await state.set_state(PayDebt.mixed_cash_amount)
+        await callback.answer()
+        await callback.message.answer(
+            f"Jami: {amount:.0f} so'm.\nShundan qanchasi <b>naqd</b> to'landi (so'mda)?",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.update_data(payment_method=method)
+    await callback.answer()
+    await _finalize_debt_payment(callback.message, callback.from_user.id, state)
+
+
+@router.message(PayDebt.mixed_cash_amount)
+async def pay_debt_mixed_cash_amount(message: Message, state: FSMContext):
+    data = await state.get_data()
+    total = data["pay_amount"]
+    try:
+        cash = float(message.text.replace(",", ".").replace(" ", ""))
+        if cash < 0 or cash > total:
+            raise ValueError
+    except ValueError:
+        await message.answer(
+            f"Iltimos, 0 dan {total:.0f} gacha bo'lgan raqam kiriting."
+        )
+        return
+
+    card = total - cash
+    await state.update_data(mixed_cash=cash, mixed_card=card)
+    await _finalize_debt_payment(message, message.from_user.id, state)
+
+
+async def _finalize_debt_payment(message: Message, user_id: int, state: FSMContext):
+    shop_id = await get_shop_id(user_id)
+    if shop_id is None:
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    debt_id = data["debt_id"]
+    amount = data["pay_amount"]
+    payment_method = data.get("payment_method")
+
+    debt = await db.get_debt(shop_id, debt_id)
+    if not debt:
+        await state.clear()
+        await message.answer("Bu qarz topilmadi (o'chirilgan bo'lishi mumkin).")
+        return
+
+    if payment_method == "aralash":
+        result = await db.add_debt_payment(
+            shop_id, debt_id, amount, payment_method="aralash",
+            cash_amount=data.get("mixed_cash", 0.0), card_amount=data.get("mixed_card", 0.0),
+        )
+    else:
+        result = await db.add_debt_payment(shop_id, debt_id, amount, payment_method=payment_method)
+
     await state.clear()
 
     if result["status"] == "full":
