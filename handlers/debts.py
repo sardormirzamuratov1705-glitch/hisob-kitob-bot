@@ -21,8 +21,16 @@ class AddDebt(StatesGroup):
     customer_name = State()
     phone = State()
     amount = State()
+    taken_date = State()
     due_date = State()
     description = State()
+
+
+def _parse_taken_date(text: str) -> str:
+    """'kun.oy.yil' formatidagi matnni 'YYYY-MM-DD' ko'rinishiga o'tkazadi.
+    Noto'g'ri format uchun ValueError ko'taradi."""
+    dt = datetime.strptime(text.strip(), "%d.%m.%Y")
+    return dt.strftime("%Y-%m-%d")
 
 
 def _parse_due_date(text: str):
@@ -73,6 +81,44 @@ async def add_debt_amount(message: Message, state: FSMContext):
         await message.answer("Iltimos, faqat raqam kiriting. Masalan: 500000")
         return
     await state.update_data(amount=amount)
+    await state.set_state(AddDebt.taken_date)
+    await message.answer(
+        "Qarzni qachon oldi?",
+        reply_markup=kb.taken_date_kb()
+    )
+
+
+@router.callback_query(AddDebt.taken_date, F.data == "taken_today")
+async def add_debt_taken_today(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(taken_date=datetime.now().strftime("%Y-%m-%d"))
+    await state.set_state(AddDebt.due_date)
+    await callback.answer()
+    await callback.message.answer(
+        "Qarzni qaytarish sanasini kiriting:\n"
+        "— aniq sana: kun.oy.yil, masalan 25.07.2026\n"
+        "— yoki necha kundan keyin: masalan 7\n"
+        "— yoki sanasiz davom etish uchun '-' deb yozing",
+        reply_markup=kb.skip_due_date_kb()
+    )
+
+
+@router.callback_query(AddDebt.taken_date, F.data == "taken_custom")
+async def add_debt_taken_custom_prompt(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("Qarz olingan sanani kiriting: kun.oy.yil (masalan 10.07.2026):")
+
+
+@router.message(AddDebt.taken_date)
+async def add_debt_taken_date_text(message: Message, state: FSMContext):
+    try:
+        taken_date = _parse_taken_date(message.text)
+    except ValueError:
+        await message.answer(
+            "Iltimos, sanani to'g'ri formatda kiriting: kun.oy.yil (masalan 10.07.2026), "
+            "yoki yuqoridagi 'Bugun' tugmasini bosing."
+        )
+        return
+    await state.update_data(taken_date=taken_date)
     await state.set_state(AddDebt.due_date)
     await message.answer(
         "Qarzni qaytarish sanasini kiriting:\n"
@@ -111,9 +157,12 @@ async def add_debt_description(message: Message, state: FSMContext):
     data = await state.get_data()
     debt_id = await db.add_debt(
         data["customer_name"], data["phone"], data["amount"], message.text.strip(),
-        due_date=data.get("due_date")
+        due_date=data.get("due_date"), taken_date=data.get("taken_date")
     )
     await state.clear()
+
+    taken_dt = datetime.strptime(data["taken_date"], "%Y-%m-%d")
+    taken_date_line = f"Qarz olgan sana: {taken_dt.strftime('%d.%m.%Y')}\n"
 
     due_date_line = ""
     if data.get("due_date"):
@@ -125,6 +174,7 @@ async def add_debt_description(message: Message, state: FSMContext):
         f"✅ Qarz qo'shildi:\n"
         f"Mijoz: {data['customer_name']}\n"
         f"Summasi: {data['amount']:.0f} so'm\n"
+        f"{taken_date_line}"
         f"{due_date_line}",
         reply_markup=kb.qarz_menu()
     )
@@ -176,6 +226,15 @@ async def list_debts(message: Message):
             except ValueError:
                 pass
 
+        taken_line = ""
+        taken_date_str = d.get("taken_date")
+        if taken_date_str:
+            try:
+                taken_dt = datetime.strptime(taken_date_str, "%Y-%m-%d")
+                taken_line = f"🗓 Qarz olgan sana: {taken_dt.strftime('%d.%m.%Y')}\n"
+            except ValueError:
+                pass
+
         linked = bool(d.get("customer_chat_id"))
         link_line = "\n🔗 Botga ulangan (eslatma yuborish mumkin)" if linked else ""
         text = (
@@ -183,6 +242,7 @@ async def list_debts(message: Message):
             f"📞 {d['phone']}\n"
             f"💵 {d['amount']:.0f} so'm\n"
             f"{age_line}"
+            f"{taken_line}"
             f"{due_line}"
             f"📝 {d['description']}"
             f"{link_line}"
