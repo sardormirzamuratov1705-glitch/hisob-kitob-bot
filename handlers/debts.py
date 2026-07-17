@@ -8,6 +8,7 @@ from aiogram.fsm.state import StatesGroup, State
 import database as db
 import keyboards as kb
 import alerts
+from access_control import get_shop_id
 
 router = Router()
 
@@ -15,6 +16,29 @@ router = Router()
 async def _debt_link(bot, debt_id: int) -> str:
     me = await bot.get_me()
     return f"https://t.me/{me.username}?start=debt_{debt_id}"
+
+
+# Bu bo'lim tugmalari faqat do'kon egalariga ko'rsatiladi (bosh adminning o'z
+# do'koni yo'q). Shunga qaramay, har bir handler shop_id'ni qayta tekshiradi -
+# bosh admin adashib shu bo'limga kirib qolsa ham, hech qanday do'kon
+# ma'lumotiga ega bo'lmaydi.
+#
+# Diqqat: CallbackQuery.from_user - bu doim tugmani bosgan haqiqiy foydalanuvchi
+# (Message'dan farqli o'laroq, bu yerda "kim yubordi" masalasi yo'q), shuning
+# uchun callback handlerlarda callback.from_user.id'ni bemalol ishlatsak bo'ladi.
+
+async def _require_shop(message: Message):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await message.answer("Bu bo'lim faqat do'kon egalari uchun.")
+    return shop_id
+
+
+async def _require_shop_cb(callback: CallbackQuery):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
+    return shop_id
 
 
 class AddDebt(StatesGroup):
@@ -59,6 +83,8 @@ def _parse_due_date(text: str):
 
 @router.message(F.text == "➕ Qarz qo'shish")
 async def add_debt_start(message: Message, state: FSMContext):
+    if await _require_shop(message) is None:
+        return
     await state.set_state(AddDebt.customer_name)
     await message.answer("Mijoz ismini kiriting:")
 
@@ -158,9 +184,14 @@ async def add_debt_skip_due_date(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddDebt.description)
 async def add_debt_description(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
     data = await state.get_data()
     debt_id = await db.add_debt(
-        data["customer_name"], data["phone"], data["amount"], message.text.strip(),
+        shop_id, data["customer_name"], data["phone"], data["amount"], message.text.strip(),
         due_date=data.get("due_date"), taken_date=data.get("taken_date")
     )
     await state.clear()
@@ -192,12 +223,16 @@ async def add_debt_description(message: Message, state: FSMContext):
 
 @router.message(F.text == "📋 Qarzdorlar ro'yxati")
 async def list_debts(message: Message):
-    debts = await db.get_debts(only_unpaid=True)
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    debts = await db.get_debts(shop_id, only_unpaid=True)
     if not debts:
         await message.answer("Qarzdorlar yo'q. 🎉")
         return
 
-    total = await db.get_total_debt()
+    total = await db.get_total_debt(shop_id)
     await message.answer(f"Umumiy qarzdorlik: <b>{total:.0f} so'm</b>", parse_mode="HTML")
 
     for d in debts:
@@ -272,8 +307,12 @@ async def list_debts(message: Message):
 
 @router.callback_query(F.data.startswith("pay_debt_"))
 async def pay_debt_start(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     debt_id = int(callback.data.split("_")[-1])
-    debt = await db.get_debt(debt_id)
+    debt = await db.get_debt(shop_id, debt_id)
     if not debt:
         await callback.answer("Qarz topilmadi", show_alert=True)
         return
@@ -295,6 +334,11 @@ async def pay_debt_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(PayDebt.amount)
 async def pay_debt_amount(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
     try:
         amount = float(message.text.replace(",", ".").replace(" ", ""))
         if amount <= 0:
@@ -305,7 +349,7 @@ async def pay_debt_amount(message: Message, state: FSMContext):
 
     data = await state.get_data()
     debt_id = data["debt_id"]
-    debt = await db.get_debt(debt_id)
+    debt = await db.get_debt(shop_id, debt_id)
     if not debt:
         await state.clear()
         await message.answer("Bu qarz topilmadi (o'chirilgan bo'lishi mumkin).")
@@ -319,7 +363,7 @@ async def pay_debt_amount(message: Message, state: FSMContext):
         )
         return
 
-    result = await db.add_debt_payment(debt_id, amount)
+    result = await db.add_debt_payment(shop_id, debt_id, amount)
     await state.clear()
 
     if result["status"] == "full":
@@ -342,8 +386,12 @@ async def pay_debt_amount(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("remind_debt_"))
 async def remind_debt_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     debt_id = int(callback.data.split("_")[-1])
-    debt = await db.get_debt(debt_id)
+    debt = await db.get_debt(shop_id, debt_id)
     if not debt:
         await callback.answer("Qarz topilmadi", show_alert=True)
         return
@@ -357,8 +405,12 @@ async def remind_debt_cb(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("debt_link_"))
 async def debt_link_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
     debt_id = int(callback.data.split("_")[-1])
-    debt = await db.get_debt(debt_id)
+    debt = await db.get_debt(shop_id, debt_id)
     if not debt:
         await callback.answer("Qarz topilmadi", show_alert=True)
         return
