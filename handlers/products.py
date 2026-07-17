@@ -107,12 +107,12 @@ async def add_product_name(message: Message, state: FSMContext):
     await state.set_state(AddProduct.category)
     if categories:
         await message.answer(
-            "Qaysi kategoriyaga tegishli? Mavjudlaridan tanlang yoki yangisini qo'shing:",
+            "Qaysi bo'limga tegishli? Mavjudlaridan tanlang yoki yangisini qo'shing:",
             reply_markup=kb.category_pick_kb(categories),
         )
     else:
         await message.answer(
-            "Hozircha kategoriya yo'q. Yangi kategoriya qo'shing yoki kategoriyasiz davom eting:",
+            "Hozircha bo'lim yo'q. Yangi bo'lim qo'shing yoki bo'limsiz davom eting:",
             reply_markup=kb.category_pick_kb(categories),
         )
 
@@ -127,7 +127,7 @@ async def add_product_category_new(callback: CallbackQuery, state: FSMContext):
     if await _require_shop_cb(callback) is None:
         return
     await state.set_state(AddProduct.new_category)
-    await callback.message.answer("Yangi kategoriya nomini kiriting:")
+    await callback.message.answer("Yangi bo'lim nomini kiriting:")
     await callback.answer()
 
 
@@ -139,11 +139,11 @@ async def add_product_category_new_name(message: Message, state: FSMContext):
         return
     name = message.text.strip()
     if not name:
-        await message.answer("Kategoriya nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
+        await message.answer("Bo'lim nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
         return
     category = await db.add_category(shop_id, name)
     await state.update_data(category_id=category["id"])
-    await message.answer(f"✅ \"{category['name']}\" kategoriyasi tanlandi.")
+    await message.answer(f"✅ \"{category['name']}\" bo'limi tanlandi.")
     await _ask_price(message, state)
 
 
@@ -164,7 +164,7 @@ async def add_product_category_pick(callback: CallbackQuery, state: FSMContext):
     category_id = int(callback.data.split("_")[-1])
     category = await db.get_category(shop_id, category_id)
     if not category:
-        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        await callback.answer("Bo'lim topilmadi", show_alert=True)
         return
     await state.update_data(category_id=category_id)
     await callback.answer(f"\"{category['name']}\" tanlandi")
@@ -331,7 +331,7 @@ async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ---------- MAHSULOTLAR RO'YXATI (KATEGORIYA BO'YICHA) ----------
+# ---------- MAHSULOTLAR RO'YXATI (BO'LIM BO'YICHA) ----------
 
 def _product_caption(p: dict) -> str:
     caption = (
@@ -352,17 +352,18 @@ async def _send_products(message: Message, products):
     """Berilgan mahsulotlar ro'yxatini bittalab, rasm bilan/rasmsiz chiqaradi."""
     for p in products:
         caption = _product_caption(p)
+        markup = kb.product_action_kb(p["id"], category_id=p.get("category_id"))
         if p["photo_file_id"]:
             await message.answer_photo(
                 photo=p["photo_file_id"],
                 caption=caption,
-                reply_markup=kb.product_action_kb(p["id"]),
+                reply_markup=markup,
                 parse_mode="HTML"
             )
         else:
             await message.answer(
                 caption,
-                reply_markup=kb.product_action_kb(p["id"]),
+                reply_markup=markup,
                 parse_mode="HTML"
             )
 
@@ -406,7 +407,7 @@ async def cat_view_none_cb(callback: CallbackQuery):
     products = await db.get_products_by_category(shop_id, None)
     await callback.answer()
     if not products:
-        await callback.message.answer("Kategoriyasiz mahsulot yo'q.")
+        await callback.message.answer("Bo'limsiz mahsulot yo'q.")
         return
     await _send_products(callback.message, products)
 
@@ -419,12 +420,12 @@ async def cat_view_one_cb(callback: CallbackQuery):
     category_id = int(callback.data.split("_")[-1])
     category = await db.get_category(shop_id, category_id)
     if not category:
-        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        await callback.answer("Bo'lim topilmadi", show_alert=True)
         return
     products = await db.get_products_by_category(shop_id, category_id)
     await callback.answer()
     if not products:
-        await callback.message.answer(f"\"{category['name']}\" kategoriyasida mahsulot yo'q.")
+        await callback.message.answer(f"\"{category['name']}\" bo'limida mahsulot yo'q.")
         return
     await _send_products(callback.message, products)
 
@@ -455,9 +456,9 @@ async def search_product_query(message: Message, state: FSMContext):
     await _send_products(message, results)
 
 
-# ---------- KATEGORIYALARNI BOSHQARISH ----------
+# ---------- BO'LIMLARNI BOSHQARISH ----------
 
-@router.message(F.text == "🗂 Kategoriyalar")
+@router.message(F.text == "🗂 Bo'limlar")
 async def categories_menu(message: Message):
     if await _require_shop(message) is None:
         return
@@ -465,12 +466,12 @@ async def categories_menu(message: Message):
     categories = await db.get_categories(shop_id)
     if not categories:
         await message.answer(
-            "Hozircha kategoriya yo'q. Yangi kategoriya qo'shishingiz mumkin:",
+            "Hozircha bo'lim yo'q. Yangi bo'lim qo'shishingiz mumkin:",
             reply_markup=kb.category_manage_kb(categories),
         )
         return
     await message.answer(
-        "Mavjud kategoriyalar (qavsda mahsulotlar soni):",
+        "Mavjud bo'limlar (qavsda mahsulotlar soni):",
         reply_markup=kb.category_manage_kb(categories),
     )
 
@@ -481,7 +482,7 @@ async def category_manage_new_cb(callback: CallbackQuery, state: FSMContext):
     if shop_id is None:
         return
     await state.set_state(CategoryManage.new_name)
-    await callback.message.answer("Yangi kategoriya nomini kiriting:")
+    await callback.message.answer("Yangi bo'lim nomini kiriting:")
     await callback.answer()
 
 
@@ -493,13 +494,13 @@ async def category_manage_new_name(message: Message, state: FSMContext):
         return
     name = message.text.strip()
     if not name:
-        await message.answer("Kategoriya nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
+        await message.answer("Bo'lim nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
         return
     await state.clear()
     category = await db.add_category(shop_id, name)
     categories = await db.get_categories(shop_id)
     await message.answer(
-        f"✅ \"{category['name']}\" kategoriyasi tayyor.",
+        f"✅ \"{category['name']}\" bo'limi tayyor.",
         reply_markup=kb.category_manage_kb(categories),
     )
 
@@ -517,14 +518,14 @@ async def category_delete_cb(callback: CallbackQuery):
     category_id = int(callback.data.split("_")[-1])
     deleted = await db.delete_category(shop_id, category_id)
     if not deleted:
-        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        await callback.answer("Bo'lim topilmadi", show_alert=True)
         return
-    await callback.answer("Kategoriya o'chirildi. Ichidagi mahsulotlar kategoriyasiz bo'lib qoldi.", show_alert=True)
+    await callback.answer("Bo'lim o'chirildi. Ichidagi mahsulotlar bo'limsiz bo'lib qoldi.", show_alert=True)
     categories = await db.get_categories(shop_id)
     try:
         await callback.message.edit_text(
-            "Mavjud kategoriyalar (qavsda mahsulotlar soni):" if categories else
-            "Hozircha kategoriya yo'q. Yangi kategoriya qo'shishingiz mumkin:",
+            "Mavjud bo'limlar (qavsda mahsulotlar soni):" if categories else
+            "Hozircha bo'lim yo'q. Yangi bo'lim qo'shishingiz mumkin:",
             reply_markup=kb.category_manage_kb(categories),
         )
     except Exception:
@@ -552,6 +553,69 @@ async def delete_product_cb(callback: CallbackQuery):
             logging.warning(f"Kanaldagi postni o'chirib bo'lmadi: {e}")
 
     await callback.answer("Mahsulot o'chirildi ✅")
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+# ---------- MAHSULOTNI BO'LIMLAR ORASIDA KO'CHIRISH / BO'LIMDAN CHIQARISH ----------
+
+@router.callback_query(F.data.startswith("prod_move_") & ~F.data.startswith("prod_move_to_"))
+async def product_move_start_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(shop_id, product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    categories = await db.get_categories(shop_id)
+    if not categories:
+        await callback.answer("Hozircha bo'lim yo'q. Avval bo'lim yarating.", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(
+        f"<b>{product['name']}</b> qaysi bo'limga ko'chirilsin?",
+        reply_markup=kb.category_move_kb(categories, product_id, product.get("category_id")),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("prod_move_to_"))
+async def product_move_to_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    parts = callback.data.split("_")
+    product_id, category_id = int(parts[-2]), int(parts[-1])
+    category = await db.get_category(shop_id, category_id)
+    if not category:
+        await callback.answer("Bo'lim topilmadi", show_alert=True)
+        return
+    moved = await db.set_product_category(shop_id, product_id, category_id)
+    if not moved:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await callback.answer(f"✅ \"{category['name']}\" bo'limiga ko'chirildi", show_alert=True)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("prod_unassign_"))
+async def product_unassign_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    product_id = int(callback.data.split("_")[-1])
+    removed = await db.set_product_category(shop_id, product_id, None)
+    if not removed:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await callback.answer("✅ Mahsulot bo'limdan chiqarildi", show_alert=True)
     try:
         await callback.message.delete()
     except Exception:
