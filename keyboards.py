@@ -23,9 +23,10 @@ def main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
 def users_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="➕ Do'kon egasi qo'shish")
+    builder.button(text="🔗 Bir martalik link")
     builder.button(text="📋 Do'kon egalari ro'yxati")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1)
+    builder.adjust(1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
