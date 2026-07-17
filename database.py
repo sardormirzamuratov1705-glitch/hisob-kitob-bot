@@ -227,6 +227,15 @@ async def init_db():
                 await db.execute(f"ALTER TABLE owners ADD COLUMN {col} TEXT")
             except Exception:
                 pass
+
+        # Sotuvchining o'zi kiritgan ismi va telefon raqami - do'kon egasi
+        # bir nechta sotuvchini boshqarganda ularni Telegram ID/username
+        # emas, balki tanish nom bilan bir-biridan ajratib olishi uchun.
+        for col in ("seller_name", "phone_number"):
+            try:
+                await db.execute(f"ALTER TABLE sellers ADD COLUMN {col} TEXT")
+            except Exception:
+                pass
         await db.commit()
 
 
@@ -856,6 +865,18 @@ async def get_seller(telegram_id: int):
         cursor = await db.execute("SELECT * FROM sellers WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+
+async def set_seller_profile(telegram_id: int, seller_name: str, phone_number: str = None):
+    """Sotuvchi o'zi haqida kiritgan ma'lumotlarni saqlaydi (birinchi /start
+    bosganda so'raladigan qisqa so'rovnoma - do'kon egasi uchun sotuvchilarni
+    bir-biridan ajratib ko'rish maqsadida)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE sellers SET seller_name = ?, phone_number = ? WHERE telegram_id = ?",
+            (seller_name, phone_number, telegram_id),
+        )
+        await db.commit()
 
 
 # ---------- SOTUVCHI UCHUN BIR MARTALIK TAKLIF LINKLARI ----------
