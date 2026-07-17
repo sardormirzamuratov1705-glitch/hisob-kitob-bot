@@ -23,6 +23,7 @@ router = Router()
 class OwnerOnboarding(StatesGroup):
     waiting_owner_name = State()
     waiting_shop_name = State()
+    waiting_phone = State()
 
 
 async def _start_owner_onboarding(message: Message, state: FSMContext):
@@ -60,14 +61,36 @@ async def owner_onboarding_shop(message: Message, state: FSMContext):
         await message.answer("Iltimos, do'koningiz nomi yoki turini matn ko'rinishida kiriting.")
         return
 
+    await state.update_data(shop_name=message.text.strip())
+    await state.set_state(OwnerOnboarding.waiting_phone)
+    await message.answer(
+        "📞 Endi telefon raqamingizni kiriting (masalan: +998901234567):"
+    )
+
+
+@router.message(OwnerOnboarding.waiting_phone)
+async def owner_onboarding_phone(message: Message, state: FSMContext):
+    if not await db.is_owner(message.from_user.id):
+        await state.clear()
+        return
+
+    phone_number = None
+    if message.contact and message.contact.phone_number:
+        phone_number = message.contact.phone_number
+    elif message.text:
+        phone_number = message.text.strip()
+    else:
+        await message.answer("Iltimos, telefon raqamingizni matn ko'rinishida kiriting.")
+        return
+
     data = await state.get_data()
     owner_name = data.get("owner_name")
-    shop_name = message.text.strip()
-    await db.set_owner_profile(message.from_user.id, owner_name, shop_name)
+    shop_name = data.get("shop_name")
+    await db.set_owner_profile(message.from_user.id, owner_name, shop_name, phone_number)
     await state.clear()
 
     await message.answer(
-        f"✅ Rahmat! Ma'lumotlar saqlandi:\n👤 {owner_name}\n🏪 {shop_name}\n\n"
+        f"✅ Rahmat! Ma'lumotlar saqlandi:\n👤 {owner_name}\n🏪 {shop_name}\n📞 {phone_number}\n\n"
         "Quyidagi bo'limlardan birini tanlang:",
         reply_markup=kb.main_menu("owner"),
     )
