@@ -735,6 +735,34 @@ async def get_cross_sell_suggestions(shop_id: int, product_ids, exclude_ids=None
         return suggestions
 
 
+async def search_sales(shop_id: int, query: str, limit: int = 30):
+    """Mahsulot nomi bo'yicha savdolarni qidiradi (eng yangisidan boshlab).
+
+    Har bir natija - bitta savdo chekidagi bitta qatordan (mahsulot),
+    lekin bir xil sale_id (chek)dagi qatorlar chaqiruvchi tomonda birlashtiriladi.
+    Mahsulot o'chirilgan bo'lsa (products'da qolmagan), shu qator natijaga
+    tushmaydi - faqat hozircha mavjud mahsulotlar bo'yicha qidiriladi.
+    """
+    like_query = f"%{query.strip().lower()}%"
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT si.sale_id, si.quantity, si.price, p.name AS product_name,
+                   t.created_at, t.payment_method
+            FROM sale_items si
+            JOIN products p ON p.id = si.product_id AND p.shop_id = si.shop_id
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ? AND LOWER(p.name) LIKE ?
+            ORDER BY si.sale_id DESC, si.id ASC
+            LIMIT ?
+            """,
+            (shop_id, like_query, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 # ---------- FOYDALANUVCHILAR (DO'KON EGALARI) ----------
 
 async def add_owner(telegram_id: int, full_name: str = None, username: str = None,
