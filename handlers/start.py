@@ -21,6 +21,57 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
     await state.clear()
     payload = command.args or ""
 
+    if payload.startswith("owner_"):
+        token = payload.split("_", 1)[1]
+        invite = await db.get_owner_invite(token)
+
+        if not invite:
+            await message.answer("❌ Bu link amal qilmaydi (noto'g'ri yoki eskirgan).")
+            return
+        if invite.get("used_by"):
+            await message.answer(
+                "❌ Bu link allaqachon ishlatilgan. Har bir taklif linki faqat "
+                "BITTA marta, bitta odam uchun amal qiladi. Yangi link so'rang."
+            )
+            return
+
+        if is_admin(message.from_user.id):
+            await message.answer("Siz allaqachon bosh adminsiz - bu link sizga kerak emas.")
+            return
+        if await db.is_owner(message.from_user.id):
+            await message.answer("Siz allaqachon do'kon egasi sifatida ro'yxatdasiz.")
+            return
+
+        # Race-safe: agar shu vaqtda boshqa birov ham xuddi shu tokenni
+        # ishlatmoqchi bo'lsa, faqat biri muvaffaqiyatli bo'ladi.
+        claimed = await db.use_owner_invite(token, message.from_user.id)
+        if not claimed:
+            await message.answer(
+                "❌ Bu link boshqa birov tomonidan sizdan bir zum oldin ishlatib bo'lingan."
+            )
+            return
+
+        await db.add_owner(
+            message.from_user.id,
+            message.from_user.full_name,
+            message.from_user.username,
+            added_by=invite["created_by"],
+        )
+        await message.answer(
+            "✅ Tabriklaymiz! Siz do'kon egasi sifatida ro'yxatdan o'tdingiz.\n\n"
+            "Quyidagi bo'limlardan birini tanlang:",
+            reply_markup=kb.main_menu(is_admin(message.from_user.id))
+        )
+        try:
+            await message.bot.send_message(
+                invite["created_by"],
+                f"✅ Yangi do'kon egasi taklif linki orqali qo'shildi: "
+                f"{message.from_user.full_name} (ID: {message.from_user.id})",
+            )
+        except Exception as e:
+            logging.warning(f"Adminga xabar yuborib bo'lmadi: {e}")
+        return
+
     if payload.startswith("debt_"):
         try:
             debt_id = int(payload.split("_", 1)[1])
