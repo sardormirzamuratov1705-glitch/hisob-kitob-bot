@@ -2,14 +2,35 @@ from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 
-def main_menu() -> ReplyKeyboardMarkup:
+def main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="📦 Sklad")
     builder.button(text="💰 Kirim/Chiqim")
     builder.button(text="📒 Qarz daftar")
     builder.button(text="📊 Hisobot")
-    builder.adjust(2, 2)
+    if is_admin:
+        # Faqat bosh admin (config.ADMIN_IDS) do'kon egalarini qo'sha/o'chira oladi -
+        # shuning uchun bu tugma do'kon egalariga umuman ko'rsatilmaydi.
+        builder.button(text="👥 Foydalanuvchilar")
+        builder.adjust(2, 2, 1)
+    else:
+        builder.adjust(2, 2)
     return builder.as_markup(resize_keyboard=True)
+
+
+def users_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="➕ Do'kon egasi qo'shish")
+    builder.button(text="📋 Do'kon egalari ro'yxati")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
+
+
+def owner_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗑 O'chirish", callback_data=f"remove_owner_{telegram_id}")
+    return builder.as_markup()
 
 
 def sklad_menu() -> ReplyKeyboardMarkup:
