@@ -9,9 +9,11 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
       tizim zaxira nusxasini oladi/tiklaydi.
     - owner: do'konning barcha bo'limlariga (shu jumladan sotuvchilarni
       boshqarish) to'liq kirish huquqi bor.
-    - seller: faqat kundalik savdo ishlari uchun kerakli 3 ta bo'lim -
-      narx belgilash, qo'lda miqdor o'zgartirish, kirim/chiqim, hisobot va
-      sotuvchi boshqaruvi unga ko'rsatilmaydi.
+    - seller: faqat kundalik savdo ishlari uchun kerakli bo'limlar - Savdo,
+      mahsulotlar ro'yxati, olinishi kerak bo'lgan tovarlar (faqat
+      ko'rish/qo'lda qo'shish - "sotib olindi" tugmasisiz), chiqim qo'shish
+      va qarz daftar. Narx belgilash, qo'lda miqdor o'zgartirish, kirim
+      qo'shish, hisobot va sotuvchi boshqaruvi unga ko'rsatilmaydi.
     """
     builder = ReplyKeyboardBuilder()
     if role == "admin":
@@ -21,8 +23,10 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
     elif role == "seller":
         builder.button(text="🛒 Savdo")
         builder.button(text="📋 Mahsulotlar ro'yxati")
+        builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
+        builder.button(text="➖ Chiqim qo'shish")
         builder.button(text="📒 Qarz daftar")
-        builder.adjust(1, 1, 1)
+        builder.adjust(1, 1, 1, 1, 1)
     else:
         builder.button(text="📦 Sklad")
         builder.button(text="💰 Kirim/Chiqim")
@@ -158,11 +162,16 @@ def product_action_kb(product_id: int, allow_manage: bool = True):
     return builder.as_markup()
 
 
-def restock_kb(low_stock_items=None, manual_items=None) -> InlineKeyboardMarkup:
+def restock_kb(low_stock_items=None, manual_items=None, allow_manage: bool = True) -> InlineKeyboardMarkup:
+    """allow_manage=False bo'lsa (sotuvchi) - "... olindi" (sotib olindi)
+    tugmalari umuman ko'rsatilmaydi, chunki ular skladga narx/miqdor bilan
+    tovar qo'shadi - bu faqat do'kon egasiga tegishli amal. Sotuvchi faqat
+    ro'yxatni ko'radi va xohlasa "Qo'lda qo'shish" orqali kerakli tovar
+    nomini ro'yxatga qo'sha oladi (bu narx/miqdorga ta'sir qilmaydi)."""
     builder = InlineKeyboardBuilder()
     row_sizes = []
 
-    if low_stock_items:
+    if low_stock_items and allow_manage:
         for p in low_stock_items:
             builder.button(text=f"✅ {p['name']} olindi", callback_data=f"lowstock_bought_{p['id']}")
             builder.button(text=f"❌ {p['name']} olinmadi", callback_data=f"lowstock_notbought_{p['id']}")
@@ -171,7 +180,7 @@ def restock_kb(low_stock_items=None, manual_items=None) -> InlineKeyboardMarkup:
     builder.button(text="➕ Qo'lda qo'shish", callback_data="restock_add")
     row_sizes.append(1)
 
-    if manual_items:
+    if manual_items and allow_manage:
         for item in manual_items:
             builder.button(text=f"✅ {item['name']} olindi", callback_data=f"restock_done_{item['id']}")
             row_sizes.append(1)
