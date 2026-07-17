@@ -348,7 +348,7 @@ async def _finalize_sale(message: Message, state: FSMContext):
         new_quantity = product["quantity"] - r["qty"]
         await db.update_product_quantity(shop_id, r["id"], new_quantity)
         await alerts.notify_stock_change(
-            message.bot, product, product["quantity"], new_quantity,
+            message.bot, shop_id, product, product["quantity"], new_quantity,
             also_notify_chat_id=message.chat.id,
         )
 
