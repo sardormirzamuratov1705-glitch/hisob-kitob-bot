@@ -127,7 +127,9 @@ async def add_seller_finish(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Sotuvchi qo'shildi{name_part}. ID: {target_id}\n\n"
         f"Endi u botga /start bosib kira oladi - lekin faqat savdo, mahsulotlar "
-        f"ro'yxatini ko'rish (tannarxsiz) va qarz daftar bilan ishlay oladi.",
+        f"ro'yxatini ko'rish (tannarxsiz) va qarz daftar bilan ishlay oladi. "
+        f"Birinchi /start'da undan ismi va telefon raqami so'raladi - shu "
+        f"ma'lumot \"📋 Sotuvchilar ro'yxati\"da ko'rinadi.",
         reply_markup=kb.sellers_menu(),
     )
 
@@ -155,9 +157,11 @@ async def list_sellers(message: Message, state: FSMContext):
 
     await message.answer("🧑‍💼 <b>Sotuvchilar:</b>", parse_mode="HTML", reply_markup=kb.sellers_menu())
     for s in sellers:
-        label = s["full_name"] or (f"@{s['username']}" if s["username"] else str(s["telegram_id"]))
+        telegram_label = s["full_name"] or (f"@{s['username']}" if s["username"] else str(s["telegram_id"]))
+        name_line = f"👤 {s['seller_name']}" if s.get("seller_name") else f"👤 {telegram_label}"
+        phone_line = f"\n📞 {s['phone_number']}" if s.get("phone_number") else "\n📞 (hali kiritmagan)"
         await message.answer(
-            f"👤 {label}\nID: {s['telegram_id']}",
+            f"{name_line}{phone_line}\nTelegram: {telegram_label}\nID: {s['telegram_id']}",
             reply_markup=kb.seller_action_kb(s["telegram_id"]),
         )
 
