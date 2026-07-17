@@ -765,6 +765,46 @@ async def search_sales(shop_id: int, query: str, limit: int = 30):
 
 # ---------- FOYDALANUVCHILAR (DO'KON EGALARI) ----------
 
+async def get_top_selling_products(shop_id: int, limit: int = 10):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT p.name AS name, SUM(si.quantity) AS total_qty,
+                   SUM(si.quantity * si.price) AS total_sum
+            FROM sale_items si
+            JOIN products p ON p.id = si.product_id
+            WHERE si.shop_id = ?
+            GROUP BY si.product_id
+            ORDER BY total_qty DESC
+            LIMIT ?
+            """,
+            (shop_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_top_profit_products(shop_id: int, limit: int = 10):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT p.name AS name,
+                   SUM((si.price - p.price) * si.quantity) AS total_profit
+            FROM sale_items si
+            JOIN products p ON p.id = si.product_id
+            WHERE si.shop_id = ?
+            GROUP BY si.product_id
+            ORDER BY total_profit DESC
+            LIMIT ?
+            """,
+            (shop_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
 async def add_owner(telegram_id: int, full_name: str = None, username: str = None,
                      added_by: int = None):
     async with aiosqlite.connect(config.DB_PATH) as db:
