@@ -2,21 +2,34 @@ from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 
-def main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
+def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
+    """role: "admin" | "owner" | "seller".
+
+    - admin: o'z do'koni yo'q, faqat do'kon egalarini boshqaradi va butun
+      tizim zaxira nusxasini oladi/tiklaydi.
+    - owner: do'konning barcha bo'limlariga (shu jumladan sotuvchilarni
+      boshqarish) to'liq kirish huquqi bor.
+    - seller: faqat kundalik savdo ishlari uchun kerakli 3 ta bo'lim -
+      narx belgilash, qo'lda miqdor o'zgartirish, kirim/chiqim, hisobot va
+      sotuvchi boshqaruvi unga ko'rsatilmaydi.
+    """
     builder = ReplyKeyboardBuilder()
-    if is_admin:
-        # Bosh adminning o'z do'koni yo'q (Sklad/Savdo/Qarz/Hisobot) - uning
-        # yagona vazifasi do'kon egalarini boshqarish va butun tizim zaxira
-        # nusxasini olish/tiklash.
+    if role == "admin":
         builder.button(text="👥 Foydalanuvchilar")
         builder.button(text="🗄 Zaxira nusxa")
         builder.adjust(1, 1)
+    elif role == "seller":
+        builder.button(text="🛒 Savdo")
+        builder.button(text="📋 Mahsulotlar ro'yxati")
+        builder.button(text="📒 Qarz daftar")
+        builder.adjust(1, 1, 1)
     else:
         builder.button(text="📦 Sklad")
         builder.button(text="💰 Kirim/Chiqim")
         builder.button(text="📒 Qarz daftar")
         builder.button(text="📊 Hisobot")
-        builder.adjust(2, 2)
+        builder.button(text="🧑‍💼 Sotuvchilar")
+        builder.adjust(2, 2, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -33,6 +46,22 @@ def users_menu() -> ReplyKeyboardMarkup:
 def owner_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🗑 O'chirish", callback_data=f"remove_owner_{telegram_id}")
+    return builder.as_markup()
+
+
+def sellers_menu() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="➕ Sotuvchi qo'shish")
+    builder.button(text="🔗 Sotuvchi uchun link")
+    builder.button(text="📋 Sotuvchilar ro'yxati")
+    builder.button(text="⬅️ Orqaga")
+    builder.adjust(1, 1, 1, 1)
+    return builder.as_markup(resize_keyboard=True)
+
+
+def seller_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗑 O'chirish", callback_data=f"remove_seller_{telegram_id}")
     return builder.as_markup()
 
 
@@ -115,7 +144,12 @@ def payment_method_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
+def product_action_kb(product_id: int, allow_manage: bool = True):
+    """allow_manage=False bo'lsa (sotuvchi) - hech qanday tugma qaytarilmaydi
+    (None), chunki miqdor FAQAT savdo orqali kamayishi kerak - qo'lda
+    o'zgartirish yoki o'chirish faqat do'kon egasiga tegishli."""
+    if not allow_manage:
+        return None
     builder = InlineKeyboardBuilder()
     builder.button(text="➖", callback_data=f"dec_qty_{product_id}")
     builder.button(text="➕", callback_data=f"inc_qty_{product_id}")
