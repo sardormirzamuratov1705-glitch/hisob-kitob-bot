@@ -74,7 +74,19 @@ async def init_db():
                 due_date TEXT,
                 customer_chat_id INTEGER,
                 customer_username TEXT,
-                taken_date TEXT
+                taken_date TEXT,
+                paid_amount REAL NOT NULL DEFAULT 0
+            )
+            """
+        )
+        # Har bir qisman/to'liq to'lovni alohida qayd etib boramiz (tarix uchun).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS debt_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                debt_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                paid_at TEXT NOT NULL
             )
             """
         )
@@ -84,6 +96,7 @@ async def init_db():
             ("customer_chat_id", "INTEGER"),
             ("customer_username", "TEXT"),
             ("taken_date", "TEXT"),
+            ("paid_amount", "REAL NOT NULL DEFAULT 0"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE debts ADD COLUMN {column} {col_type}")
@@ -412,7 +425,7 @@ async def get_debts(only_unpaid: bool = True):
 async def get_total_debt():
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM debts WHERE is_paid = 0"
+            "SELECT COALESCE(SUM(amount - paid_amount), 0) FROM debts WHERE is_paid = 0"
         )
         return (await cursor.fetchone())[0]
 
@@ -456,5 +469,51 @@ async def get_overdue_debts(days: int = 3):
 
 async def mark_debt_paid(debt_id: int):
     async with aiosqlite.connect(config.DB_PATH) as db:
-        await db.execute("UPDATE debts SET is_paid = 1 WHERE id = ?", (debt_id,))
+        await db.execute(
+            "UPDATE debts SET is_paid = 1, paid_amount = amount WHERE id = ?", (debt_id,)
+        )
         await db.commit()
+
+
+async def add_debt_payment(debt_id: int, amount: float):
+    """Qarzga to'lov qo'shadi - qisman yoki to'liq.
+    Natija: {'status': 'full'|'partial', 'paid_amount': ..., 'remaining': ...} yoki None (qarz topilmasa)."""
+    debt = await get_debt(debt_id)
+    if not debt:
+        return None
+
+    current_paid = debt.get("paid_amount") or 0
+    new_paid = current_paid + amount
+    total = debt["amount"]
+
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO debt_payments (debt_id, amount, paid_at) VALUES (?, ?, ?)",
+            (debt_id, amount, _now()),
+        )
+        if new_paid >= total:
+            await db.execute(
+                "UPDATE debts SET paid_amount = ?, is_paid = 1 WHERE id = ?",
+                (total, debt_id),
+            )
+            status = "full"
+            new_paid = total
+        else:
+            await db.execute(
+                "UPDATE debts SET paid_amount = ? WHERE id = ?",
+                (new_paid, debt_id),
+            )
+            status = "partial"
+        await db.commit()
+
+    return {"status": status, "paid_amount": new_paid, "remaining": total - new_paid}
+
+
+async def get_debt_payments(debt_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM debt_payments WHERE debt_id = ? ORDER BY paid_at", (debt_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
