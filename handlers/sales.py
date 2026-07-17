@@ -17,6 +17,7 @@ class SaleFlow(StatesGroup):
     choosing = State()
     quantity = State()
     price = State()
+    payment_method = State()
 
 
 # ---------- MAHSULOT TANLASH (CHECKBOX) ----------
@@ -238,7 +239,27 @@ async def _advance(message: Message, state: FSMContext):
         await _ask_quantity(message, state)
         return
 
-    await _finalize_sale(message, state)
+    await _ask_payment_method(message, state)
+
+
+async def _ask_payment_method(message: Message, state: FSMContext):
+    await state.set_state(SaleFlow.payment_method)
+    await message.answer(
+        "To'lov turi qanday bo'ldi?",
+        reply_markup=kb.payment_method_kb(),
+    )
+
+
+@router.callback_query(SaleFlow.payment_method, F.data.startswith("pay_method_"))
+async def sale_payment_method_cb(callback: CallbackQuery, state: FSMContext):
+    method = callback.data.replace("pay_method_", "")  # "naqd" | "plastik"
+    await state.update_data(payment_method=method)
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _finalize_sale(callback.message, state)
 
 
 # ---------- YAKUNLASH: SKLADNI KAMAYTIRISH + KIRIM YOZISH ----------
@@ -278,15 +299,20 @@ async def _finalize_sale(message: Message, state: FSMContext):
         lines.append(f"• {r['name']}: {r['qty']:.0f} dona x {r['price']:.0f} so'm = {line_total:.0f} so'm")
 
     description = "Savdo:\n" + "\n".join(lines)
-    sale_id = await db.add_transaction("income", total, description)
+    payment_method = data.get("payment_method")
+    sale_id = await db.add_transaction("income", total, description, payment_method=payment_method)
 
     for r in results:
         await db.add_sale_item(sale_id, r["id"], r["qty"], r["price"])
         await db.mark_product_sold(r["id"])
 
     await state.clear()
+
+    method_label = {"naqd": "💵 Naqd", "plastik": "💳 Plastik"}.get(payment_method, "")
+    method_line = f"\nTo'lov turi: {method_label}" if method_label else ""
+
     await message.answer(
-        f"✅ Savdo yakunlandi!\n\n" + "\n".join(lines) + f"\n\n<b>Jami: {total:.0f} so'm</b>",
+        f"✅ Savdo yakunlandi!\n\n" + "\n".join(lines) + f"\n\n<b>Jami: {total:.0f} so'm</b>{method_line}",
         reply_markup=kb.kirim_chiqim_menu(),
         parse_mode="HTML"
     )
