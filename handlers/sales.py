@@ -55,10 +55,10 @@ async def sale_start(message: Message, state: FSMContext):
         return
 
     await state.set_state(SaleFlow.choosing)
-    await state.update_data(selected=[])
+    await state.update_data(selected=[], page=0)
     await message.answer(
         "Sotiladigan mahsulot(lar)ni belgilang:",
-        reply_markup=kb.sale_products_kb(products, [])
+        reply_markup=kb.sale_products_kb(products, [], page=0)
     )
 
 
@@ -71,6 +71,7 @@ async def sale_toggle(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[-1])
     data = await state.get_data()
     selected = data.get("selected", [])
+    page = data.get("page", 0)
 
     if product_id in selected:
         selected.remove(product_id)
@@ -80,9 +81,44 @@ async def sale_toggle(callback: CallbackQuery, state: FSMContext):
 
     products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
     try:
-        await callback.message.edit_reply_markup(reply_markup=kb.sale_products_kb(products, selected))
+        await callback.message.edit_reply_markup(reply_markup=kb.sale_products_kb(products, selected, page=page))
     except Exception:
         pass
+    await callback.answer()
+
+
+@router.callback_query(SaleFlow.choosing, F.data == "sale_page_next")
+async def sale_page_next(callback: CallbackQuery, state: FSMContext):
+    await _sale_change_page(callback, state, delta=1)
+
+
+@router.callback_query(SaleFlow.choosing, F.data == "sale_page_prev")
+async def sale_page_prev(callback: CallbackQuery, state: FSMContext):
+    await _sale_change_page(callback, state, delta=-1)
+
+
+async def _sale_change_page(callback: CallbackQuery, state: FSMContext, delta: int):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
+    data = await state.get_data()
+    selected = data.get("selected", [])
+    page = data.get("page", 0) + delta
+    if page < 0:
+        page = 0
+    await state.update_data(page=page)
+
+    products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb.sale_products_kb(products, selected, page=page))
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(SaleFlow.choosing, F.data == "sale_noop")
+async def sale_noop(callback: CallbackQuery):
     await callback.answer()
 
 
