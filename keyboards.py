@@ -74,6 +74,14 @@ def taken_date_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def payment_method_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💵 Naqd", callback_data="pay_method_naqd")
+    builder.button(text="💳 Plastik", callback_data="pay_method_plastik")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def product_action_kb(product_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="➖", callback_data=f"dec_qty_{product_id}")
