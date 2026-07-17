@@ -13,6 +13,7 @@ from openpyxl.styles import Font, PatternFill
 import config
 import database as db
 import keyboards as kb
+from access_control import get_shop_id, is_admin
 
 router = Router()
 
@@ -21,14 +22,25 @@ class RestoreDB(StatesGroup):
     waiting_file = State()
 
 
+async def _require_shop(message: Message):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await message.answer("Bu bo'lim faqat do'kon egalari uchun.")
+    return shop_id
+
+
 @router.message(F.text == "📊 Umumiy hisobot")
 async def general_report(message: Message):
-    income, expense = await db.get_totals()
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    income, expense = await db.get_totals(shop_id)
     balance = income - expense
-    total_debt = await db.get_total_debt()
-    products = await db.get_all_products()
+    total_debt = await db.get_total_debt(shop_id)
+    products = await db.get_all_products(shop_id)
     total_stock_value = sum(p["price"] * p["quantity"] for p in products)
-    payment_totals = await db.get_payment_method_totals("income")
+    payment_totals = await db.get_payment_method_totals(shop_id, "income")
 
     text = (
         "📊 <b>Umumiy hisobot</b>\n\n"
@@ -46,9 +58,13 @@ async def general_report(message: Message):
 
 @router.message(F.text == "📥 Excel yuklab olish")
 async def export_excel(message: Message):
-    products = await db.get_all_products()
-    transactions = await db.get_transactions(limit=1000)
-    debts = await db.get_debts(only_unpaid=False)
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    products = await db.get_all_products(shop_id)
+    transactions = await db.get_transactions(shop_id, limit=1000)
+    debts = await db.get_debts(shop_id, only_unpaid=False)
 
     wb = Workbook()
 
@@ -82,15 +98,22 @@ async def export_excel(message: Message):
 
     # ---- Qarz daftar ----
     ws3 = wb.create_sheet("Qarz daftar")
-    ws3.append(["ID", "Mijoz", "Telefon", "Summasi", "Izoh", "Holati", "Sana"])
+    ws3.append([
+        "ID", "Mijoz", "Telefon", "Qarz summasi", "To'langan", "Qolgan",
+        "Izoh", "Holati", "Olingan sanasi", "Qaytarish sanasi", "Kiritilgan sana"
+    ])
     for cell in ws3[1]:
         cell.font = header_font
         cell.fill = header_fill
     for d in debts:
         status = "To'landi" if d["is_paid"] else "Qarzda"
+        paid_amount = d.get("paid_amount") or 0
+        remaining = d["amount"] - paid_amount
+        taken_date = d.get("taken_date") or d["created_at"][:10]
+        due_date = d.get("due_date") or ""
         ws3.append([
-            d["id"], d["customer_name"], d["phone"], d["amount"],
-            d["description"], status, d["created_at"][:10]
+            d["id"], d["customer_name"], d["phone"], d["amount"], paid_amount, remaining,
+            d["description"], status, taken_date, due_date, d["created_at"][:10]
         ])
 
     # Ustun kengligini avtomoslashtirish
@@ -109,12 +132,18 @@ async def export_excel(message: Message):
 
 # ---------- DB FAYLNI ZAXIRALASH / TIKLASH ----------
 # Railway'da Volume ulanmagan bo'lsa, redeploy vaqtida baza tozalanadi va
-# mahsulotlarni qaytadan kiritish kerak bo'ladi. Shu ikki tugma orqali
-# bazani faylga olib, keyinroq (masalan redeploy'dan keyin) qayta yuklab
-# tiklash mumkin - mahsulotlarni qo'lda qaytadan kiritish shart bo'lmaydi.
+# barcha do'konlarning ma'lumotlarini qaytadan kiritish kerak bo'ladi. Bu -
+# BUTUN bazani (barcha do'konlar birdaniga) qamrab oladigan texnik zaxira
+# vositasi, shuning uchun endi faqat BOSH ADMINGA ochiq - alohida do'kon
+# egasi bunga kira olmaydi (aks holda u boshqa do'konlarning ma'lumotlarini
+# ko'rib/almashtirib qo'yishi mumkin edi).
 
 @router.message(F.text == "🗄 DB faylni yuklab olish")
 async def export_db(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("Bu bo'lim faqat bosh admin uchun.")
+        return
+
     if not os.path.exists(config.DB_PATH):
         await message.answer("❌ Baza fayli topilmadi.")
         return
@@ -123,20 +152,24 @@ async def export_db(message: Message):
     await message.answer_document(
         FSInputFile(config.DB_PATH, filename=filename),
         caption=(
-            "🗄 Joriy baza fayli.\n"
+            "🗄 Joriy baza fayli (BARCHA do'konlar).\n"
             "Buni saqlab qo'ying — baza tozalanib qolsa (masalan redeploy'da), "
             "\"📤 DB faylni tiklash\" tugmasi orqali shu faylni qayta yuklab, "
-            "mahsulotlarni qaytadan kiritmasdan tiklashingiz mumkin."
+            "barcha do'konlarni qaytadan kiritmasdan tiklashingiz mumkin."
         ),
     )
 
 
 @router.message(F.text == "📤 DB faylni tiklash")
 async def restore_db_start(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("Bu bo'lim faqat bosh admin uchun.")
+        return
+
     await state.set_state(RestoreDB.waiting_file)
     await message.answer(
-        "⚠️ <b>Diqqat!</b> Yuboradigan faylingiz joriy bazadagi barcha ma'lumotlarni "
-        "(mahsulotlar, kirim-chiqim, qarzlar) to'liq almashtiradi.\n\n"
+        "⚠️ <b>Diqqat!</b> Yuboradigan faylingiz joriy bazadagi BARCHA do'konlarning "
+        "ma'lumotlarini (mahsulotlar, kirim-chiqim, qarzlar, do'kon egalari) to'liq almashtiradi.\n\n"
         "Avval joriy bazani zaxiralab olmoqchi bo'lsangiz, \"🗄 DB faylni yuklab olish\" "
         "tugmasini bosing.\n\n"
         "Tiklash uchun oldin saqlab qo'ygan .db faylni hujjat sifatida yuboring "
@@ -147,6 +180,10 @@ async def restore_db_start(message: Message, state: FSMContext):
 
 @router.message(RestoreDB.waiting_file, F.document)
 async def restore_db_file(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+
     document = message.document
     tmp_path = f"/tmp/restore_{document.file_unique_id}.db"
     await message.bot.download(document.file_id, destination=tmp_path)
@@ -177,7 +214,7 @@ async def restore_db_file(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer(
-        "✅ Baza muvaffaqiyatli tiklandi. Mahsulotlarni qaytadan kiritishning hojati yo'q.",
+        "✅ Baza muvaffaqiyatli tiklandi (barcha do'konlar). Qaytadan kiritishning hojati yo'q.",
         reply_markup=kb.hisobot_menu(),
     )
 
