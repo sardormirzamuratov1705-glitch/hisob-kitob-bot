@@ -9,7 +9,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
-from access_control import get_shop_id, is_owner_level
+from access_control import get_shop_id
 
 router = Router()
 
@@ -37,15 +37,10 @@ class RestockPurchase(StatesGroup):
     alert_quantity = State()
 
 
-# Bu fayldagi ko'pchilik tugma faqat do'kon egalariga ko'rsatiladi (bosh
-# adminning o'z do'koni yo'q). "📋 Mahsulotlar ro'yxati" va "🧾 Olinishi
-# kerak bo'lgan tovarlar" esa sotuvchiga ham ko'rsatiladi - shuning uchun
-# ularning handlerlari (va restock_kb) sotuvchi uchun ham ishlashi kerak,
-# lekin skladga narx/miqdor bilan tovar qo'shadigan amallar (sotib olindi,
-# miqdor o'zgartirish, o'chirish) faqat egaga - buni is_owner_level orqali
-# alohida tekshiramiz. Shunga qaramay, har bir handler shop_id'ni qayta
-# tekshiradi - bosh admin adashib shu bo'limga kirib qolsa ham, hech qanday
-# do'kon ma'lumotiga ega bo'lmaydi.
+# Bu bo'lim tugmalari faqat do'kon egalariga ko'rsatiladi (bosh adminning o'z
+# do'koni yo'q). Shunga qaramay, har bir handler shop_id'ni qayta tekshiradi -
+# bosh admin adashib shu bo'limga kirib qolsa ham, hech qanday do'kon
+# ma'lumotiga ega bo'lmaydi.
 
 async def _require_shop(message: Message):
     shop_id = await get_shop_id(message.from_user.id)
@@ -73,7 +68,31 @@ async def add_product_start(message: Message, state: FSMContext):
 
 @router.message(AddProduct.name)
 async def add_product_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text.strip())
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
+    name = message.text.strip()
+    existing = await db.find_product_by_name(shop_id, name)
+    if existing:
+        # Bunday nomli mahsulot (katta-kichik harfidan qat'i nazar) skladda
+        # allaqachon bor - yangi qator ochmaymiz, balki shu mahsulotga miqdor
+        # qo'shish (restock) oqimiga o'tkazamiz.
+        await state.set_state(RestockPurchase.quantity)
+        await state.update_data(
+            restock_type="product", product_id=existing["id"], name=existing["name"]
+        )
+        await message.answer(
+            f"ℹ️ Bunday mahsulot skladda mavjud: <b>{existing['name']}</b> "
+            f"(hozir {existing['quantity']:.0f} dona bor).\n"
+            f"Kiritayotgan miqdoringiz shu mahsulotga qo'shiladi.\n\n"
+            f"Necha dona sotib olindi?",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.update_data(name=name)
     await state.set_state(AddProduct.price)
     await message.answer("Tannarxini kiriting (necha so'mga tushdi, faqat raqam):")
 
@@ -406,18 +425,15 @@ async def stale_products(message: Message):
 
 # ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
 
-async def _send_restock_list(message: Message, shop_id: int):
+async def _send_restock_list(message: Message, shop_id: int, manage: bool = True):
     low_stock = await db.get_low_stock_products(shop_id)
     manual_items = await db.get_manual_restock_items(shop_id)
-    # Sotuvchiga faqat ro'yxatni ko'rsatamiz - "... olindi" tugmalari
-    # (narx/miqdor kiritib skladga qo'shadigan amal) faqat do'kon egasiga.
-    allow_manage = await is_owner_level(message.from_user.id)
 
     if not low_stock and not manual_items:
         await message.answer(
             "✅ Hozircha olinishi kerak bo'lgan tovar yo'q.\n"
             "Kerak bo'lsa, pastdagi tugma orqali qo'lda qo'shishingiz mumkin.",
-            reply_markup=kb.restock_kb(low_stock, manual_items, allow_manage=allow_manage),
+            reply_markup=kb.restock_kb(low_stock, manual_items, manage=manage),
         )
         return
 
@@ -437,7 +453,7 @@ async def _send_restock_list(message: Message, shop_id: int):
             text += f"• {item['name']}{note}\n"
 
     await message.answer(
-        text, reply_markup=kb.restock_kb(low_stock, manual_items, allow_manage=allow_manage), parse_mode="HTML"
+        text, reply_markup=kb.restock_kb(low_stock, manual_items, manage=manage), parse_mode="HTML"
     )
 
 
@@ -447,7 +463,10 @@ async def restock_list(message: Message, state: FSMContext):
     shop_id = await _require_shop(message)
     if shop_id is None:
         return
-    await _send_restock_list(message, shop_id)
+    # Faqat do'kon egasi tovarni "sotib olindi" deb belgilay oladi - sotuvchi
+    # bu bo'limni faqat ko'rish uchun ochadi.
+    manage = await db.is_owner(message.from_user.id)
+    await _send_restock_list(message, shop_id, manage=manage)
 
 
 @router.callback_query(F.data == "restock_add")
@@ -461,7 +480,24 @@ async def restock_add_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddRestockItem.name)
 async def restock_add_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text.strip())
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
+    name = message.text.strip()
+    existing = await db.find_product_by_name(shop_id, name)
+    if existing:
+        await message.answer(
+            f"❗ Bunday mahsulot skladda mavjud: <b>{existing['name']}</b> "
+            f"(hozir {existing['quantity']:.0f} dona bor).\n"
+            f"Boshqa nom kiriting, yoki agar shu mahsulotdan yana kerak bo'lsa, "
+            f"\"➕ Mahsulot qo'shish\" orqali unga miqdor qo'shing.",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.update_data(name=name)
     await state.set_state(AddRestockItem.note)
     await message.answer("Izoh qoldirasizmi? (kerak bo'lmasa \"-\" deb yozing)")
 
@@ -481,7 +517,8 @@ async def restock_add_note(message: Message, state: FSMContext):
     await message.answer(
         f"✅ \"{data['name']}\" olinishi kerak bo'lgan tovarlar ro'yxatiga qo'shildi."
     )
-    await _send_restock_list(message, shop_id)
+    manage = await db.is_owner(message.from_user.id)
+    await _send_restock_list(message, shop_id, manage=manage)
 
 
 @router.callback_query(F.data.startswith("lowstock_notbought_"))
@@ -493,9 +530,6 @@ async def lowstock_not_bought_cb(callback: CallbackQuery):
 async def lowstock_bought_cb(callback: CallbackQuery, state: FSMContext):
     shop_id = await _require_shop_cb(callback)
     if shop_id is None:
-        return
-    if not await is_owner_level(callback.from_user.id):
-        await callback.answer("Bu amal faqat do'kon egasi uchun.", show_alert=True)
         return
     product_id = int(callback.data.split("_")[-1])
     product = await db.get_product(shop_id, product_id)
@@ -515,9 +549,6 @@ async def lowstock_bought_cb(callback: CallbackQuery, state: FSMContext):
 async def restock_done_cb(callback: CallbackQuery, state: FSMContext):
     shop_id = await _require_shop_cb(callback)
     if shop_id is None:
-        return
-    if not await is_owner_level(callback.from_user.id):
-        await callback.answer("Bu amal faqat do'kon egasi uchun.", show_alert=True)
         return
     item_id = int(callback.data.split("_")[-1])
     item = await db.get_manual_restock_item(shop_id, item_id)
@@ -667,53 +698,18 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
         )
         await _send_restock_list(message, shop_id)
     else:
-        # Qo'lda kiritilgan tovar nomi skladdagi mavjud mahsulot bilan
-        # (katta-kichik harflardan qat'i nazar) mos kelsa - dublikat
-        # yaratmasdan o'sha mahsulotga miqdor qo'shamiz (restock). Mos
-        # kelmasa - yangi mahsulot sifatida qo'shamiz.
-        existing_product = await db.get_product_by_name(shop_id, data["name"])
-
-        if existing_product:
-            result = await db.update_product_purchase(
-                shop_id, existing_product["id"], data["quantity"], data["price"], data["sell_price"],
-                data["min_price"], alert_quantity=alert_quantity,
-            )
-            new_quantity, weighted_price = result
-            if existing_product.get("channel_message_id") and config.CHANNEL_ID:
-                try:
-                    refreshed = await db.get_product(shop_id, existing_product["id"])
-                    await message.bot.edit_message_caption(
-                        chat_id=config.CHANNEL_ID,
-                        message_id=existing_product["channel_message_id"],
-                        caption=await _channel_caption(refreshed),
-                    )
-                except Exception as e:
-                    logging.warning(f"Kanaldagi postni yangilab bo'lmadi: {e}")
-
-            await db.delete_manual_restock_item(shop_id, data["manual_id"])
-            await state.clear()
-            await message.answer(
-                f"✅ <b>{existing_product['name']}</b> skladda mavjud edi - miqdor qo'shildi.\n"
-                f"Qo'shildi: {data['quantity']:.0f} dona ({data['price']:.0f} so'mdan)\n"
-                f"Yangi umumiy miqdor: {new_quantity:.0f} dona\n"
-                f"O'rtacha tannarx: {weighted_price:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
-                f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}",
-                parse_mode="HTML"
-            )
-            await _send_restock_list(message, shop_id)
-        else:
-            await db.add_product(
-                shop_id, data["name"], data["price"], data["quantity"], None,
-                sell_price=data["sell_price"], min_price=data["min_price"],
-                alert_quantity=alert_quantity,
-            )
-            await db.delete_manual_restock_item(shop_id, data["manual_id"])
-            await state.clear()
-            await message.answer(
-                f"✅ <b>{data['name']}</b> yangi mahsulot sifatida skladga qo'shildi.\n"
-                f"Miqdori: {data['quantity']:.0f} dona\nTannarx: {data['price']:.0f} so'm\n"
-                f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
-                f"{alert_line}",
-                parse_mode="HTML"
-            )
-            await _send_restock_list(message, shop_id)
+        await db.add_product(
+            shop_id, data["name"], data["price"], data["quantity"], None,
+            sell_price=data["sell_price"], min_price=data["min_price"],
+            alert_quantity=alert_quantity,
+        )
+        await db.delete_manual_restock_item(shop_id, data["manual_id"])
+        await state.clear()
+        await message.answer(
+            f"✅ <b>{data['name']}</b> yangi mahsulot sifatida skladga qo'shildi.\n"
+            f"Miqdori: {data['quantity']:.0f} dona\nTannarx: {data['price']:.0f} so'm\n"
+            f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
+            f"{alert_line}",
+            parse_mode="HTML"
+        )
+        await _send_restock_list(message, shop_id)
