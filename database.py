@@ -231,6 +231,13 @@ async def init_db():
             except Exception:
                 pass
 
+        # Qarz to'lovini ham naqd/plastik/aralash qilib to'lash imkoni uchun -
+        # savdo va kirim-chiqimdagi kabi to'lov turini shu yerda ham saqlaymiz.
+        try:
+            await db.execute("ALTER TABLE debt_payments ADD COLUMN payment_method TEXT")
+        except Exception:
+            pass
+
         # Do'kon egasining o'zi kiritgan ismi va do'kon nomi/turi - bosh admin
         # bir nechta do'kon egasini boshqarganda ularni Telegram ID/username
         # emas, balki tanish nom bilan bir-biridan ajratib olishi uchun.
@@ -1022,8 +1029,12 @@ async def mark_debt_paid(shop_id: int, debt_id: int):
         await db.commit()
 
 
-async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_by: int = None):
+async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_by: int = None,
+                            payment_method: str = None, cash_amount: float = None,
+                            card_amount: float = None):
     """Qarzga to'lov qo'shadi - qisman yoki to'liq.
+    payment_method: 'naqd' | 'plastik' | 'aralash'. 'aralash' bo'lsa cash_amount/card_amount
+    bo'yicha ikkita alohida yozuv sifatida saqlanadi (tarixda naqd/plastik ulushi ko'rinishi uchun).
     Natija: {'status': 'full'|'partial', 'paid_amount': ..., 'remaining': ...} yoki None (qarz topilmasa)."""
     debt = await get_debt(shop_id, debt_id)
     if not debt:
@@ -1034,10 +1045,25 @@ async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_
     total = debt["amount"]
 
     async with aiosqlite.connect(config.DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by) VALUES (?, ?, ?, ?)",
-            (debt_id, amount, _now(), performed_by),
-        )
+        if payment_method == "aralash":
+            if cash_amount:
+                await db.execute(
+                    "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by, payment_method) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (debt_id, cash_amount, _now(), performed_by, "naqd"),
+                )
+            if card_amount:
+                await db.execute(
+                    "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by, payment_method) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (debt_id, card_amount, _now(), performed_by, "plastik"),
+                )
+        else:
+            await db.execute(
+                "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by, payment_method) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (debt_id, amount, _now(), performed_by, payment_method),
+            )
         if new_paid >= total:
             await db.execute(
                 "UPDATE debts SET paid_amount = ?, is_paid = 1 WHERE id = ? AND shop_id = ?",
