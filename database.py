@@ -318,6 +318,23 @@ async def update_product_purchase(shop_id: int, product_id: int, add_quantity: f
         return new_quantity, weighted_price
 
 
+async def get_product_by_name(shop_id: int, name: str):
+    """Mahsulotni nomi bo'yicha, katta-kichik harflarga qaramasdan (case-
+    insensitive) qidiradi. Masalan "coca cola" va "Coca Cola" bir xil
+    mahsulot sifatida tanilishi kerak - aks holda skladda bitta tovar uchun
+    bir nechta dublikat qator hosil bo'lib qoladi. Topilsa - shu mahsulot
+    qaytariladi (restock qilish uchun), topilmasa - None (yangi mahsulot
+    sifatida qo'shish kerakligini bildiradi)."""
+    target = (name or "").strip().casefold()
+    if not target:
+        return None
+    products = await get_all_products(shop_id)
+    for p in products:
+        if (p["name"] or "").strip().casefold() == target:
+            return p
+    return None
+
+
 async def get_all_products(shop_id: int):
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
