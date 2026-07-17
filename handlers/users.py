@@ -40,6 +40,34 @@ async def add_owner_start(message: Message, state: FSMContext):
     )
 
 
+# ---------- BIR MARTALIK TAKLIF LINKI ----------
+# Agar do'kon egasining Telegram ID'sini bilmasangiz yoki undan xabar forward
+# qila olmasangiz - shu link orqali ham qo'shish mumkin. Link FAQAT BITTA
+# marta, FAQAT BITTA odam tomonidan ishlatiladi: kimdir link orqali botni
+# ochib do'kon egasi bo'lib qolgach, o'sha link boshqa hech kim uchun
+# ishlamay qoladi (garchi u qayta bosilsa ham).
+
+@router.message(F.text == "🔗 Bir martalik link")
+async def create_invite_link(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+
+    token = await db.create_owner_invite(message.from_user.id)
+    me = await message.bot.get_me()
+    link = f"https://t.me/{me.username}?start=owner_{token}"
+
+    await message.answer(
+        "🔗 Bir martalik taklif linki tayyor:\n\n"
+        f"{link}\n\n"
+        "Buni yangi do'kon egasiga yuboring. U linkni bosib botni ochishi bilanoq "
+        "avtomatik do'kon egasi sifatida qo'shiladi.\n\n"
+        "⚠️ Link faqat BITTA marta ishlaydi — birinchi bosgan odam uchun. "
+        "Agar boshqa birov ham shu linkni keyinroq bossa, unga \"link band\" "
+        "deb xabar beriladi.",
+        reply_markup=kb.users_menu(),
+    )
+
+
 @router.message(AddOwner.waiting_input)
 async def add_owner_finish(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
