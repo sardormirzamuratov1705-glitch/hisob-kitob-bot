@@ -9,7 +9,7 @@ import config
 import database as db
 import alerts
 from access_control import OwnerOnlyMiddleware
-from handlers import start, products, sales, transactions, debts, reports
+from handlers import start, products, sales, transactions, debts, reports, users
 
 
 async def _debt_reminder_loop(bot: Bot):
@@ -51,10 +51,11 @@ def main():
     )
     dp = Dispatcher()
 
-    # MUHIM: botning barcha funksiyalari faqat ADMIN_IDS'dagi foydalanuvchilar
-    # uchun ochiq. Bu yo'q bo'lsa, botni Telegram'da topgan yoki qarz eslatma
-    # linkini bosgan HAR QANDAY odam Sklad/Kirim-Chiqim/Qarz daftar/Hisobot
-    # bo'limlariga kirib, barcha ma'lumotlarni ko'rishi mumkin edi.
+    # MUHIM: botning barcha funksiyalari faqat bosh admin (ADMIN_IDS) va
+    # bazaga qo'shilgan do'kon egalari uchun ochiq (access_control.is_authorized).
+    # Bu yo'q bo'lsa, botni Telegram'da topgan yoki qarz eslatma linkini bosgan
+    # HAR QANDAY odam Sklad/Kirim-Chiqim/Qarz daftar/Hisobot bo'limlariga kirib,
+    # barcha ma'lumotlarni ko'rishi mumkin edi.
     dp.message.outer_middleware(OwnerOnlyMiddleware())
     dp.callback_query.outer_middleware(OwnerOnlyMiddleware())
 
@@ -64,6 +65,7 @@ def main():
     dp.include_router(transactions.router)
     dp.include_router(debts.router)
     dp.include_router(reports.router)
+    dp.include_router(users.router)
 
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
