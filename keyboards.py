@@ -344,6 +344,7 @@ def product_action_kb(product_id: int, allow_manage: bool = True, category_id=No
     else:
         builder.button(text="🏷 Chegirma belgilash", callback_data=f"prod_discount_{product_id}")
     builder.button(text="✏️ Narxlarni tahrirlash", callback_data=f"prod_edit_{product_id}")
+    builder.button(text="📉 Kamomad chiqarish", callback_data=f"prod_shortage_{product_id}")
     builder.button(text="🔀 Bo'limni o'zgartirish", callback_data=f"prod_move_{product_id}")
     if category_id is not None:
         builder.button(text="🚫 Bo'limdan chiqarish", callback_data=f"prod_unassign_{product_id}")
