@@ -2,7 +2,7 @@ import logging
 
 from aiogram import Router, F
 from aiogram.filters import CommandStart, CommandObject
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
@@ -11,6 +11,41 @@ import keyboards as kb
 from access_control import is_admin, is_authorized, get_role
 
 router = Router()
+
+
+# ---------- NOTANISH ODAM UCHUN "LANDING" OYNA ----------
+# Hali bazada umuman yo'q (na admin, na owner, na seller) har qanday kishi
+# /start bossa - shu oyna ko'rsatiladi: bot nima qila olishi haqida qisqa
+# tanishtiruv + "Ro'yxatdan o'tish" tugmasi. O'zi tugmani bosishi bilan
+# ro'yxatdan o'tish oqimi (ism/do'kon nomi/telefon so'rash va 14 kunlik
+# trial boshlash) 3-bosqichda ulanadi - hozircha faqat tugma va uning
+# joyini tayyorlaymiz.
+
+LANDING_TEXT = (
+    "👋 Assalomu alaykum!\n\n"
+    "Bu — do'kon egalari uchun hisob-kitob boti. U yordamida siz:\n\n"
+    "📦 <b>Sklad</b> — mahsulotlar va qoldiqlarni yuritasiz\n"
+    "💰 <b>Kirim/Chiqim</b> — pul aylanmasini nazorat qilasiz\n"
+    "📒 <b>Qarz daftar</b> — mijozlar qarzini yozib, eslatma yuborasiz\n"
+    "📊 <b>Hisobot</b> — savdo va foyda bo'yicha hisobotlar olasiz\n"
+    "🏢 <b>Filiallar</b> — bir nechta do'kon/filialni bitta joydan boshqarasiz\n\n"
+    "Boshlash uchun quyidagi tugmani bosing 👇"
+)
+
+
+async def _send_landing(message: Message):
+    await message.answer(LANDING_TEXT, reply_markup=kb.landing_menu())
+
+
+@router.callback_query(F.data == "self_register")
+async def self_register_start(callback: CallbackQuery, state: FSMContext):
+    # TODO (3-bosqich): bu yerda haqiqiy o'z-o'zidan ro'yxatdan o'tish
+    # so'rovnomasi (ism, do'kon nomi, telefon) boshlanadi va yangi do'kon
+    # egasi 14 kunlik trial bilan avtomatik yaratiladi.
+    await callback.answer()
+    await callback.message.answer(
+        "📝 Ro'yxatdan o'tish tez orada shu yerda ochiladi. Iltimos, kuting."
+    )
 
 
 # ---------- DO'KON EGASI UCHUN QISQA SO'ROVNOMA ----------
@@ -311,9 +346,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
     # Noto'g'ri yoki eskirgan link bo'lsa, oddiy /start kabi davom etamiz.
     role = await get_role(message.from_user.id)
     if role is None:
-        await message.answer(
-            "Assalomu alaykum! Bu link amal qilmaydi yoki muddati o'tgan."
-        )
+        await _send_landing(message)
         return
     if role == "owner":
         owner = await db.get_owner(message.from_user.id)
@@ -339,9 +372,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     role = await get_role(message.from_user.id)
     if role is None:
-        await message.answer(
-            "Assalomu alaykum! Bu bot faqat do'kon egasi/xodimlari uchun mo'ljallangan."
-        )
+        await _send_landing(message)
         return
     if role == "owner":
         # Do'kon egasi hali ismi/do'kon nomini kiritmagan bo'lsa (masalan,
