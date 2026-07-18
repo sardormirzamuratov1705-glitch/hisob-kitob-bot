@@ -653,6 +653,51 @@ async def stale_products(message: Message):
     await message.answer(text, parse_mode="HTML")
 
 
+# ---------- AI BUYURTMA TAVSIYASI - 16-BOSQICH ----------
+
+@router.message(F.text == "🤖 AI buyurtma tavsiyasi")
+async def ai_restock_suggestions(message: Message):
+    """AI BUYURTMA TAVSIYASI - 16-BOSQICH: "🧾 Olinishi kerak bo'lgan
+    tovarlar"dan farqi - u yerda faqat xodim QO'LDA belgilagan chegara
+    (alert_quantity) tekshiriladi, bu yerda esa HAR BIR mahsulotning
+    haqiqiy SOTILISH TEZLIGI (oxirgi 30 kun) joriy QOLDIQQA taqqoslanib,
+    "necha kunlik zaxira qolgani" avtomatik hisoblanadi va yetkazib berish
+    muddatidan kam bo'lsa - shu zahoti tavsiya sifatida ko'rsatiladi."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    lead_time = await db.get_restock_lead_time_days(shop_id)
+    suggestions = await db.get_ai_restock_suggestions(shop_id, lookback_days=30, lead_time_days=lead_time)
+
+    if not suggestions:
+        await message.answer(
+            "🤖 <b>AI buyurtma tavsiyasi</b>\n\n"
+            "✅ Hozircha hech qanday mahsulot uchun shoshilinch buyurtma kerak emas "
+            f"(hisoblash oxirgi 30 kunlik sotuvlar va {lead_time} kunlik yetkazib berish "
+            "muddati asosida qilinadi).",
+            parse_mode="HTML",
+        )
+        return
+
+    lines = [
+        "🤖 <b>AI buyurtma tavsiyasi</b>\n"
+        f"(oxirgi 30 kunlik sotilish tezligi + {lead_time} kunlik yetkazib berish "
+        "muddati asosida, eng shoshilinchidan boshlab)\n",
+    ]
+    for s in suggestions:
+        p = s["product"]
+        urgency = "🔴" if s["days_left"] <= 0 else ("🟠" if s["days_left"] <= lead_time / 2 else "🟡")
+        lines.append(
+            f"{urgency} <b>{p['name']}</b>\n"
+            f"   Qoldiq: {p['quantity']:.0f} dona | Kuniga ~{s['daily_sales_rate']:.1f} dona sotiladi\n"
+            f"   Taxminan {max(s['days_left'], 0):.0f} kunga yetadi\n"
+            f"   💡 Tavsiya: kamida {s['suggested_qty']:.0f} dona buyurtma bering"
+        )
+
+    await message.answer("\n\n".join(lines), parse_mode="HTML")
+
+
 # ---------- OLINISHI KERAK BO'LGAN TOVARLAR ----------
 
 async def _send_restock_list(message: Message, shop_id: int, manage: bool = True):
