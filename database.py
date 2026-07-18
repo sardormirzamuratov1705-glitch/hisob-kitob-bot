@@ -395,6 +395,19 @@ async def init_db():
         except Exception:
             pass
 
+        # 8-BOSQICH: do'kon egasi sotuvchiga Mini App'dagi "📦 Sklad" bo'limi
+        # orqali tovar miqdorini qo'shishga ruxsat beradimi-yo'qmi. NULL/1 =
+        # ruxsat berilgan (ESKI xatti-harakat bilan mos - shu bosqichgacha
+        # sotuvchi har doim ruxsatli edi, shuning uchun standart qiymat ham
+        # "ruxsat berilgan" bo'lishi kerak, aks holda mavjud do'konlarda
+        # kutilmaganda sotuvchilar birdaniga bloklanib qolardi). 0 = taqiqlangan
+        # (faqat do'kon egasining o'zi qo'sha oladi). Qarang: get_sellers_can_add_stock/
+        # set_sellers_can_add_stock (pastda) va access_control.can_add_stock().
+        try:
+            await db.execute("ALTER TABLE owners ADD COLUMN sellers_can_add_stock INTEGER")
+        except Exception:
+            pass
+
         # Sotuvchining o'zi kiritgan ismi va telefon raqami - do'kon egasi
         # bir nechta sotuvchini boshqarganda ularni Telegram ID/username
         # emas, balki tanish nom bilan bir-biridan ajratib olishi uchun.
@@ -2147,6 +2160,35 @@ async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str, p
             (owner_name, shop_name, phone_number, telegram_id),
         )
         await db.commit()
+
+
+async def get_sellers_can_add_stock(shop_id: int) -> bool:
+    """8-BOSQICH: shu do'kon egasi sotuvchilariga Mini App "Sklad" bo'limi
+    orqali tovar miqdori qo'shishga ruxsat berganmi. Ustun hali NULL bo'lsa
+    (eski/yangi yozuv, hali hech kim o'zgartirmagan) - True (ruxsat berilgan,
+    eski xatti-harakat bilan mos) qaytariladi."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "SELECT sellers_can_add_stock FROM owners WHERE telegram_id = ?", (shop_id,)
+        )
+        row = await cursor.fetchone()
+        if not row or row[0] is None:
+            return True
+        return bool(row[0])
+
+
+async def set_sellers_can_add_stock(shop_id: int, allowed: bool) -> bool:
+    """8-BOSQICH: "🔐 Sklad ruxsati" tugmasi orqali do'kon egasi shu
+    sozlamani yoqadi/o'chiradi. shop_id topilmasa (nazariy jihatdan
+    bo'lmasligi kerak - faqat _require_owner o'tgandan keyin chaqiriladi) -
+    False qaytaradi."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "UPDATE owners SET sellers_can_add_stock = ? WHERE telegram_id = ?",
+            (1 if allowed else 0, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def get_owner_ids():
