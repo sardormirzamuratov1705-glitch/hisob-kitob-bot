@@ -167,6 +167,46 @@ async def api_products(request: web.Request):
     return web.json_response({"products": payload})
 
 
+def _product_payload(p: dict) -> dict:
+    """api_products va api_cross_sell bitta xil shakldagi mahsulot obyektini
+    qaytarishi uchun umumiy funksiya - front-end (app.js) ikkalasini ham
+    bitta renderProducts()/openAddModal() bilan ishlata oladi."""
+    return {
+        "id": p["id"],
+        "name": p["name"],
+        "quantity": p["quantity"],
+        "price": p["price"],
+        "sell_price": p.get("sell_price"),
+        "min_price": p.get("min_price"),
+        "discount_price": (db.product_discount_info(p) or {}).get("price"),
+    }
+
+
+async def api_cross_sell(request: web.Request):
+    """3-BOSQICH: matnli oqimdagi "💡 Odatda bu tovar(lar) bilan birga
+    quyidagilar ham sotib olinadi" taklifi bilan AYNAN BIR XIL
+    db.get_cross_sell_suggestions() funksiyasidan foydalanadi - shu orqali
+    veb-ilova va matnli oqim bir xil taklif mantig'iga ega bo'ladi.
+
+    Query param: ids=1,2,3 - hozir savatdagi mahsulot id'lari (vergul bilan)."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    ids_param = request.query.get("ids", "")
+    try:
+        product_ids = [int(x) for x in ids_param.split(",") if x.strip()]
+    except ValueError:
+        return web.json_response({"error": "invalid_ids"}, status=400)
+
+    if not product_ids:
+        return web.json_response({"suggestions": []})
+
+    suggestions = await db.get_cross_sell_suggestions(auth["shop_id"], product_ids)
+    payload = [_product_payload(s["product"]) for s in suggestions]
+    return web.json_response({"suggestions": payload})
+
+
 async def api_sale_submit(request: web.Request):
     """Body (JSON): {"items": [{"product_id":.., "qty":.., "price":..}, ...],
     "payment_method": "naqd"|"plastik"|"aralash", "mixed_cash": son (ixtiyoriy)}."""
@@ -291,6 +331,7 @@ def create_web_app(bot) -> web.Application:
 
     app.router.add_get("/api/webapp/me", api_me)
     app.router.add_get("/api/webapp/products", api_products)
+    app.router.add_get("/api/webapp/cross_sell", api_cross_sell)
     app.router.add_post("/api/webapp/sale", api_sale_submit)
 
     # MUHIM: har bir statik fayl uchun ANIQ route (yuqoridagi izohga qarang -
