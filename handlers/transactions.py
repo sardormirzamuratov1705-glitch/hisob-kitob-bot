@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
@@ -5,6 +7,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 import database as db
 import keyboards as kb
+import alerts
 from access_control import get_shop_id, get_branch_id
 
 router = Router()
@@ -77,8 +80,24 @@ async def add_transaction_description(message: Message, state: FSMContext):
 
     data = await state.get_data()
     branch_id = await get_branch_id(message.from_user.id)
-    await db.add_transaction(shop_id, data["type"], data["amount"], message.text.strip(), branch_id=branch_id)
+    performed_by = message.from_user.id
+    await db.add_transaction(
+        shop_id, data["type"], data["amount"], message.text.strip(),
+        branch_id=branch_id, performed_by=performed_by,
+    )
     await state.clear()
+
+    # SHUBHALI HOLATLAR - 9-BOSQICH: faqat "chiqim" uchun tekshiramiz
+    # (5-qoida - katta chiqim - kirimga tegishli emas). Hozircha faqat
+    # logga yoziladi - Telegram orqali darhol xabar 10-bosqichda qo'shiladi.
+    if data["type"] == "expense":
+        suspicious_flags = await alerts.evaluate_expense_suspicions(
+            shop_id, data["amount"], performed_by=performed_by
+        )
+        if suspicious_flags:
+            logging.warning(
+                f"[SHUBHALI - CHIQIM] shop={shop_id}: " + " | ".join(suspicious_flags)
+            )
 
     label = "Kirim" if data["type"] == "income" else "Chiqim"
     is_owner = await db.is_owner(message.from_user.id)
