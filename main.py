@@ -40,26 +40,39 @@ async def notify_admins_error(bot: Bot, context: str, exc: Exception):
 async def _debt_reminder_loop(bot: Bot):
     """Har 24 soatda bir marta ishga tushadi - har bir do'kon egasiga FAQAT
     o'ZINING muddati o'tgan qarzlari haqida xabar yuboradi
-    (alerts.send_debt_reminders do'konlar bo'yicha alohida-alohida ishlaydi)."""
+    (alerts.send_debt_reminders do'konlar bo'yicha alohida-alohida ishlaydi).
+    Bot tez-tez qayta ishga tushsa (masalan har redeployda) ham, bugun
+    allaqachon yuborilgan bo'lsa qaytadan yubormaydi - buning uchun oxirgi
+    yuborilgan SANA settings jadvalida saqlanadi."""
     while True:
-        try:
-            await alerts.send_debt_reminders(bot)
-        except Exception as e:
-            logging.warning(f"Qarz eslatmasi tsiklida xato: {e}")
-            await notify_admins_error(bot, "Qarz eslatmasi tsikli", e)
+        today = config.now().strftime("%Y-%m-%d")
+        last_sent = await db.get_setting("debt_reminder_last_sent", "")
+        if last_sent != today:
+            try:
+                await alerts.send_debt_reminders(bot)
+                await db.set_setting("debt_reminder_last_sent", today)
+            except Exception as e:
+                logging.warning(f"Qarz eslatmasi tsiklida xato: {e}")
+                await notify_admins_error(bot, "Qarz eslatmasi tsikli", e)
         await asyncio.sleep(24 * 60 * 60)
 
 
 async def _subscription_reminder_loop(bot: Bot):
     """8-BOSQICH: Har 24 soatda bir marta ishga tushadi - har bir do'kon
     egasiga o'zining obuna muddati tugashiga 7/3/0 kun qolganda avtomatik
-    eslatma yuboradi (alerts.send_subscription_reminders)."""
+    eslatma yuboradi (alerts.send_subscription_reminders). Bot tez-tez qayta
+    ishga tushsa (masalan har redeployda) ham, bugun allaqachon yuborilgan
+    bo'lsa qaytadan yubormaydi (debt reminder loop bilan bir xil mantiq)."""
     while True:
-        try:
-            await alerts.send_subscription_reminders(bot)
-        except Exception as e:
-            logging.warning(f"Obuna eslatmasi tsiklida xato: {e}")
-            await notify_admins_error(bot, "Obuna eslatmasi tsikli", e)
+        today = config.now().strftime("%Y-%m-%d")
+        last_sent = await db.get_setting("subscription_reminder_last_sent", "")
+        if last_sent != today:
+            try:
+                await alerts.send_subscription_reminders(bot)
+                await db.set_setting("subscription_reminder_last_sent", today)
+            except Exception as e:
+                logging.warning(f"Obuna eslatmasi tsiklida xato: {e}")
+                await notify_admins_error(bot, "Obuna eslatmasi tsikli", e)
         await asyncio.sleep(24 * 60 * 60)
 
 
