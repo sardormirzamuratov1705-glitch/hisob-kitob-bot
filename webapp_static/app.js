@@ -642,15 +642,28 @@ async function handleSaleBarcodeScan(decodedText) {
 // Sklad rejimi: mahsulotni barkod bo'yicha topadi (0 qolgan bo'lsa ham -
 // api_product_by_barcode quantity bo'yicha filtrlamaydi) va topilsa
 // miqdor kiritish oynasini ochadi.
+//
+// YANGI REJA - 5-BOSQICH: agar bu barkod bo'yicha HECH QANDAY mahsulot
+// topilmasa, endi shunchaki "topilmadi" deb qo'yib qo'ymaymiz - buning
+// o'rniga foydalanuvchiga xabar berib, darhol "Yangi mahsulot" oynasini
+// shu barkod OLDINDAN TO'LDIRILGAN holda ochamiz (2-3-bosqichda
+// qurilgan oyna) - shu bilan "mahsulot yo'q ekan, uni alohida qayta
+// skladga kirib qo'lda qo'shish kerak" degan qo'shimcha qadam
+// yo'qoladi.
 async function handleSkladBarcodeScan(decodedText) {
   try {
     const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(decodedText)}`);
     const data = await res.json();
     if (!res.ok) {
-      const msg = data.error === "not_found"
-        ? `Bu barkod bo'yicha mahsulot topilmadi:\n${decodedText}`
-        : "Barkod bo'yicha qidirishda xatolik yuz berdi.";
-      tg.showAlert(msg);
+      if (data.error === "not_found") {
+        tg.showAlert(
+          `Bu barkod bo'yicha mahsulot topilmadi:\n${decodedText}\n\n` +
+          "Uni yangi mahsulot sifatida qo'shishingiz mumkin."
+        );
+        openSkladNewProductModal(decodedText);
+        return;
+      }
+      tg.showAlert("Barkod bo'yicha qidirishda xatolik yuz berdi.");
       return;
     }
     openSkladAddModal(data.product);
@@ -847,7 +860,7 @@ function skladErrorText(data) {
 // (bot bilan matnli yozishmasdan, to'g'ridan-to'g'ri mini-appdan).
 // Barkod bilan to'ldirish (skanerlash) 3-4-bosqichlarda shu yerga
 // qo'shiladi - hozircha faqat nom/narx/miqdor.
-function openSkladNewProductModal() {
+function openSkladNewProductModal(prefilledBarcode = "") {
   if (!currentUser.canAddStock) {
     tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
     return;
@@ -856,11 +869,11 @@ function openSkladNewProductModal() {
   el("sklad-new-price-input").value = "";
   el("sklad-new-sell-price-input").value = "";
   el("sklad-new-quantity-input").value = 1;
-  el("sklad-new-barcode-input").value = "";
+  el("sklad-new-barcode-input").value = prefilledBarcode;
   el("modal-sklad-new").classList.remove("hidden");
 }
 
-el("sklad-new-product-btn").addEventListener("click", openSkladNewProductModal);
+el("sklad-new-product-btn").addEventListener("click", () => openSkladNewProductModal());
 
 el("sklad-new-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-new").classList.add("hidden");
