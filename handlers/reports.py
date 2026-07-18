@@ -510,7 +510,7 @@ async def export_excel(message: Message):
             length = max(len(str(cell.value or "")) for cell in column_cells)
             ws.column_dimensions[column_cells[0].column_letter].width = length + 3
 
-    filename = f"hisobot_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    filename = f"hisobot_{config.now().strftime('%Y%m%d_%H%M')}.xlsx"
     filepath = f"/tmp/{filename}"
     wb.save(filepath)
 
