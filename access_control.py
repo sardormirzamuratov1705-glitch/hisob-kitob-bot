@@ -71,6 +71,28 @@ async def get_shop_id(user_id: int):
     return None
 
 
+async def get_branch_id(user_id: int):
+    """Foydalanuvchining joriy filiali (branch_id):
+    - do'kon egasi uchun - o'zi tanlab qo'ygan joriy filial
+      (owners.current_branch_id). Hali birorta filial tanlamagan bo'lsa -
+      None, ya'ni "Bosh filial" (filialga bo'linmagan umumiy holat).
+    - sotuvchi uchun - doimiy biriktirilgan filiali (sellers.branch_id).
+      Sotuvchi buni o'zi almashtira olmaydi - faqat do'kon egasi
+      "📋 Sotuvchilar ro'yxati" orqali boshqa filialga ko'chira oladi.
+    - bosh admin uchun - None (uning o'z do'koni/filiali yo'q).
+
+    Savdo/Kirim-Chiqim/Qarz yozuvlarini kiritishdan oldin har bir handler
+    shuni chaqirib, yozuvga shu branch_id'ni biriktirishi kerak.
+    """
+    owner = await db.get_owner(user_id)
+    if owner:
+        return owner.get("current_branch_id")
+    seller = await db.get_seller(user_id)
+    if seller:
+        return seller.get("branch_id")
+    return None
+
+
 class OwnerOnlyMiddleware(BaseMiddleware):
     """Botning barcha funksiyalari (Sklad, Kirim/Chiqim, Qarz daftar, Hisobot va h.k.)
     faqat bosh admin (config.ADMIN_IDS), bazaga qo'shilgan do'kon egalari va
