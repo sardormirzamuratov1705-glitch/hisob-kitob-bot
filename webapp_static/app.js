@@ -60,7 +60,8 @@ async function apiFetch(url, options = {}) {
       `platform=${tg.platform || "yo'q"}`,
       `version=${tg.version || "yo'q"}`,
       `initDataLen=${initData.length}`,
-      `hasHash=${location.hash ? "ha" : "yo'q"}`,
+      `unsafeKeys=${tg.initDataUnsafe ? Object.keys(tg.initDataUnsafe).join("|") || "bo'sh" : "yo'q"}`,
+      `rawHash=${location.hash ? location.hash.slice(0, 250) : "yo'q"}`,
     ].join(", ");
     throw new Error(`Ruxsat yo'q. Botni qaytadan oching.\n[debug: ${debug}]`);
   }
