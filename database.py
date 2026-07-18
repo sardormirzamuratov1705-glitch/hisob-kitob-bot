@@ -1094,6 +1094,99 @@ async def search_sales(shop_id: int, query: str, limit: int = 30):
         return [dict(row) for row in rows]
 
 
+# ---------- 4-BOSQICH: KUNLIK HISOBOT STATISTIKASI ----------
+
+async def get_daily_stats(shop_id: int, date_str: str = None, branch_id=None) -> dict:
+    """Berilgan kun uchun (standart - bugun) do'konning asosiy statistikasini
+    bitta joyda hisoblab beradi: savdo, foyda, kirim-chiqim va sklad harakati.
+    Bu funksiya kunlik Telegram hisoboti (alerts.py, 5-6-bosqich) uchun
+    tayyorlangan - lekin istalgan sana uchun ham ishlatilishi mumkin
+    (masalan "kecha" yoki tanlangan kun bo'yicha hisobot uchun).
+
+    date_str - "YYYY-MM-DD" formatida. Berilmasa - bugungi kun olinadi.
+    branch_id - filial bo'yicha kesim (None=barcha, 0=Bosh filial, <id>=filial).
+    DIQQAT: mahsulotlar (products) jadvalida branch_id yo'q, shuning uchun
+    "current_stock_value" har doim BUTUN do'kon bo'yicha hisoblanadi
+    (branch_id filialga bo'lib chiqarilmaydi).
+
+    DIQQAT (stock_cost_out haqida): bu - shu kuni sotilgan mahsulotlarning
+    TANNARXI (sklad shu qadar "kamaydi" degani). Agar shu kuni skladga yangi
+    tovar kirim qilingan bo'lsa, bu funksiya buni alohida ko'rsata olmaydi,
+    chunki hozircha sklad to'ldirish sanasi bilan alohida saqlanmaydi (faqat
+    mahsulot qatoridagi umumiy miqdor yangilanadi, update_product_purchase()).
+    Shuning uchun bu qiymatni "qoldiq NECHA SO'MLIK kamaydi (sotuv hisobiga)"
+    deb tushunish kerak, "kun davomidagi umumiy qoldiq o'zgarishi" emas.
+
+    Qaytaradi:
+        {
+            "date": "YYYY-MM-DD",
+            "sales_count": int,            - shu kuni nechta savdo (chek) bo'lgan
+            "sales_total": float,          - savdolar summasi (sotuv narxida)
+            "profit_total": float,         - savdolardan sof foyda
+            "income_total": float,         - shu kuni jami kirim (savdo + boshqa kirim)
+            "expense_total": float,        - shu kuni jami chiqim
+            "stock_cost_out": float,       - shu kuni sotilgan tovarlar tannarxi
+            "current_stock_value": float,  - hozirgi umumiy sklad qiymati (tannarxda)
+        }
+    """
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+    sale_clause, sale_extra = _branch_filter(branch_id, column="t.branch_id")
+    tx_clause, tx_extra = _branch_filter(branch_id)
+
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        # Savdolar - sale_items shu kunga tegishli transaction (chek) orqali bog'lanadi.
+        cursor = await db.execute(
+            f"""
+            SELECT COUNT(DISTINCT si.sale_id) AS cnt,
+                   COALESCE(SUM(si.quantity * si.price), 0) AS total_sum,
+                   COALESCE(SUM((si.price - p.price) * si.quantity), 0) AS total_profit,
+                   COALESCE(SUM(p.price * si.quantity), 0) AS cost_out
+            FROM sale_items si
+            JOIN products p ON p.id = si.product_id
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ? AND date(t.created_at) = ?{sale_clause}
+            """,
+            [shop_id, date_str] + sale_extra,
+        )
+        row = await cursor.fetchone()
+        sales_count = row[0] or 0
+        sales_total = row[1] or 0
+        profit_total = row[2] or 0
+        stock_cost_out = row[3] or 0
+
+        # Kirim - shu kunlik BARCHA kirim turlari (savdo + qo'lda kiritilgan kirim).
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions "
+            f"WHERE shop_id = ? AND type = 'income' AND date(created_at) = ?{tx_clause}",
+            [shop_id, date_str] + tx_extra,
+        )
+        income_total = (await cursor.fetchone())[0] or 0
+
+        # Chiqim - shu kunlik.
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions "
+            f"WHERE shop_id = ? AND type = 'expense' AND date(created_at) = ?{tx_clause}",
+            [shop_id, date_str] + tx_extra,
+        )
+        expense_total = (await cursor.fetchone())[0] or 0
+
+    products = await get_all_products(shop_id)
+    current_stock_value = sum((p["price"] or 0) * (p["quantity"] or 0) for p in products)
+
+    return {
+        "date": date_str,
+        "sales_count": sales_count,
+        "sales_total": sales_total,
+        "profit_total": profit_total,
+        "income_total": income_total,
+        "expense_total": expense_total,
+        "stock_cost_out": stock_cost_out,
+        "current_stock_value": current_stock_value,
+    }
+
+
 # ---------- FOYDALANUVCHILAR (DO'KON EGALARI) ----------
 
 async def get_top_selling_products(shop_id: int, limit: int = 10, branch_id=None):
