@@ -83,10 +83,25 @@ async def branch_manage_new_name(message: Message, state: FSMContext):
         await message.answer("Filial nomi bo'sh bo'lishi mumkin emas. Qaytadan kiriting:")
         return
     await state.clear()
+
+    # Bu shu do'kon uchun BIRINCHI marta filial qo'shilishi bo'lsa - hozirgacha
+    # "Bosh filial" deb yashirin yurgan barcha ma'lumotlarni do'kon nomi bilan
+    # birinchi (haqiqiy) filial qilib chiqaramiz, shu kiritilgan nom esa ikkinchi
+    # filial bo'lib qo'shiladi - shunda ikkalasi ham ro'yxatda ko'rinadi.
+    default_branch = await db.ensure_default_branch(shop_id)
+
     branch = await db.add_branch(shop_id, name)
     text, markup = await _branches_screen(shop_id)
+
+    prefix = ""
+    if default_branch:
+        prefix = (
+            f"✅ Hozirgacha yozilgan ma'lumotlar \"{default_branch['name']}\" nomli "
+            f"birinchi filialga o'tkazildi.\n"
+        )
+
     await message.answer(
-        f"✅ \"{branch['name']}\" filiali qo'shildi.\n\n{text}",
+        f"{prefix}✅ \"{branch['name']}\" filiali qo'shildi.\n\n{text}",
         reply_markup=markup,
         parse_mode="HTML",
     )
