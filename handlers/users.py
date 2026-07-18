@@ -7,6 +7,7 @@ import config
 import database as db
 import keyboards as kb
 from access_control import is_admin, check_subscription_access, subscription_status_emoji
+from handlers.products import ExcelFill, send_products_excel_template
 
 router = Router()
 
@@ -401,6 +402,31 @@ async def unblock_owner_cb(callback: CallbackQuery):
         )
     except Exception:
         pass
+
+
+# ---------- ADMIN: BOSHQA DO'KONNING SKLADINI EXCEL BILAN TO'LDIRISH ----------
+# handlers/products.py'dagi ExcelFill holati va shablon/qayta ishlash
+# funksiyalari shu yerda qayta ishlatiladi (bitta Dispatcher'ga barcha
+# routerlar ulangani uchun state global) - faqat target_shop_id bu yerda
+# bosilgan kartochkadagi eganing telegram_id'siga (= uning shop_id'siga)
+# o'rnatiladi, admin o'zining shop_id'siga emas (uning umuman do'koni yo'q).
+
+@router.callback_query(F.data.startswith("admin_sklad_excel:"))
+async def admin_sklad_excel_start_cb(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    target_id = int(callback.data.split(":", 1)[1])
+    owner = await db.get_owner(target_id)
+    if not owner:
+        await callback.answer("Bu ega endi topilmadi.", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.update_data(target_shop_id=target_id)
+    await state.set_state(ExcelFill.waiting_file)
+    await callback.message.answer(f"🏪 Do'kon egasi: <b>{owner.get('full_name') or target_id}</b>", parse_mode="HTML")
+    await send_products_excel_template(callback.message)
 
 
 # ---------- 9-BOSQICH: KUTILAYOTGAN TO'LOVLAR RO'YXATI ----------
