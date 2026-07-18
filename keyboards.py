@@ -118,9 +118,19 @@ def users_menu() -> ReplyKeyboardMarkup:
     builder.button(text="📋 Do'kon egalari ro'yxati")
     builder.button(text="💳 Kutilayotgan to'lovlar")
     builder.button(text="⚙️ To'lov sozlamalari")
+    builder.button(text="👑 Admin qo'shish")
+    builder.button(text="🔗 Bir martalik admin havolasi")
+    builder.button(text="👑 Adminlar ro'yxati")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
+
+
+def admin_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗑 Admin huquqini olib tashlash", callback_data=f"remove_admin_{telegram_id}")
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def owner_action_kb(telegram_id: int, blocked: bool = False) -> InlineKeyboardMarkup:
