@@ -425,6 +425,21 @@ async def init_db():
             """
         )
 
+        # ---------- 10-BOSQICH: ADMIN TAHRIRLAY OLADIGAN SOZLAMALAR ----------
+        # Oddiy kalit-qiymat jadvali - obuna narxlari (1/3/12 oylik) va
+        # to'lov rekvizitlari (karta, Click, Payme) endi .env/config.py'da
+        # QOTIB QOLMAYDI, bosh admin buni bot ichidan (⚙️ To'lov sozlamalari)
+        # istalgan vaqt o'zgartira oladi. Kalit shu jadvalda topilmasa,
+        # config.py'dagi standart qiymat ishlatiladi (get_setting default).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
+
         await db.commit()
 
 
@@ -1315,6 +1330,61 @@ async def reject_payment(payment_id: int, decided_by: int, comment: str = None):
         await db.commit()
     payment["status"] = "rejected"
     return payment
+
+
+# ---------- 10-BOSQICH: TAHRIRLANADIGAN SOZLAMALAR (NARX + REKVIZITLAR) ----------
+
+async def get_setting(key: str, default: str = "") -> str:
+    """settings jadvalidan bitta qiymat o'qiydi. Agar admin hali
+    o'zgartirmagan bo'lsa (jadvalda yozuv yo'q), config.py'dagi standart
+    qiymat (default) qaytariladi - bot HECH QACHON sozlamasiz qolmaydi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = await cursor.fetchone()
+        if row is None or row[0] is None or row[0] == "":
+            return default
+        return row[0]
+
+
+async def set_setting(key: str, value: str):
+    """Bosh admin "⚙️ To'lov sozlamalari" orqali bitta qiymatni yangilaydi -
+    mavjud bo'lsa ustidan yoziladi, bo'lmasa yangi qator qo'shiladi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        await db.commit()
+
+
+async def get_subscription_plans() -> dict:
+    """config.SUBSCRIPTION_PLANS bilan bir xil shakldagi dict qaytaradi
+    (label/days/discount_note config.py'dan - bular o'zgarmaydi), lekin
+    "price" - agar admin bazadan o'zgartirgan bo'lsa o'sha qiymat, aks holda
+    config.py'dagi standart narx. handlers/subscription.py va
+    keyboards.subscription_plans_menu() shu yerdan foydalanadi."""
+    plans = {}
+    for key, base in config.SUBSCRIPTION_PLANS.items():
+        raw = await get_setting(f"price_{key}", str(base["price"]))
+        try:
+            price = int(float(raw))
+        except (TypeError, ValueError):
+            price = base["price"]
+        plans[key] = {**base, "price": price}
+    return plans
+
+
+async def get_payment_requisites() -> dict:
+    """To'lov rekvizitlari (karta raqami/egasi, Click, Payme) - admin
+    bazadan o'zgartirgan bo'lsa o'sha qiymat, aks holda config.py'dagi
+    standart (.env) qiymat."""
+    return {
+        "card_number": await get_setting("card_number", config.PAYMENT_CARD_NUMBER),
+        "card_holder": await get_setting("card_holder", config.PAYMENT_CARD_HOLDER),
+        "click_number": await get_setting("click_number", config.PAYMENT_CLICK_NUMBER),
+        "payme_number": await get_setting("payme_number", config.PAYMENT_PAYME_NUMBER),
+    }
 
 
 async def get_pending_payments():
