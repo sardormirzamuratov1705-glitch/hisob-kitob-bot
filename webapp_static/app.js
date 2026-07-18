@@ -65,6 +65,7 @@ async function loadMe() {
     const data = await res.json();
     currentUser.role = data.role;
     currentUser.canAddStock = data.can_add_stock !== false;
+    updateSkladPermissionUI();
   } catch (e) {
     // Jim o'tkazamiz - bu faqat UI'ni yaxshilash uchun, savdo oqimini
     // to'xtatib qo'ymasligi kerak (asosiy 401 tekshiruvi baribir
@@ -702,6 +703,7 @@ function switchSection(section) {
 
   if (section === "sklad") {
     showScreen("sklad");
+    updateSkladPermissionUI();
     loadSkladProducts(el("sklad-search-input").value.trim());
   } else {
     showScreen("products");
@@ -709,6 +711,25 @@ function switchSection(section) {
 
   // Savat (agar bo'sh bo'lmasa) faqat "Savdo" bo'limida ko'rinishi kerak.
   renderCartBar();
+}
+
+// YANGI REJA - 8-BOSQICH: sotuvchida sklad ruxsati yo'q bo'lsa
+// (owners.sellers_can_add_stock ega tomonidan o'chirilgan bo'lsa),
+// "➕ Yangi mahsulot qo'shish" va 📷 (barkod skanerlash) tugmalari
+// VIZUAL ravishda ham qulflanganini ko'rsatamiz - shunda foydalanuvchi
+// tugmani bosib, faqat SHUNDAN KEYIN alert ko'rish o'rniga, oldindan
+// ruxsati yo'qligini bilib oladi (mavjud mahsulot kartalaridagi 🔒/➕
+// ikonkasi bilan bir xil g'oya - qarang: renderSkladProducts).
+// Tugmalar hali ham bosiladi (disabled emas) - bosilganda tg.showAlert
+// orqali aniq sabab ko'rsatiladi (pastdagi handlerlarga qarang).
+function updateSkladPermissionUI() {
+  const newBtn = el("sklad-new-product-btn");
+  const scanBtn = el("sklad-scan-btn");
+  newBtn.textContent = currentUser.canAddStock
+    ? "➕ Yangi mahsulot qo'shish"
+    : "🔒 Yangi mahsulot qo'shish";
+  newBtn.classList.toggle("locked-btn", !currentUser.canAddStock);
+  scanBtn.classList.toggle("locked-btn", !currentUser.canAddStock);
 }
 
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
