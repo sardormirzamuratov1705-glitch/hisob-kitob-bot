@@ -578,6 +578,28 @@ async def clear_product_discount(shop_id: int, product_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+async def update_product_field(shop_id: int, product_id: int, field: str, value: float) -> bool:
+    """Mahsulotning bitta narx ustunini (tannarx/sotuv narxi/eng past narx)
+    qo'lda tahrirlash uchun - miqdorga va boshqa ustunlarga tegmaydi (bu
+    update_product_purchase'dan farqi - u yangi partiya kirim qilinganda
+    tannarxni o'rtacha (weighted average) hisoblab qayta yozadi va miqdorni
+    qo'shadi; bu funksiya esa faqat bitta mavjud qiymatni to'g'ridan-to'g'ri
+    almashtiradi).
+
+    field - albatta whitelist'dan bo'lishi shart (SQL in'ektsiyaning oldini
+    olish uchun ustun nomi f-string orqali qo'yiladi) - chaqiruvchi
+    tomonidan (handlers/products.py) tekshirilgan bo'lishi kerak."""
+    if field not in ("price", "sell_price", "min_price"):
+        raise ValueError(f"Noto'g'ri maydon: {field}")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            f"UPDATE products SET {field} = ? WHERE id = ? AND shop_id = ?",
+            (value, product_id, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def update_product_quantity(shop_id: int, product_id: int, quantity: float):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
