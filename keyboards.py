@@ -31,7 +31,8 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
         builder.button(text="📒 Qarz daftar")
         builder.button(text="📊 Hisobot")
         builder.button(text="🧑‍💼 Sotuvchilar")
-        builder.adjust(2, 2, 1)
+        builder.button(text="🏢 Filiallar")
+        builder.adjust(2, 2, 2)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -223,6 +224,20 @@ def category_move_kb(categories, product_id: int, current_category_id=None) -> I
     if current_category_id is not None:
         builder.button(text="🚫 Bo'limdan chiqarish", callback_data=f"prod_unassign_{product_id}")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def branch_manage_kb(branches) -> InlineKeyboardMarkup:
+    """Filiallarni boshqarish (o'chirish) va yangisini qo'shish uchun menyu."""
+    builder = InlineKeyboardBuilder()
+    row_sizes = []
+    for b in branches:
+        builder.button(text=f"🏢 {b['name']}", callback_data=f"branch_noop_{b['id']}")
+        builder.button(text="🗑", callback_data=f"branch_delete_{b['id']}")
+        row_sizes.append(2)
+    builder.button(text="➕ Filial qo'shish", callback_data="branch_manage_new")
+    row_sizes.append(1)
+    builder.adjust(*row_sizes)
     return builder.as_markup()
 
 
