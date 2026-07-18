@@ -9,7 +9,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
-from access_control import get_shop_id
+from access_control import get_shop_id, get_branch_id
 
 router = Router()
 
@@ -549,22 +549,23 @@ async def _finalize_sale(message: Message, state: FSMContext):
 
     description = "Savdo:\n" + "\n".join(lines)
     payment_method = data.get("payment_method")
+    branch_id = await get_branch_id(message.chat.id)
 
     if payment_method == "aralash":
         cash = data.get("mixed_cash", 0.0)
         card = data.get("mixed_card", 0.0)
         if cash > 0:
-            sale_id = await db.add_transaction(shop_id, "income", cash, description, payment_method="naqd")
+            sale_id = await db.add_transaction(shop_id, "income", cash, description, payment_method="naqd", branch_id=branch_id)
             if card > 0:
                 await db.add_transaction(
                     shop_id, "income", card,
                     description + "\n(aralash to'lovning plastik qismi)",
-                    payment_method="plastik",
+                    payment_method="plastik", branch_id=branch_id,
                 )
         else:
-            sale_id = await db.add_transaction(shop_id, "income", card, description, payment_method="plastik")
+            sale_id = await db.add_transaction(shop_id, "income", card, description, payment_method="plastik", branch_id=branch_id)
     else:
-        sale_id = await db.add_transaction(shop_id, "income", total, description, payment_method=payment_method)
+        sale_id = await db.add_transaction(shop_id, "income", total, description, payment_method=payment_method, branch_id=branch_id)
 
     for r in results:
         await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"])
