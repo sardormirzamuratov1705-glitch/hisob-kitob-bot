@@ -103,6 +103,26 @@ async def get_branch_id(user_id: int):
     return None
 
 
+def subscription_status_emoji(access: dict | None) -> str:
+    """9-BOSQICH: admin panelidagi "📋 Do'kon egalari ro'yxati"da har bir
+    ega qatoriga chiqariladigan holat belgisi. access -
+    check_subscription_access()/db.get_owner_subscription_access() natijasi.
+
+    ⛔ - kirish taqiqlangan (majburiy bloklangan yoki muddat+muhlat tugagan)
+    ⏳ - kirish hali bor, lekin diqqat talab qiladi (muhlat davrida YOKI
+         muddat tugashiga 7 kun yoki kamroq qolgan)
+    ✅ - hammasi joyida (muddatga hali ancha bor)
+    """
+    if not access or not access.get("allowed"):
+        return "⛔"
+    if access.get("in_grace"):
+        return "⏳"
+    days_left = access.get("days_left")
+    if days_left is not None and days_left <= 7:
+        return "⏳"
+    return "✅"
+
+
 async def check_subscription_access(user_id: int) -> dict:
     """4-BOSQICH: "hozir botga kirish mumkinmi" degan YAGONA tekshiruv.
 
