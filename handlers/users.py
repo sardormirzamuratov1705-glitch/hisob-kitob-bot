@@ -293,13 +293,18 @@ async def extend_days_cb(callback: CallbackQuery):
         await callback.answer("Bu ega endi topilmadi.", show_alert=True)
         return
 
-    await callback.answer(f"✅ +{days} kun qo'shildi")
+    if days >= 0:
+        await callback.answer(f"✅ +{days} kun qo'shildi")
+        owner_note = f"✅ Bosh admin obunangizni qo'lda {days} kunga uzaytirdi."
+    else:
+        await callback.answer(f"✅ {abs(days)} kun ayirildi")
+        owner_note = f"⚠️ Bosh admin obunangizni qo'lda {abs(days)} kunga qisqartirdi."
     await _refresh_owner_card(callback, target_id)
 
     try:
         await callback.message.bot.send_message(
             target_id,
-            f"✅ Bosh admin obunangizni qo'lda {days} kunga uzaytirdi.\n"
+            f"{owner_note}\n"
             f"📅 Endi {new_until} sanagacha amal qiladi.",
         )
     except Exception:
@@ -316,7 +321,9 @@ async def extend_custom_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ExtendSubscription.waiting_custom_days)
     await state.update_data(target_owner_id=target_id)
     await callback.message.answer(
-        f"✏️ ID {target_id} uchun necha kunlik obuna qo'shmoqchisiz? Faqat son yuboring (masalan: 45)."
+        f"✏️ ID {target_id} uchun necha kunlik obuna qo'shmoqchisiz? Son yuboring "
+        f"(masalan: 45), xato qo'shib qo'ygan bo'lsangiz tuzatish uchun manfiy son ham "
+        f"yuborishingiz mumkin (masalan: -10)."
     )
 
 
@@ -330,11 +337,17 @@ async def extend_custom_finish(message: Message, state: FSMContext):
     target_id = data.get("target_owner_id")
     text = (message.text or "").strip()
 
-    if not text.lstrip("-").isdigit() or int(text) <= 0:
-        await message.answer("Iltimos, musbat butun son yuboring (masalan: 45).")
+    try:
+        days = int(text)
+    except ValueError:
+        days = None
+    if days is None or days == 0:
+        await message.answer(
+            "Iltimos, butun son yuboring (masalan: 45), yoki kamaytirish uchun "
+            "manfiy son yuboring (masalan: -10)."
+        )
         return
 
-    days = int(text)
     await state.clear()
 
     new_until = await db.extend_owner_subscription(target_id, days)
@@ -342,15 +355,23 @@ async def extend_custom_finish(message: Message, state: FSMContext):
         await message.answer("Bu ega endi topilmadi.", reply_markup=kb.users_menu())
         return
 
-    await message.answer(
-        f"✅ ID {target_id} uchun {days} kun qo'shildi. Endi {new_until} sanagacha amal qiladi.",
-        reply_markup=kb.users_menu(),
-    )
+    if days >= 0:
+        await message.answer(
+            f"✅ ID {target_id} uchun {days} kun qo'shildi. Endi {new_until} sanagacha amal qiladi.",
+            reply_markup=kb.users_menu(),
+        )
+        owner_note = f"✅ Bosh admin obunangizni qo'lda {days} kunga uzaytirdi."
+    else:
+        await message.answer(
+            f"✅ ID {target_id} uchun {abs(days)} kun ayirildi. Endi {new_until} sanagacha amal qiladi.",
+            reply_markup=kb.users_menu(),
+        )
+        owner_note = f"⚠️ Bosh admin obunangizni qo'lda {abs(days)} kunga qisqartirdi."
 
     try:
         await message.bot.send_message(
             target_id,
-            f"✅ Bosh admin obunangizni qo'lda {days} kunga uzaytirdi.\n"
+            f"{owner_note}\n"
             f"📅 Endi {new_until} sanagacha amal qiladi.",
         )
     except Exception:
