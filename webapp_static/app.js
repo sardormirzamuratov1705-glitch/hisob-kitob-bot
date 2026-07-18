@@ -78,10 +78,14 @@ function renderProducts(products) {
   products.forEach((p) => {
     const card = document.createElement("div");
     card.className = "product-card";
+    const discountBadge = p.discount_price
+      ? `<div class="discount-badge">🏷 ${formatNum(p.discount_price)} so'm — ${discountDaysText(p.discount_days_left)}</div>`
+      : "";
     card.innerHTML = `
       <div>
         <div class="name">${escapeHtml(p.name)}</div>
         <div class="stock">${formatNum(p.quantity)} dona bor</div>
+        ${discountBadge}
       </div>
       <div class="add-icon">➕</div>
     `;
@@ -91,6 +95,12 @@ function renderProducts(products) {
 
   showScreen("products");
   renderCartBar();
+}
+
+function discountDaysText(daysLeft) {
+  if (daysLeft === null || daysLeft === undefined) return "";
+  if (daysLeft <= 0) return "bugun tugaydi";
+  return `${daysLeft} kun qoldi`;
 }
 
 function escapeHtml(text) {
@@ -115,15 +125,16 @@ function openAddModal(product) {
   const hints = el("modal-price-hints");
   hints.innerHTML = "";
   const hintDefs = [
-    ["sell_price", "💰 Savdo narxi"],
-    ["min_price", "🔻 Eng past narx"],
-    ["discount_price", "🏷 Chegirma narxi"],
+    ["sell_price", "💰 Savdo narxi", null],
+    ["min_price", "🔻 Eng past narx", null],
+    ["discount_price", "🏷 Chegirma narxi", product.discount_days_left],
   ];
-  hintDefs.forEach(([key, label]) => {
+  hintDefs.forEach(([key, label, daysLeft]) => {
     if (product[key]) {
       const btn = document.createElement("button");
-      btn.className = "price-hint-btn";
-      btn.textContent = `${label}: ${formatNum(product[key])}`;
+      btn.className = key === "discount_price" ? "price-hint-btn price-hint-discount" : "price-hint-btn";
+      const suffix = key === "discount_price" ? ` (${discountDaysText(daysLeft)})` : "";
+      btn.textContent = `${label}: ${formatNum(product[key])}${suffix}`;
       btn.addEventListener("click", () => {
         el("modal-price-input").value = product[key];
       });
