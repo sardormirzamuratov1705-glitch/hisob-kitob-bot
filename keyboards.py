@@ -120,11 +120,33 @@ def qarz_menu() -> ReplyKeyboardMarkup:
 def hisobot_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="📊 Umumiy hisobot")
+    builder.button(text="🏢 Filial bo'yicha hisobot")
     builder.button(text="🏆 Top mahsulotlar")
     builder.button(text="📥 Excel yuklab olish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
+
+
+def report_branch_kb(branches, prefix: str, include_all: bool = False) -> InlineKeyboardMarkup:
+    """Hisobot uchun filial/kesim tanlash klaviaturasi.
+
+    - include_all=True bo'lsa, "🌐 Umumiy (barcha filiallar)" varianti ham
+      qo'shiladi (masalan "Top mahsulotlar" uchun - u ikkala kesimda ham
+      ishlashi kerak).
+    - "🏠 Bosh filial" - filialga bog'lanmagan (branch_id=NULL) yozuvlar
+      uchun, doim mavjud (filial tizimidan oldingi eski yozuvlar ham shu yerga tushadi).
+    - prefix - callback_data old qismi (masalan "rep_branch" yoki "rep_top"),
+      oxiriga "_all", "_0" yoki filial id qo'shiladi.
+    """
+    builder = InlineKeyboardBuilder()
+    if include_all:
+        builder.button(text="🌐 Umumiy (barcha filiallar)", callback_data=f"{prefix}_all")
+    builder.button(text="🏠 Bosh filial", callback_data=f"{prefix}_0")
+    for b in branches:
+        builder.button(text=f"🏢 {b['name']}", callback_data=f"{prefix}_{b['id']}")
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def admin_backup_menu() -> ReplyKeyboardMarkup:
