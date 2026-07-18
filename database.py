@@ -85,7 +85,19 @@ async def init_db():
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
 
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        # WAL rejimi - bir vaqtning o'zida bir nechta sotuvchi/do'kon egasi
+        # yozsa ("database is locked" xatosi) muammoni kamaytiradi: WAL'da
+        # o'qish yozish bilan bir-biriga xalaqit bermaydi (faqat ikkita
+        # yozuv bir vaqtda to'qnashsa, pastdagi timeout=10 orqali avtomatik
+        # biroz kutib qayta urinadi). Bu sozlama bir marta bazaga yozilib
+        # qoladi (fayl ichida saqlanadi), shuning uchun har safar qayta
+        # o'rnatish shart emas, lekin xavfsizlik uchun har init_db()da
+        # qayta tasdiqlaymiz.
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.commit()
+
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS products (
@@ -500,7 +512,7 @@ async def _ensure_category_schema(db):
 async def add_product(shop_id: int, name: str, price: float, quantity: float, photo_file_id,
                        channel_message_id=None, sell_price=None, min_price=None,
                        alert_quantity=None, category_id=None):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_category_schema(db)
         await db.execute(
             "INSERT INTO products (shop_id, name, price, quantity, photo_file_id, channel_message_id, "
@@ -513,7 +525,7 @@ async def add_product(shop_id: int, name: str, price: float, quantity: float, ph
 
 
 async def get_product(shop_id: int, product_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM products WHERE id = ? AND shop_id = ?", (product_id, shop_id)
@@ -558,7 +570,7 @@ async def set_product_discount(shop_id: int, product_id: int, discount_price: fl
     shu sanadan keyin product_discount_info() uni avtomatik "tugagan" deb
     hisoblay boshlaydi."""
     discount_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE products SET discount_price = ?, discount_until = ? WHERE id = ? AND shop_id = ?",
             (discount_price, discount_until, product_id, shop_id),
@@ -569,7 +581,7 @@ async def set_product_discount(shop_id: int, product_id: int, discount_price: fl
 
 async def clear_product_discount(shop_id: int, product_id: int) -> bool:
     """Chegirmani muddatidan oldin qo'lda bekor qilish (faqat ega uchun)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE products SET discount_price = NULL, discount_until = NULL WHERE id = ? AND shop_id = ?",
             (product_id, shop_id),
@@ -591,7 +603,7 @@ async def update_product_field(shop_id: int, product_id: int, field: str, value:
     tomonidan (handlers/products.py) tekshirilgan bo'lishi kerak."""
     if field not in ("price", "sell_price", "min_price"):
         raise ValueError(f"Noto'g'ri maydon: {field}")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             f"UPDATE products SET {field} = ? WHERE id = ? AND shop_id = ?",
             (value, product_id, shop_id),
@@ -601,7 +613,7 @@ async def update_product_field(shop_id: int, product_id: int, field: str, value:
 
 
 async def update_product_quantity(shop_id: int, product_id: int, quantity: float):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE products SET quantity = ? WHERE id = ? AND shop_id = ?",
             (quantity, product_id, shop_id),
@@ -620,7 +632,7 @@ async def update_product_purchase(shop_id: int, product_id: int, add_quantity: f
     qo'shilsa - yangi tannarx (5*20000 + 10*50000) / 15 = 40 000 so'm bo'ladi.
     Savdo narxi va eng past narx esa xodim kiritgan yangi qiymatga to'g'ridan-to'g'ri o'zgaradi.
     """
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT quantity, price FROM products WHERE id = ? AND shop_id = ?",
@@ -655,7 +667,7 @@ async def find_product_by_name(shop_id: int, name: str):
     bo'sh joylarga qaramaydi (masalan "Un", "un", " UN " - bittasi deb topiladi).
     Shu orqali bitta mahsulot skladga ikki marta alohida qator sifatida
     kiritilib qolishining oldi olinadi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM products WHERE shop_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
@@ -666,7 +678,7 @@ async def find_product_by_name(shop_id: int, name: str):
 
 
 async def get_all_products(shop_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM products WHERE shop_id = ? ORDER BY id DESC", (shop_id,)
@@ -678,7 +690,7 @@ async def get_all_products(shop_id: int):
 async def get_products_by_category(shop_id: int, category_id):
     """category_id=None bo'lsa - bo'limga bog'lanmagan (bo'limsiz)
     mahsulotlarni qaytaradi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_category_schema(db)
         if category_id is None:
@@ -701,7 +713,7 @@ async def search_products(shop_id: int, query: str):
     query = (query or "").strip()
     if not query:
         return []
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM products WHERE shop_id = ? AND LOWER(name) LIKE LOWER(?) ORDER BY name",
@@ -722,7 +734,7 @@ async def add_category(shop_id: int, name: str):
     existing = await find_category_by_name(shop_id, name)
     if existing:
         return existing
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_category_schema(db)
         cursor = await db.execute(
             "INSERT INTO categories (shop_id, name, created_at) VALUES (?, ?, ?)",
@@ -733,7 +745,7 @@ async def add_category(shop_id: int, name: str):
 
 
 async def find_category_by_name(shop_id: int, name: str):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_category_schema(db)
         cursor = await db.execute(
@@ -745,7 +757,7 @@ async def find_category_by_name(shop_id: int, name: str):
 
 
 async def get_category(shop_id: int, category_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_category_schema(db)
         cursor = await db.execute(
@@ -757,7 +769,7 @@ async def get_category(shop_id: int, category_id: int):
 
 async def get_categories(shop_id: int):
     """Har bir bo'limni ichidagi mahsulotlar sonini (product_count) bilan qaytaradi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_category_schema(db)
         cursor = await db.execute(
@@ -775,7 +787,7 @@ async def get_categories(shop_id: int):
 
 
 async def get_uncategorized_count(shop_id: int) -> int:
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_category_schema(db)
         cursor = await db.execute(
             "SELECT COUNT(*) FROM products WHERE shop_id = ? AND category_id IS NULL",
@@ -788,7 +800,7 @@ async def set_product_category(shop_id: int, product_id: int, category_id) -> bo
     """Mahsulotni boshqa bo'limga ko'chiradi yoki bo'limdan chiqaradi
     (category_id=None bo'lsa - bo'limsiz holatga o'tadi). category_id berilgan
     bo'lsa, avval o'sha bo'lim shu do'konga tegishli ekanini tekshiradi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_category_schema(db)
         if category_id is not None:
             cursor = await db.execute(
@@ -807,7 +819,7 @@ async def set_product_category(shop_id: int, product_id: int, category_id) -> bo
 async def delete_category(shop_id: int, category_id: int) -> bool:
     """Bo'limni o'chiradi - ichidagi mahsulotlar o'chmaydi, faqat
     bo'limsiz holatga o'tadi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_category_schema(db)
         await db.execute(
             "UPDATE products SET category_id = NULL WHERE category_id = ? AND shop_id = ?",
@@ -851,7 +863,7 @@ async def add_branch(shop_id: int, name: str, address: str = None):
     existing = await find_branch_by_name(shop_id, name)
     if existing:
         return existing
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_branch_schema(db)
         cursor = await db.execute(
             "INSERT INTO branches (shop_id, name, address, created_at) VALUES (?, ?, ?, ?)",
@@ -886,7 +898,7 @@ async def ensure_default_branch(shop_id: int):
     if not default_name:
         default_name = "Bosh filial"
 
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_branch_schema(db)
         cursor = await db.execute(
             "INSERT INTO branches (shop_id, name, address, created_at) VALUES (?, ?, NULL, ?)",
@@ -910,7 +922,7 @@ async def ensure_default_branch(shop_id: int):
 
 
 async def find_branch_by_name(shop_id: int, name: str):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_branch_schema(db)
         cursor = await db.execute(
@@ -922,7 +934,7 @@ async def find_branch_by_name(shop_id: int, name: str):
 
 
 async def get_branch(shop_id: int, branch_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_branch_schema(db)
         cursor = await db.execute(
@@ -933,7 +945,7 @@ async def get_branch(shop_id: int, branch_id: int):
 
 
 async def get_branches(shop_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         await _ensure_branch_schema(db)
         cursor = await db.execute(
@@ -978,7 +990,7 @@ async def get_branch_comparison(shop_id: int) -> list:
     ]
 
     result = []
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         for g in groups:
             branch_id = g["branch_id"]
 
@@ -1037,7 +1049,7 @@ async def get_monthly_profit_history(shop_id: int, months: int = 6, branch_id=No
         {"month": "YYYY-MM", "sales_count": int, "sales_total": float, "profit": float}
     """
     clause, extra = _branch_filter(branch_id, column="t.branch_id")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             f"""
             SELECT strftime('%Y-%m', t.created_at) AS month,
@@ -1145,7 +1157,7 @@ async def get_weekly_profit_history(shop_id: int, weeks: int = 8, branch_id=None
     start_date = (datetime.now() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
     clause, extra = _branch_filter(branch_id, column="t.branch_id")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             f"""
             SELECT date(t.created_at) AS day,
@@ -1195,7 +1207,7 @@ async def get_weekly_profit_history(shop_id: int, weeks: int = 8, branch_id=None
 
 
 async def delete_branch(shop_id: int, branch_id: int) -> bool:
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_branch_schema(db)
         cursor = await db.execute(
             "DELETE FROM branches WHERE id = ? AND shop_id = ?", (branch_id, shop_id)
@@ -1221,7 +1233,7 @@ async def delete_branch(shop_id: int, branch_id: int) -> bool:
 async def set_owner_current_branch(telegram_id: int, branch_id):
     """Do'kon egasining joriy filialini almashtiradi. branch_id=None bo'lsa,
     "Bosh filial" (filialsiz) holatiga qaytaradi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE owners SET current_branch_id = ? WHERE telegram_id = ?",
             (branch_id, telegram_id),
@@ -1230,7 +1242,7 @@ async def set_owner_current_branch(telegram_id: int, branch_id):
 
 
 async def delete_product(shop_id: int, product_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "DELETE FROM products WHERE id = ? AND shop_id = ?", (product_id, shop_id)
         )
@@ -1239,7 +1251,7 @@ async def delete_product(shop_id: int, product_id: int):
 
 async def mark_product_sold(shop_id: int, product_id: int):
     """Mahsulot sotilganda chaqiriladi - 'oxirgi marta qachon sotilgan' vaqtini yangilaydi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE products SET last_sold_at = ? WHERE id = ? AND shop_id = ?",
             (_now(), product_id, shop_id),
@@ -1253,7 +1265,7 @@ async def get_stale_products(shop_id: int, days: int = 30, limit: int = 10):
     turganidan (eng sekin sotilayotganidan) boshlab tartiblanadi va faqat
     eng "sekin" `limit` tasi qaytariladi (standart - TOP 10)."""
     cutoff = datetime.now() - timedelta(days=days)
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM products WHERE shop_id = ? AND quantity > 0", (shop_id,)
@@ -1281,7 +1293,7 @@ async def get_stale_products(shop_id: int, days: int = 30, limit: int = 10):
 
 async def get_low_stock_products(shop_id: int):
     """Xodim belgilagan ogohlantirish chegarasidan kam qolgan mahsulotlar."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM products WHERE shop_id = ? AND alert_quantity IS NOT NULL "
@@ -1342,7 +1354,7 @@ async def get_ai_restock_suggestions(shop_id: int, lookback_days: int = 30, lead
         lead_time_days = await get_restock_lead_time_days(shop_id)
 
     cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             """
             SELECT si.product_id, SUM(si.quantity)
@@ -1382,7 +1394,7 @@ async def get_ai_restock_suggestions(shop_id: int, lookback_days: int = 30, lead
 
 
 async def add_manual_restock_item(shop_id: int, name: str, note: str = None):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT INTO restock_manual (shop_id, name, note, created_at) VALUES (?, ?, ?, ?)",
             (shop_id, name, note, _now()),
@@ -1391,7 +1403,7 @@ async def add_manual_restock_item(shop_id: int, name: str, note: str = None):
 
 
 async def get_manual_restock_items(shop_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM restock_manual WHERE shop_id = ? ORDER BY id DESC", (shop_id,)
@@ -1401,7 +1413,7 @@ async def get_manual_restock_items(shop_id: int):
 
 
 async def get_manual_restock_item(shop_id: int, item_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM restock_manual WHERE id = ? AND shop_id = ?", (item_id, shop_id)
@@ -1411,7 +1423,7 @@ async def get_manual_restock_item(shop_id: int, item_id: int):
 
 
 async def delete_manual_restock_item(shop_id: int, item_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "DELETE FROM restock_manual WHERE id = ? AND shop_id = ?", (item_id, shop_id)
         )
@@ -1422,7 +1434,7 @@ async def delete_manual_restock_item(shop_id: int, item_id: int):
 
 async def add_transaction(shop_id: int, type_: str, amount: float, description: str,
                            payment_method: str = None, performed_by: int = None, branch_id=None):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "INSERT INTO transactions (shop_id, type, amount, description, created_at, payment_method, "
             "performed_by, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1437,7 +1449,7 @@ async def get_payment_method_totals(shop_id: int, type_: str = "income", branch_
 
     branch_id - filial bo'yicha hisobot uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
     clause, extra = _branch_filter(branch_id)
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             f"SELECT COALESCE(SUM(amount), 0) FROM transactions "
             f"WHERE shop_id=? AND type=? AND payment_method='naqd'{clause}",
@@ -1454,7 +1466,7 @@ async def get_payment_method_totals(shop_id: int, type_: str = "income", branch_
 
 
 async def get_transactions(shop_id: int, limit: int = 1000):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM transactions WHERE shop_id = ? ORDER BY id DESC LIMIT ?",
@@ -1467,7 +1479,7 @@ async def get_transactions(shop_id: int, limit: int = 1000):
 async def get_totals(shop_id: int, branch_id=None):
     """branch_id - filial bo'yicha hisobot uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
     clause, extra = _branch_filter(branch_id)
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             f"SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE shop_id = ? AND type = 'income'{clause}",
             [shop_id] + extra,
@@ -1487,7 +1499,7 @@ async def get_totals(shop_id: int, branch_id=None):
 
 async def add_sale_item(shop_id: int, sale_id: int, product_id: int, quantity: float, price: float,
                          performed_by: int = None):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT INTO sale_items (shop_id, sale_id, product_id, quantity, price, created_at, "
             "performed_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -1504,7 +1516,7 @@ async def get_cross_sell_suggestions(shop_id: int, product_ids, exclude_ids=None
     exclude_ids = set(exclude_ids or []) | set(product_ids)
 
     placeholders = ",".join("?" for _ in product_ids)
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             f"""
@@ -1544,7 +1556,7 @@ async def search_sales(shop_id: int, query: str, limit: int = 30):
     tushmaydi - faqat hozircha mavjud mahsulotlar bo'yicha qidiriladi.
     """
     like_query = f"%{query.strip().lower()}%"
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
@@ -1604,7 +1616,7 @@ async def get_daily_stats(shop_id: int, date_str: str = None, branch_id=None) ->
     sale_clause, sale_extra = _branch_filter(branch_id, column="t.branch_id")
     tx_clause, tx_extra = _branch_filter(branch_id)
 
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         # Savdolar - sale_items shu kunga tegishli transaction (chek) orqali bog'lanadi.
         cursor = await db.execute(
             f"""
@@ -1664,7 +1676,7 @@ async def get_top_selling_products(shop_id: int, limit: int = 10, branch_id=None
     sale_items'da branch_id yo'q, shuning uchun har bir savdo chekining
     filialini bog'liq transactions yozuvidan (t.branch_id) olamiz."""
     clause, extra = _branch_filter(branch_id, column="t.branch_id")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             f"""
@@ -1687,7 +1699,7 @@ async def get_top_selling_products(shop_id: int, limit: int = 10, branch_id=None
 async def get_top_profit_products(shop_id: int, limit: int = 10, branch_id=None):
     """branch_id - filial bo'yicha kesim uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
     clause, extra = _branch_filter(branch_id, column="t.branch_id")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             f"""
@@ -1713,7 +1725,7 @@ async def add_owner(telegram_id: int, full_name: str = None, username: str = Non
     sinov muddati bilan boshlanadi (bosh admin qo'lda qo'shsa ham, o'zi
     ro'yxatdan o'tsa ham - farqi yo'q, har doim trialdan boshlanadi)."""
     trial_until = (datetime.now() + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).strftime("%Y-%m-%d")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at, "
             "subscription_status, subscription_until, trial_used) "
@@ -1730,7 +1742,7 @@ async def add_owner_pending(telegram_id: int, full_name: str = None, username: s
     va subscription_until=NULL bilan "kutish" holatida qoladi. Bosh admin
     keyinchalik approve_trial() orqali necha kunlik sinov muddati berishni
     o'zi belgilaydi (yoki reject_trial() bilan butunlay rad etadi)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at, "
             "subscription_status, subscription_until, trial_used) "
@@ -1751,7 +1763,7 @@ async def approve_trial(telegram_id: int, days: int, decided_by: int):
         return None
 
     trial_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE owners SET subscription_status = 'trial', subscription_until = ?, trial_used = 1 "
             "WHERE telegram_id = ?",
@@ -1777,14 +1789,14 @@ async def reject_trial(telegram_id: int, decided_by: int) -> bool:
 
 
 async def remove_owner(telegram_id: int) -> bool:
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute("DELETE FROM owners WHERE telegram_id = ?", (telegram_id,))
         await db.commit()
         return cursor.rowcount > 0
 
 
 async def get_owners():
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM owners ORDER BY id DESC")
         rows = await cursor.fetchall()
@@ -1792,7 +1804,7 @@ async def get_owners():
 
 
 async def get_owner(telegram_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM owners WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
@@ -1803,7 +1815,7 @@ async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str, p
     """Do'kon egasi o'zi haqida va do'koni haqida kiritgan ma'lumotlarni saqlaydi
     (birinchi /start bosganda so'raladigan qisqa so'rovnoma - bosh admin uchun
     do'konlarni bir-biridan ajratib ko'rish maqsadida)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE owners SET owner_name = ?, shop_name = ?, phone_number = ? WHERE telegram_id = ?",
             (owner_name, shop_name, phone_number, telegram_id),
@@ -1812,14 +1824,14 @@ async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str, p
 
 
 async def get_owner_ids():
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute("SELECT telegram_id FROM owners")
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
 
 
 async def is_owner(telegram_id: int) -> bool:
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute("SELECT 1 FROM owners WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
         return row is not None
@@ -1831,7 +1843,7 @@ async def create_owner_invite(created_by: int) -> str:
     """Yangi bir martalik taklif tokeni yaratadi va qaytaradi.
     Token faqat bitta marta, bitta odam tomonidan ishlatilishi mumkin."""
     token = secrets.token_urlsafe(12)  # URL/deep-link uchun xavfsiz belgilar
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT INTO owner_invites (token, created_by, created_at) VALUES (?, ?, ?)",
             (token, created_by, _now()),
@@ -1841,7 +1853,7 @@ async def create_owner_invite(created_by: int) -> str:
 
 
 async def get_owner_invite(token: str):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM owner_invites WHERE token = ?", (token,))
         row = await cursor.fetchone()
@@ -1852,7 +1864,7 @@ async def use_owner_invite(token: str, used_by: int) -> bool:
     """Tokenni 'ishlatilgan' deb belgilaydi - lekin faqat u hali ishlatilmagan
     bo'lsa (used_by IS NULL). Shu tekshiruv orqali 2 kishi bir vaqtda bir xil
     linkni bosib qolsa ham, faqat biri muvaffaqiyatli bo'ladi (race-safe)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE owner_invites SET used_by = ?, used_at = ? "
             "WHERE token = ? AND used_by IS NULL",
@@ -1939,7 +1951,7 @@ async def count_today_transactions_by_performer(shop_id: int, performed_by: int)
     tomonidan kiritilgan transactions yozuvlari sonini qaytaradi (savdo va
     qo'lda kiritilgan kirim/chiqim - barchasi shu jadvalda)."""
     today = datetime.now().strftime("%Y-%m-%d")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM transactions WHERE shop_id = ? AND performed_by = ? "
             "AND date(created_at) = ?",
@@ -1957,7 +1969,7 @@ async def create_payment(owner_id: int, amount: float, plan: str, days: int,
     yozuvi. Hali hech narsani o'zgartirmaydi (obuna uzaytirilmaydi) - faqat
     bosh admin tasdiqlashini (approve_payment) yoki rad etishini
     (reject_payment) kutadi. Qaytadi: yangi yozuvning id'si."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "INSERT INTO payments (owner_id, amount, plan, days, method, status, "
             "screenshot_file_id, created_at) VALUES (?, ?, ?, ?, 'qolda', 'pending', ?, ?)",
@@ -1968,7 +1980,7 @@ async def create_payment(owner_id: int, amount: float, plan: str, days: int,
 
 
 async def get_payment(payment_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,))
         row = await cursor.fetchone()
@@ -2010,7 +2022,7 @@ async def approve_payment(payment_id: int, decided_by: int):
 
     new_until = (base_date + timedelta(days=payment["days"] or 0)).strftime("%Y-%m-%d")
 
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE payments SET status = 'approved', decided_by = ?, decided_at = ? WHERE id = ?",
             (decided_by, _now(), payment_id),
@@ -2033,7 +2045,7 @@ async def reject_payment(payment_id: int, decided_by: int, comment: str = None):
     payment = await get_payment(payment_id)
     if not payment or payment["status"] != "pending":
         return None
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE payments SET status = 'rejected', decided_by = ?, decided_at = ?, comment = ? "
             "WHERE id = ?",
@@ -2050,7 +2062,7 @@ async def get_setting(key: str, default: str = "") -> str:
     """settings jadvalidan bitta qiymat o'qiydi. Agar admin hali
     o'zgartirmagan bo'lsa (jadvalda yozuv yo'q), config.py'dagi standart
     qiymat (default) qaytariladi - bot HECH QACHON sozlamasiz qolmaydi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = await cursor.fetchone()
         if row is None or row[0] is None or row[0] == "":
@@ -2061,7 +2073,7 @@ async def get_setting(key: str, default: str = "") -> str:
 async def set_setting(key: str, value: str):
     """Bosh admin "⚙️ To'lov sozlamalari" orqali bitta qiymatni yangilaydi -
     mavjud bo'lsa ustidan yoziladi, bo'lmasa yangi qator qo'shiladi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT INTO settings (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -2102,7 +2114,7 @@ async def get_payment_requisites() -> dict:
 async def get_pending_payments():
     """Bosh admin panelidagi "💳 Kutilayotgan to'lovlar" ro'yxati uchun
     (9-bosqichda ulanadi) - hozircha kod ichida tayyorlab qo'yamiz."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM payments WHERE status = 'pending' ORDER BY id ASC"
@@ -2142,7 +2154,7 @@ async def extend_owner_subscription(telegram_id: int, days: int) -> str | None:
             pass
 
     new_until = (base_date + timedelta(days=days)).strftime("%Y-%m-%d")
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE owners SET subscription_status = 'active', subscription_until = ? "
             "WHERE telegram_id = ?",
@@ -2165,7 +2177,7 @@ async def set_owner_blocked(telegram_id: int, blocked: bool) -> bool:
     (grace/bloklash ekrani) qaytadi.
 
     Ega topilmasa - False."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE owners SET subscription_status = ? WHERE telegram_id = ?",
             ("blocked" if blocked else "active", telegram_id),
@@ -2180,7 +2192,7 @@ async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, 
                     due_date: str = None, taken_date: str = None, performed_by: int = None, branch_id=None):
     if not taken_date:
         taken_date = _now()[:10]  # ustoz/sotuvchi belgilamasa - bugungi sana
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "INSERT INTO debts (shop_id, customer_name, phone, amount, description, is_paid, "
             "created_at, due_date, taken_date, performed_by, branch_id) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
@@ -2203,7 +2215,7 @@ async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, 
 
 
 async def get_debt(shop_id: int, debt_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM debts WHERE id = ? AND shop_id = ?", (debt_id, shop_id)
@@ -2216,7 +2228,7 @@ async def get_debt_by_id(debt_id: int):
     """Shop_id talab qilmasdan qarzni topadi - faqat mijoz shaxsiy link orqali
     botni ochganda ishlatiladi (o'sha vaqtda hali shop_id noma'lum, mijozning
     o'zi hech qanday do'konga a'zo emas)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM debts WHERE id = ?", (debt_id,))
         row = await cursor.fetchone()
@@ -2226,7 +2238,7 @@ async def get_debt_by_id(debt_id: int):
 async def link_debt_customer(debt_id: int, chat_id: int, username: str = None):
     """Mijoz shaxsiy link orqali botni ochganda uning chat_id/username'ini
     shu qarz yozuviga bog'laydi (keyin unga to'g'ridan-to'g'ri eslatma yuborish uchun)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE debts SET customer_chat_id = ?, customer_username = ? WHERE id = ?",
             (chat_id, username, debt_id),
@@ -2235,7 +2247,7 @@ async def link_debt_customer(debt_id: int, chat_id: int, username: str = None):
 
 
 async def get_debts(shop_id: int, only_unpaid: bool = True):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         if only_unpaid:
             cursor = await db.execute(
@@ -2253,7 +2265,7 @@ async def get_debts(shop_id: int, only_unpaid: bool = True):
 async def get_total_debt(shop_id: int, branch_id=None):
     """branch_id - filial bo'yicha hisobot uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
     clause, extra = _branch_filter(branch_id)
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "SELECT COALESCE(SUM(amount - paid_amount), 0) FROM debts "
             f"WHERE shop_id = ? AND is_paid = 0{clause}",
@@ -2305,7 +2317,7 @@ async def update_debt_reminder_sent(debt_id: int):
     HAR KUNI emas, faqat config.DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS
     kunda bir marta bezovta qiladi (do'kon egasiga esa hamon HAR KUNI
     to'liq ro'yxat yuboriladi - o'zgarishsiz)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE debts SET last_reminder_at = ? WHERE id = ?", (_now(), debt_id)
         )
@@ -2313,7 +2325,7 @@ async def update_debt_reminder_sent(debt_id: int):
 
 
 async def mark_debt_paid(shop_id: int, debt_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE debts SET is_paid = 1, paid_amount = amount WHERE id = ? AND shop_id = ?",
             (debt_id, shop_id),
@@ -2338,7 +2350,7 @@ async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_
     branch_id = debt.get("branch_id")
     tx_description = f"Qarz to'lovi: {debt['customer_name']}"
 
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         if payment_method == "aralash":
             if cash_amount:
                 await db.execute(
@@ -2397,7 +2409,7 @@ async def get_debt_payments(shop_id: int, debt_id: int):
     debt = await get_debt(shop_id, debt_id)
     if not debt:
         return []
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM debt_payments WHERE debt_id = ? ORDER BY paid_at", (debt_id,)
@@ -2413,7 +2425,7 @@ async def get_debt_payments(shop_id: int, debt_id: int):
 
 async def add_seller(telegram_id: int, shop_id: int, full_name: str = None,
                       username: str = None, added_by: int = None, branch_id=None):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT OR IGNORE INTO sellers (telegram_id, shop_id, full_name, username, added_by, "
             "branch_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -2425,7 +2437,7 @@ async def add_seller(telegram_id: int, shop_id: int, full_name: str = None,
 async def remove_seller(shop_id: int, telegram_id: int) -> bool:
     """shop_id bilan birga tekshiradi - do'kon egasi faqat O'Z sotuvchisini
     o'chira oladi, boshqa do'konning sotuvchisini emas."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "DELETE FROM sellers WHERE telegram_id = ? AND shop_id = ?", (telegram_id, shop_id)
         )
@@ -2437,7 +2449,7 @@ async def set_seller_branch(shop_id: int, telegram_id: int, branch_id) -> bool:
     """Do'kon egasi sotuvchini qo'lda boshqa filialga ko'chiradi.
     branch_id=None bo'lsa - "Bosh filial"ga qaytaradi. shop_id bilan birga
     tekshiriladi - egasi faqat O'Z sotuvchisini ko'chira oladi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE sellers SET branch_id = ? WHERE telegram_id = ? AND shop_id = ?",
             (branch_id, telegram_id, shop_id),
@@ -2447,7 +2459,7 @@ async def set_seller_branch(shop_id: int, telegram_id: int, branch_id) -> bool:
 
 
 async def get_sellers(shop_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM sellers WHERE shop_id = ? ORDER BY id DESC", (shop_id,)
@@ -2457,7 +2469,7 @@ async def get_sellers(shop_id: int):
 
 
 async def is_seller(telegram_id: int) -> bool:
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute("SELECT 1 FROM sellers WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
         return row is not None
@@ -2465,7 +2477,7 @@ async def is_seller(telegram_id: int) -> bool:
 
 async def get_seller_shop_id(telegram_id: int):
     """Sotuvchi qaysi do'konga tegishli ekanini qaytaradi (topilmasa None)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "SELECT shop_id FROM sellers WHERE telegram_id = ?", (telegram_id,)
         )
@@ -2474,7 +2486,7 @@ async def get_seller_shop_id(telegram_id: int):
 
 
 async def get_seller(telegram_id: int):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM sellers WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
@@ -2485,7 +2497,7 @@ async def set_seller_profile(telegram_id: int, seller_name: str, phone_number: s
     """Sotuvchi o'zi haqida kiritgan ma'lumotlarni saqlaydi (birinchi /start
     bosganda so'raladigan qisqa so'rovnoma - do'kon egasi uchun sotuvchilarni
     bir-biridan ajratib ko'rish maqsadida)."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE sellers SET seller_name = ?, phone_number = ? WHERE telegram_id = ?",
             (seller_name, phone_number, telegram_id),
@@ -2501,7 +2513,7 @@ async def create_seller_invite(shop_id: int, created_by: int, branch_id=None) ->
     branch_id - link yaratilgan paytdagi egasining joriy filiali; link
     ishlatilib sotuvchi qo'shilganda shu filial sotuvchiga biriktiriladi."""
     token = secrets.token_urlsafe(12)
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT INTO seller_invites (token, shop_id, created_by, branch_id, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -2512,7 +2524,7 @@ async def create_seller_invite(shop_id: int, created_by: int, branch_id=None) ->
 
 
 async def get_seller_invite(token: str):
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM seller_invites WHERE token = ?", (token,))
         row = await cursor.fetchone()
@@ -2521,7 +2533,7 @@ async def get_seller_invite(token: str):
 
 async def use_seller_invite(token: str, used_by: int) -> bool:
     """Race-safe: token faqat used_by hali NULL bo'lsa ishlaydi."""
-    async with aiosqlite.connect(config.DB_PATH) as db:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE seller_invites SET used_by = ?, used_at = ? WHERE token = ? AND used_by IS NULL",
             (used_by, _now(), token),
