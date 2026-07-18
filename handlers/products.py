@@ -636,18 +636,18 @@ async def stale_products(message: Message):
     shop_id = await _require_shop(message)
     if shop_id is None:
         return
-    stale = await db.get_stale_products(shop_id, days=30)
+    stale = await db.get_stale_products(shop_id, days=30, limit=10)
     if not stale:
         await message.answer("✅ Hozircha 30 kundan beri sotilmagan tovar yo'q.")
         return
 
     text = (
-        "🐌 <b>Sekin sotiladigan tovarlar</b>\n"
+        "🐌 <b>Top 10 - eng sekin sotiladigan tovarlar</b>\n"
         "(30 kundan ortiq sotilmagan, pul band bo'lib turibdi)\n\n"
     )
-    for p in stale:
+    for i, p in enumerate(stale, 1):
         reference = p["reference_date"][:10]
-        text += f"• {p['name']} — {p['quantity']:.0f} dona qoldi (oxirgi harakat: {reference})\n"
+        text += f"{i}. {p['name']} — {p['quantity']:.0f} dona qoldi (oxirgi harakat: {reference})\n"
     text += "\n💡 Bularga chegirma qilib tezroq sotib, pulni aylantirish tavsiya etiladi."
 
     await message.answer(text, parse_mode="HTML")
