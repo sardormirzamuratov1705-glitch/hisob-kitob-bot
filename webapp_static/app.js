@@ -564,17 +564,18 @@ async function closeScanner() {
   }
 }
 
-// 5/7-BOSQICH (+ YANGI REJA 3-BOSQICH): skanerlangan barkodni rejimga
-// qarab UCH XIL oqimga yo'naltiradi:
-//  - "sale" (Savdo): uzluksiz - darhol savatga qo'shiladi, kamera davom
-//    ishlaydi (pastdagi izohga qarang).
-//  - "sklad" (Sklad, mavjud mahsulotga miqdor qo'shish): BITTA-
-//    BITTALAB - kamera to'xtatiladi, modal yopiladi va "nechta dona
-//    keldi?" oynasi ochiladi, chunki bu yerda foydalanuvchi albatta
-//    sonni QO'LDA kiritishi kerak (standart miqdor degan narsa yo'q).
-//  - "sklad_new" (Sklad, YANGI mahsulot yaratish): kamera to'xtatiladi,
-//    "Yangi mahsulot" oynasidagi barkod maydoni to'ldiriladi va o'sha
-//    oyna qayta ochiladi - hech qanday qidiruv qilinmaydi.
+// 5/7-BOSQICH (+ YANGI REJA 3/6-BOSQICH): skanerlangan barkodni rejimga
+// qarab UCH XIL oqimga yo'naltiradi - HAMMASI bitta-bittalab (kamera
+// to'xtatiladi, natija ko'rsatiladi, keyin foydalanuvchi tugma bilan
+// qayta skanerlaydi):
+//  - "sale" (Savdo): mahsulot topilsa - to'g'ridan-to'g'ri miqdor/narx
+//    kiritish oynasi (modal-add, xuddi ro'yxatdan bosib tanlagandagi
+//    BILAN BIR XIL) ochiladi - qarang: 6-BOSQICH izohi pastda.
+//  - "sklad" (Sklad, mavjud mahsulotga miqdor qo'shish): "nechta dona
+//    keldi?" oynasi ochiladi (narx so'ramaydi).
+//  - "sklad_new" (Sklad, YANGI mahsulot yaratish): "Yangi mahsulot"
+//    oynasidagi barkod maydoni to'ldiriladi - hech qanday qidiruv
+//    qilinmaydi.
 async function onBarcodeDecoded(decodedText) {
   if (scanHandled) return; // bitta kadrda bir necha marta chaqirilishining oldini olamiz
   scanHandled = true;
@@ -604,19 +605,24 @@ async function onBarcodeDecoded(decodedText) {
     return;
   }
 
+  setScannerStatus("Qidirilmoqda...");
+  await stopScanner();
+  el("modal-scanner").classList.add("hidden");
   await handleSaleBarcodeScan(decodedText);
+  scanHandled = false;
 }
 
-// MUHIM DIZAYN QARORI (Savdo rejimi): har bir skanerlashdan keyin modal
-// YOPILMAYDI va kamera to'XTATILMAYDI - do'konda ketma-ket bir nechta
-// tovar skanerlanganda foydalanuvchi har safar "Yopish -> qayta skaner
-// tugmasi -> ochish" bosishga majbur bo'lmasligi kerak (bu haqiqiy savdo
-// tezligiga to'sqinlik qilardi). Buning o'rniga: skanerlandi -> darhol
-// savatga (standart narxda) qo'shiladi -> qisqa "✅ ..." tasdiq matni
-// ko'rsatiladi -> ~1.2 soniyadan keyin skaner o'zi davom etadi. Savdoni
-// tugatish uchun foydalanuvchi "✕" (scanner-close-btn) bosadi.
+// YANGI REJA - 6-BOSQICH (DIZAYN QARORI O'ZGARDI): AVVAL bu yerda har
+// bir skanerlashdan keyin mahsulot STANDART narxda/1 donada DARHOL
+// savatga qo'shilar edi (kamera to'xtamasdan davom etardi) - endi,
+// so'rovga ko'ra, barkod mos kelgan mahsulot uchun to'g'ridan-to'g'ri
+// "Nechta sotildi? / Qancha so'mga sotildi?" oynasi (modal-add)
+// ochiladi, xuddi ro'yxatdan qo'lda bosib tanlagandagi kabi - shunda
+// sotuvchi HAR SAVDODA narxni (chegirma, kelishilgan narx va h.k.)
+// ko'rib-tasdiqlab qo'sha oladi. Mahsulot topilmasa - xatolik xabari
+// ko'rsatiladi (kamera allaqachon to'xtagan, qayta skanerlash uchun
+// foydalanuvchi 📷 tugmasini yana bosishi kerak).
 async function handleSaleBarcodeScan(decodedText) {
-  setScannerStatus("Qidirilmoqda...");
   try {
     const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(decodedText)}`);
     const data = await res.json();
@@ -624,18 +630,13 @@ async function handleSaleBarcodeScan(decodedText) {
       const msg = data.error === "not_found"
         ? `Bu barkod bo'yicha mahsulot topilmadi: ${decodedText}`
         : "Barkod bo'yicha qidirishda xatolik yuz berdi.";
-      setScannerStatus(`❌ ${msg}`, "error");
-      resetScannerStatusSoon();
+      tg.showAlert(msg);
       return;
     }
-    addScannedProductToCart(data.product);
+    showScreen("products");
+    openAddModal(data.product);
   } catch (e) {
-    setScannerStatus(`❌ ${e.message || "Xatolik yuz berdi."}`, "error");
-    resetScannerStatusSoon();
-  } finally {
-    // Bir xil barkod (masalan qo'l bilan ushlab turilgan) darhol yana
-    // o'qib ketmasligi uchun qisqa "sovish" vaqti beriladi.
-    setTimeout(() => { scanHandled = false; }, 1200);
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
   }
 }
 
@@ -670,36 +671,6 @@ async function handleSkladBarcodeScan(decodedText) {
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   }
-}
-
-// Skanerlangan mahsulotni savatga qo'shadi: agar savatda ALLAQACHON
-// bo'lsa - miqdorini 1taga oshiradi (narxi o'zgarmaydi, chunki bir xil
-// tovar bir xil chekda odatda bir xil narxda sotiladi); yo'q bo'lsa -
-// standart narxda (savdo narxi, bo'lmasa tannarx) 1 dona qo'shadi.
-// Ikkala holatda ham modal-add oynasidagi BILAN BIR XIL
-// cartValidationError() orqali tekshiriladi.
-function addScannedProductToCart(product) {
-  const existing = cart.find((c) => c.id === product.id);
-  const qty = existing ? existing.qty + 1 : 1;
-  const price = existing ? existing.price : (product.sell_price || product.price || 0);
-
-  const err = cartValidationError(product, qty, price);
-  if (err) {
-    setScannerStatus(`❌ ${err}`, "error");
-    resetScannerStatusSoon();
-    return;
-  }
-
-  if (existing) {
-    existing.qty = qty;
-  } else {
-    cart.push({ id: product.id, name: product.name, qty, price, stock: product.quantity });
-  }
-
-  renderCartBar();
-  tg.HapticFeedback.notificationOccurred("success");
-  setScannerStatus(`✅ ${product.name} — ${formatNum(qty)} dona savatda`, "success");
-  resetScannerStatusSoon();
 }
 
 el("scan-btn").addEventListener("click", () => openScanner("sale"));
