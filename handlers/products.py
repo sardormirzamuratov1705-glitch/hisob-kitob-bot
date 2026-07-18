@@ -167,7 +167,7 @@ async def send_products_excel_template(message: Message):
             pass
 
 
-async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
+async def process_products_excel_file(shop_id: int, file_path: str, performed_by: int = None) -> dict:
     """Yuborilgan Excel faylini o'qib, shop_id do'konining skladiga
     qo'llaydi. Qaytaradi: {"added": int, "updated": int, "errors": [str, ...]}.
 
@@ -176,7 +176,12 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
     o'rtacha (weighted average) qilib qayta hisoblanadi; sotuv/eng past
     narx/ogohlantirish ustunlari faylda bo'sh qoldirilgan bo'lsa, mahsulotning
     eski qiymati saqlab qolinadi (update_product_purchase berilgan qiymatni
-    so'zsiz yozib qo'yadi, shuning uchun bu yerda avval fallback qilinadi)."""
+    so'zsiz yozib qo'yadi, shuning uchun bu yerda avval fallback qilinadi).
+
+    9-BOSQICH: har bir qator uchun ALOHIDA audit yozuv qo'shilmaydi (yuzlab
+    qatorli faylda audit jurnalini "spam" qilib qo'ymaslik uchun) - buning
+    o'rniga faylning oxirida BITTA umumlashtirilgan yozuv qo'shiladi
+    ("Excel orqali sklad to'ldirildi")."""
     try:
         wb = load_workbook(file_path, data_only=True)
     except Exception:
@@ -190,6 +195,7 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
 
     added = 0
     updated = 0
+    barcodes_set = 0
     errors = []
 
     def _num(row, idx):
@@ -258,7 +264,8 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
             if category_id is not None:
                 await db.set_product_category(shop_id, existing["id"], category_id)
             if barcode and existing["id"] is not None:
-                await db.set_product_barcode(shop_id, existing["id"], barcode)
+                await db.set_product_barcode(shop_id, existing["id"], barcode, performed_by=performed_by)
+                barcodes_set += 1
             existing["quantity"] = existing["quantity"] + quantity
             updated += 1
         else:
@@ -274,6 +281,15 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
                 "alert_quantity": alert_quantity,
             }
             added += 1
+            if barcode:
+                barcodes_set += 1
+
+    if added or updated:
+        await db.log_action(
+            shop_id, performed_by, "Excel orqali sklad to'ldirildi",
+            f"➕ Qo'shildi: {added} ta, 🔄 Yangilandi: {updated} ta, 🏷 Barkod biriktirildi: {barcodes_set} ta"
+            + (f", ⚠️ Xatolar: {len(errors)} ta" if errors else ""),
+        )
 
     return {"added": added, "updated": updated, "errors": errors}
 
@@ -320,7 +336,7 @@ async def excel_fill_file(message: Message, state: FSMContext):
     tmp_path = f"/tmp/sklad_fill_{document.file_unique_id}.xlsx"
     await message.bot.download(document.file_id, destination=tmp_path)
     try:
-        result = await process_products_excel_file(shop_id, tmp_path)
+        result = await process_products_excel_file(shop_id, tmp_path, performed_by=message.from_user.id)
     finally:
         try:
             os.remove(tmp_path)
@@ -1091,7 +1107,7 @@ async def product_edit_field_barcode_value(message: Message, state: FSMContext):
 
     raw = message.text.strip()
     if raw == "-":
-        await db.set_product_barcode(shop_id, product["id"], None)
+        await db.set_product_barcode(shop_id, product["id"], None, performed_by=message.from_user.id)
         await state.clear()
         await message.answer("✅ Barkod olib tashlandi.")
         return
@@ -1101,7 +1117,7 @@ async def product_edit_field_barcode_value(message: Message, state: FSMContext):
     if existing and existing["id"] != product["id"]:
         warn = f"\n⚠️ Diqqat: bu barkod allaqachon <b>{existing['name']}</b> mahsulotiga biriktirilgan."
 
-    await db.set_product_barcode(shop_id, product["id"], raw)
+    await db.set_product_barcode(shop_id, product["id"], raw, performed_by=message.from_user.id)
     await state.clear()
     await message.answer(f"✅ Barkod saqlandi: <code>{raw}</code>{warn}", parse_mode="HTML")
 
