@@ -654,8 +654,33 @@ async def delete_branch(shop_id: int, branch_id: int) -> bool:
         cursor = await db.execute(
             "DELETE FROM branches WHERE id = ? AND shop_id = ?", (branch_id, shop_id)
         )
+        deleted = cursor.rowcount > 0
+        if deleted:
+            # O'chirilgan filial hozir "joriy" bo'lsa, egasini "Bosh filial"ga qaytaramiz.
+            await db.execute(
+                "UPDATE owners SET current_branch_id = NULL "
+                "WHERE telegram_id = ? AND current_branch_id = ?",
+                (shop_id, branch_id),
+            )
+            # Shu filialga biriktirilgan sotuvchilarni ham "Bosh filial"ga o'tkazamiz -
+            # aks holda o'chirilgan filialga "osilib qolishardi".
+            await db.execute(
+                "UPDATE sellers SET branch_id = NULL WHERE shop_id = ? AND branch_id = ?",
+                (shop_id, branch_id),
+            )
         await db.commit()
-        return cursor.rowcount > 0
+        return deleted
+
+
+async def set_owner_current_branch(telegram_id: int, branch_id):
+    """Do'kon egasining joriy filialini almashtiradi. branch_id=None bo'lsa,
+    "Bosh filial" (filialsiz) holatiga qaytaradi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE owners SET current_branch_id = ? WHERE telegram_id = ?",
+            (branch_id, telegram_id),
+        )
+        await db.commit()
 
 
 async def delete_product(shop_id: int, product_id: int):
