@@ -135,8 +135,9 @@ def owner_action_kb(telegram_id: int, blocked: bool = False) -> InlineKeyboardMa
         builder.button(text="✅ Blokdan chiqarish", callback_data=f"unblock_owner:{telegram_id}")
     else:
         builder.button(text="🚫 Majburiy bloklash", callback_data=f"block_owner:{telegram_id}")
+    builder.button(text="📊 Skladni Excel bilan to'ldirish", callback_data=f"admin_sklad_excel:{telegram_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"remove_owner_{telegram_id}")
-    builder.adjust(1, 1, 1)
+    builder.adjust(1, 1, 1, 1)
     return builder.as_markup()
 
 
@@ -188,6 +189,7 @@ def seller_branch_choice_kb(telegram_id: int, branches, current_branch_id=None) 
 def sklad_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="➕ Mahsulot qo'shish")
+    builder.button(text="📊 Excel bilan to'ldirish")
     builder.button(text="📋 Mahsulotlar ro'yxati")
     builder.button(text="🔍 Qidirish")
     builder.button(text="🗂 Bo'limlar")
@@ -196,7 +198,7 @@ def sklad_menu() -> ReplyKeyboardMarkup:
     builder.button(text="🏆 Top mahsulotlar")
     builder.button(text="🐌 Sekin sotiladigan tovarlar")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 2, 1, 2, 1, 1)
+    builder.adjust(1, 1, 2, 1, 2, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
