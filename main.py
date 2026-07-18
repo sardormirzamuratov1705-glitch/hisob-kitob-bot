@@ -24,9 +24,22 @@ async def _debt_reminder_loop(bot: Bot):
         await asyncio.sleep(24 * 60 * 60)
 
 
+async def _subscription_reminder_loop(bot: Bot):
+    """8-BOSQICH: Har 24 soatda bir marta ishga tushadi - har bir do'kon
+    egasiga o'zining obuna muddati tugashiga 7/3/0 kun qolganda avtomatik
+    eslatma yuboradi (alerts.send_subscription_reminders)."""
+    while True:
+        try:
+            await alerts.send_subscription_reminders(bot)
+        except Exception as e:
+            logging.warning(f"Obuna eslatmasi tsiklida xato: {e}")
+        await asyncio.sleep(24 * 60 * 60)
+
+
 async def on_startup(bot: Bot):
     await db.init_db()
     asyncio.create_task(_debt_reminder_loop(bot))
+    asyncio.create_task(_subscription_reminder_loop(bot))
     if config.WEBHOOK_HOST:
         await bot.set_webhook(config.WEBHOOK_URL, drop_pending_updates=True)
         logging.info(f"Webhook o'rnatildi: {config.WEBHOOK_URL}")
