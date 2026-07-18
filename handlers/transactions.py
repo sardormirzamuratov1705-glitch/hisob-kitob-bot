@@ -1,9 +1,10 @@
 import logging
 
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import database as db
 import keyboards as kb
@@ -177,10 +178,63 @@ async def search_sales_input(message: Message, state: FSMContext):
             )
         lines.append(f"   Jami: {sale_total:.0f} so'm\n")
 
+    is_owner = await db.is_owner(message.from_user.id)
+    builder = InlineKeyboardBuilder()
+    if is_owner:
+        for sid in order:
+            builder.button(text=f"❌ #{sid} bekor qilish", callback_data=f"cancelsale_{sid}")
+        builder.adjust(1)
+
     await message.answer(
         "\n".join(lines),
-        reply_markup=kb.kirim_chiqim_menu(),
+        reply_markup=builder.as_markup() if is_owner else kb.kirim_chiqim_menu(),
         parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("cancelsale_"))
+async def cancel_sale_confirm(callback: CallbackQuery):
+    if not await db.is_owner(callback.from_user.id):
+        await callback.answer("Bu amal faqat do'kon egasi uchun.", show_alert=True)
+        return
+    sale_id = int(callback.data.replace("cancelsale_", ""))
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Ha, bekor qilinsin", callback_data=f"cancelsaleyes_{sale_id}")
+    builder.button(text="⬅️ Yo'q", callback_data="cancelsaleno")
+    builder.adjust(1)
+    await callback.answer()
+    await callback.message.answer(
+        f"🧾 #{sale_id} raqamli savdoni rostdan ham bekor qilmoqchimisiz?\n"
+        f"Mahsulot(lar) qayta skladga qaytariladi va kirim summasi o'chiriladi.",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "cancelsaleno")
+async def cancel_sale_no(callback: CallbackQuery):
+    await callback.answer("Bekor qilinmadi")
+    await callback.message.delete()
+
+
+@router.callback_query(F.data.startswith("cancelsaleyes_"))
+async def cancel_sale_yes(callback: CallbackQuery):
+    if not await db.is_owner(callback.from_user.id):
+        await callback.answer("Bu amal faqat do'kon egasi uchun.", show_alert=True)
+        return
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer()
+        return
+    sale_id = int(callback.data.replace("cancelsaleyes_", ""))
+    result = await db.cancel_sale(shop_id, sale_id)
+    await callback.answer()
+    if not result:
+        await callback.message.edit_text(f"🧾 #{sale_id} - bu savdo topilmadi (avval bekor qilingan bo'lishi mumkin).")
+        return
+    await callback.message.edit_text(
+        f"✅ #{sale_id} raqamli savdo bekor qilindi.\n"
+        f"Qaytarilgan summa: {result['total']:.0f} so'm\n"
+        f"Mahsulotlar skladga qaytarildi."
     )
 
 
