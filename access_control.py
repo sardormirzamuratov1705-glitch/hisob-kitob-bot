@@ -144,8 +144,9 @@ class OwnerOnlyMiddleware(BaseMiddleware):
     do'kon egasining) obunasi trial+grace period bilan birga tugagan bo'lsa,
     bundan buyon O'TKAZILMAYDI - handler chaqirilmasdan, o'rniga
     "⛔ Obunangiz tugagan" ekrani ko'rsatiladi. Yagona istisno - "💳 Obunani
-    uzaytirish" tugmasi (extend_subscription), aks holda odam obunani
-    uzaytirish oynasiga umuman kira olmay qolardi.
+    uzaytirish" tugmasi va undan keyingi tarif tanlash (extend_subscription,
+    sub_plan:*), aks holda odam obunani uzaytirish oynasiga umuman kira
+    olmay qolardi.
 
     DIQQAT: bu middleware faqat botga umuman kirish huquqini tekshiradi.
     Sotuvchining aniq QAYSI bo'limlarga (Sklad narx belgilash, Kirim/Chiqim,
@@ -161,9 +162,12 @@ class OwnerOnlyMiddleware(BaseMiddleware):
             if access["allowed"]:
                 return await handler(event, data)
 
-            # Obunani uzaytirish tugmasi bloklangan holatda ham ishlashi
-            # kerak - keyingi bosqichlarda shu yerga to'lov oynasi ulanadi.
-            if isinstance(event, CallbackQuery) and event.data == "extend_subscription":
+            # Obunani uzaytirish tugmasi va undan keyingi tarif tanlash
+            # bloklangan holatda ham ishlashi kerak (keyingi bosqichlarda
+            # shu yerga to'lov/chek qabul qilish oynasi ulanadi).
+            if isinstance(event, CallbackQuery) and (
+                event.data == "extend_subscription" or (event.data or "").startswith("sub_plan:")
+            ):
                 return await handler(event, data)
 
             await self._send_blocked_screen(event)
