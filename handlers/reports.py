@@ -184,6 +184,40 @@ async def top_products_show(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.message(F.text == "🔔 Kunlik hisobot")
+async def daily_report_settings(message: Message):
+    """KUNLIK HISOBOT - 7-BOSQICH: owner har kuni belgilangan vaqtda
+    (config.DAILY_REPORT_HOUR:MINUTE) avtomatik yuboriladigan kunlik
+    hisobotni o'zi yoqib/o'chirib qo'ya oladi."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    enabled = await db.get_daily_report_enabled(shop_id)
+    status = "🔔 <b>yoqilgan</b>" if enabled else "🔕 <b>o'chirilgan</b>"
+    await message.answer(
+        f"Har kuni soat <b>{config.DAILY_REPORT_HOUR:02d}:{config.DAILY_REPORT_MINUTE:02d}</b> "
+        f"da avtomatik yuboriladigan kunlik hisobot hozir {status}.",
+        parse_mode="HTML",
+        reply_markup=kb.daily_report_settings_kb(enabled),
+    )
+
+
+@router.callback_query(F.data.startswith("daily_report_toggle:"))
+async def daily_report_toggle(callback: CallbackQuery):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
+        return
+
+    turn_on = callback.data.split(":", 1)[1] == "on"
+    await db.set_daily_report_enabled(shop_id, turn_on)
+
+    status = "🔔 <b>yoqildi</b>" if turn_on else "🔕 <b>o'chirildi</b>"
+    await callback.message.edit_text(f"Kunlik hisobot {status}.", parse_mode="HTML")
+    await callback.answer()
+
+
 @router.message(F.text == "📥 Excel yuklab olish")
 async def export_excel(message: Message):
     shop_id = await _require_shop(message)
