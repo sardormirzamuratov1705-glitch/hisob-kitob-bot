@@ -5,18 +5,16 @@ import config
 
 
 def _add_savdo_button(builder: ReplyKeyboardBuilder):
-    """"🛒 Savdo" tugmasi - agar config.WEBAPP_URL sozlangan bo'lsa (ya'ni
-    veb-server ishlab, HTTPS manzil mavjud bo'lsa) Telegram WebApp (Mini App)
-    sifatida ochiladi - tugma bosilganda ESKI matnli savdo oqimi ISHGA
-    TUSHMAYDI, buning o'rniga Telegram ICHIDA veb-sahifa ochiladi.
+    """"🛒 Savdo" tugmasi - ODDIY MATN tugmasi sifatida qo'shiladi (web_app
+    linksiz). Bosilganda handlers/sales.py'dagi ESKI bosqichma-bosqich savdo
+    oqimi ishga tushadi.
 
-    Agar WEBAPP_URL hali sozlanmagan bo'lsa (masalan polling+domensiz ishlab
-    chiqish bosqichida) - oddiy matn tugmasi qoladi va handlers/sales.py'dagi
-    ESKI bosqichma-bosqich savdo oqimi ishlayveradi - hech narsa buzilmaydi."""
-    if config.WEBAPP_URL:
-        builder.add(KeyboardButton(text="🛒 Savdo", web_app=WebAppInfo(url=config.WEBAPP_URL)))
-    else:
-        builder.button(text="🛒 Savdo")
+    Mini App (WebApp) endi BotFather orqali sozlangan Menu Button / Attach
+    Menu orqali alohida ochiladi - shu tugma bilan bog'liq emas. Shu tariqa
+    xohlagan foydalanuvchi Menu Button'dan Mini App orqali, xohlagani esa shu
+    "🛒 Savdo" tugmasidan eski matnli oqim orqali savdo qilaveradi - ikkalasi
+    ham parallel ishlaydi."""
+    builder.button(text="🛒 Savdo")
 
 
 def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
