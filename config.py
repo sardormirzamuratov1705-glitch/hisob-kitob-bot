@@ -90,6 +90,17 @@ SUSPICIOUS_WORK_HOUR_END = int(os.getenv("SUSPICIOUS_WORK_HOUR_END", "22"))
 #    yozuvi kiritilsa shubhali hisoblanadi.
 SUSPICIOUS_SELLER_DAILY_COUNT = int(os.getenv("SUSPICIOUS_SELLER_DAILY_COUNT", "15"))
 
+# ---------- QARZ ESLATMASI - 13-BOSQICH: MUDDATI O'TGANLAR ----------
+# due_date belgilanmagan qarzlar uchun - yaratilganidan necha kun o'tsa
+# "muddati o'tgan" hisoblanadi (alerts.send_debt_reminders standart qiymati).
+DEBT_OVERDUE_DAYS_DEFAULT = int(os.getenv("DEBT_OVERDUE_DAYS_DEFAULT", "3"))
+
+# Mijozga to'g'ridan-to'g'ri (start-link orqali bog'langan bo'lsa) eslatma
+# necha KUNDA BIR MARTA yuboriladi - mijozni HAR KUNI bezovta qilmaslik
+# uchun. Do'kon egasiga esa bundan qat'i nazar har kuni to'liq ro'yxat
+# ketaveradi (o'zi bilishi kerak, mijoz esa kamroq bezovta bo'lsin).
+DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS = int(os.getenv("DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS", "3"))
+
 # Tariflar ro'yxati - handlers/subscription.py shu yerdan o'qiydi (tugmalar,
 # narx ko'rsatish va tanlangan tarifga qarab subscription_until'ni necha
 # kunga uzaytirish kerakligini aniqlash uchun). "days" - 7-bosqichda
