@@ -252,7 +252,11 @@ body {
 .scanner-status {
   text-align: center;
   margin: 12px 0 2px;
+  transition: color 0.15s;
 }
+
+.scanner-status-success { color: var(--success); font-weight: 600; }
+.scanner-status-error { color: var(--danger); font-weight: 600; }
 
 .section-title {
   font-size: 13px;
