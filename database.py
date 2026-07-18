@@ -814,6 +814,85 @@ async def get_branches(shop_id: int):
         return [dict(row) for row in rows]
 
 
+# ---------- FILIALLAR SOLISHTIRUVI - 11-BOSQICH ----------
+
+async def get_branch_comparison(shop_id: int) -> list:
+    """Har bir filial (va filial biriktirilmagan eski yozuvlar uchun
+    "Bosh filial") bo'yicha savdo/foyda/kirim-chiqim ko'rsatkichlarini
+    BITTADA solishtirish uchun qaytaradi. "🏢 Filial bo'yicha hisobot"dan
+    farqi - u yerda owner faqat BITTA filialni tanlab ko'radi, bu yerda esa
+    barcha filiallar yonma-yon (bitta ro'yxatda) beriladi.
+
+    handlers/reports.py ("🆚 Filiallar solishtiruvi") shu ro'yxatni
+    formatlab chiqaradi.
+
+    Qaytaradi - har bir element:
+        {
+            "branch_id": None (Bosh filial) yoki filial id,
+            "name": ko'rsatiladigan nom,
+            "income": float,       - jami kirim (barcha vaqt uchun)
+            "expense": float,      - jami chiqim
+            "balance": float,      - income - expense
+            "sales_count": int,    - jami savdo (chek) soni
+            "profit": float,       - savdolardan sof foyda (sotuv narxi - tannarx)
+        }
+
+    "Bosh filial" faqat unda BIRON faoliyat (kirim/chiqim yoki savdo) bo'lsa
+    ro'yxatga qo'shiladi - aks holda bo'sh qator bilan chalkashtirmaslik
+    uchun tashlab ketiladi. Nomlangan filiallar esa hozircha savdosi bo'lmasa
+    ham har doim ko'rsatiladi (owner ularni ataylab solishtirmoqchi).
+    Natija foyda bo'yicha KAMAYISH tartibida saralanadi."""
+    branches = await get_branches(shop_id)
+    groups = [{"branch_id": 0, "name": "🏠 Bosh filial"}] + [
+        {"branch_id": b["id"], "name": f"🏢 {b['name']}"} for b in branches
+    ]
+
+    result = []
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        for g in groups:
+            branch_id = g["branch_id"]
+
+            clause, extra = _branch_filter(branch_id)
+            cursor = await db.execute(
+                f"SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0), "
+                f"COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) "
+                f"FROM transactions WHERE shop_id = ?{clause}",
+                [shop_id] + extra,
+            )
+            income, expense = await cursor.fetchone()
+
+            sale_clause, sale_extra = _branch_filter(branch_id, column="t.branch_id")
+            cursor = await db.execute(
+                f"""
+                SELECT COUNT(DISTINCT si.sale_id),
+                       COALESCE(SUM((si.price - p.price) * si.quantity), 0)
+                FROM sale_items si
+                JOIN products p ON p.id = si.product_id
+                JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+                WHERE si.shop_id = ?{sale_clause}
+                """,
+                [shop_id] + sale_extra,
+            )
+            sales_count, profit = await cursor.fetchone()
+
+            is_named_branch = branch_id != 0
+            if not is_named_branch and income == 0 and expense == 0 and not sales_count:
+                continue
+
+            result.append({
+                "branch_id": None if branch_id == 0 else branch_id,
+                "name": g["name"],
+                "income": income or 0,
+                "expense": expense or 0,
+                "balance": (income or 0) - (expense or 0),
+                "sales_count": sales_count or 0,
+                "profit": profit or 0,
+            })
+
+    result.sort(key=lambda r: r["profit"], reverse=True)
+    return result
+
+
 async def delete_branch(shop_id: int, branch_id: int) -> bool:
     async with aiosqlite.connect(config.DB_PATH) as db:
         await _ensure_branch_schema(db)
