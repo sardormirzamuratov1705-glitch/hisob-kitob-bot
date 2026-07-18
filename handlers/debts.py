@@ -9,6 +9,7 @@ import database as db
 import keyboards as kb
 import alerts
 from access_control import get_shop_id, get_branch_id
+from dedupe import user_lock, DuplicateAction
 
 router = Router()
 
@@ -191,6 +192,14 @@ async def add_debt_description(message: Message, state: FSMContext):
         await state.clear()
         return
 
+    try:
+        async with user_lock(message.from_user.id):
+            await _add_debt_locked(message, state, shop_id)
+    except DuplicateAction:
+        pass
+
+
+async def _add_debt_locked(message: Message, state: FSMContext, shop_id: int):
     data = await state.get_data()
     branch_id = await get_branch_id(message.from_user.id)
     debt_id = await db.add_debt(
@@ -443,6 +452,16 @@ async def pay_debt_mixed_cash_amount(message: Message, state: FSMContext):
 
 
 async def _finalize_debt_payment(message: Message, user_id: int, state: FSMContext):
+    try:
+        async with user_lock(user_id):
+            await _finalize_debt_payment_locked(message, user_id, state)
+    except DuplicateAction:
+        # To'lov tugmasi ikki marta tez bosilgan - birinchisi hali
+        # yakunlanmagan, ikkinchisini e'tiborsiz qoldiramiz.
+        pass
+
+
+async def _finalize_debt_payment_locked(message: Message, user_id: int, state: FSMContext):
     shop_id = await get_shop_id(user_id)
     if shop_id is None:
         await state.clear()
