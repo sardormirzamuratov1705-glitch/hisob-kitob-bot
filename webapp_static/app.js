@@ -38,7 +38,17 @@ async function apiFetch(url, options = {}) {
   if (options.body) headers["Content-Type"] = "application/json";
   const res = await fetch(url, Object.assign({}, options, { headers }));
   if (res.status === 401) {
-    throw new Error("Ruxsat yo'q. Botni qaytadan oching.");
+    // VAQTINCHALIK DIAGNOSTIKA (401 sababini aniqlash uchun): Telegram
+    // muhitini qanday ko'rayotganini ekranga chiqaramiz - initData nega
+    // bo'sh kelayotganini bilish uchun boshqa yo'l yo'q (server konsolga
+    // kira olmaymiz, shuning uchun to'g'ridan-to'g'ri shu yerda ko'rsatamiz).
+    const debug = [
+      `platform=${tg.platform || "yo'q"}`,
+      `version=${tg.version || "yo'q"}`,
+      `initDataLen=${(tg.initData || "").length}`,
+      `hasHash=${location.hash ? "ha" : "yo'q"}`,
+    ].join(", ");
+    throw new Error(`Ruxsat yo'q. Botni qaytadan oching.\n[debug: ${debug}]`);
   }
   return res;
 }
