@@ -58,7 +58,7 @@ def compute_subscription_access(subscription_status: str, subscription_until: st
     except (TypeError, ValueError):
         return {"allowed": True, "status": "unknown", "days_left": None, "in_grace": False}
 
-    days_left = (until_date - datetime.now().date()).days
+    days_left = (until_date - config.now().date()).days
 
     if days_left >= 0:
         # "trial" yoki "active" - muddat hali tugamagan.
@@ -448,7 +448,7 @@ async def init_db():
         # Shart faqat subscription_status IS NULL qatorlarga tegadi - shuning
         # uchun bu UPDATE har init_db() chaqirilganda ishlasa ham, allaqachon
         # qiymat olgan qatorlarni qayta o'zgartirmaydi (idempotent).
-        grandfather_until = (datetime.now() + timedelta(days=SUBSCRIPTION_GRANDFATHER_DAYS)).strftime("%Y-%m-%d")
+        grandfather_until = (config.now() + timedelta(days=SUBSCRIPTION_GRANDFATHER_DAYS)).strftime("%Y-%m-%d")
         await db.execute(
             "UPDATE owners SET subscription_status = 'active', subscription_until = ?, "
             "trial_used = 1 WHERE subscription_status IS NULL",
@@ -526,7 +526,7 @@ async def init_db():
 
 
 def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return config.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _branch_filter(branch_id, column: str = "branch_id"):
@@ -614,7 +614,7 @@ def product_discount_info(product: dict) -> dict | None:
         until_date = datetime.strptime(until, "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return None
-    days_left = (until_date - datetime.now().date()).days
+    days_left = (until_date - config.now().date()).days
     if days_left < 0:
         return None
     return {"price": price, "days_left": days_left}
@@ -628,7 +628,7 @@ async def set_product_discount(shop_id: int, product_id: int, discount_price: fl
     discount_until = bugundan `days` kun keyingi sana sifatida saqlanadi -
     shu sanadan keyin product_discount_info() uni avtomatik "tugagan" deb
     hisoblay boshlaydi."""
-    discount_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    discount_until = (config.now() + timedelta(days=days)).strftime("%Y-%m-%d")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE products SET discount_price = ?, discount_until = ? WHERE id = ? AND shop_id = ?",
@@ -1128,7 +1128,7 @@ async def get_monthly_profit_history(shop_id: int, months: int = 6, branch_id=No
     # Oxirgi `months` ta oyning "YYYY-MM" ro'yxatini (eskidan yangiga) tuzamiz -
     # kalendar oylarni to'g'ri kamaytirish uchun kun/yilni qo'lda hisoblaymiz
     # (masalan yanvardan bir oy oldin - o'tgan yilning dekabri).
-    today = datetime.now()
+    today = config.now()
     month_keys = []
     y, m = today.year, today.month
     for _ in range(months):
@@ -1183,7 +1183,7 @@ async def get_profit_forecast(shop_id: int, lookback_months: int = 3, branch_id=
     avg_profit = sum(m["profit"] for m in active_months) / len(active_months)
     avg_sales = sum(m["sales_total"] for m in active_months) / len(active_months)
 
-    today = datetime.now()
+    today = config.now()
     y, m = today.year, today.month + 1
     if m > 12:
         m = 1
@@ -1213,7 +1213,7 @@ async def get_weekly_profit_history(shop_id: int, weeks: int = 8, branch_id=None
          "sales_count": int, "sales_total": float, "profit": float}
     """
     days = weeks * 7
-    start_date = (datetime.now() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    start_date = (config.now() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
     clause, extra = _branch_filter(branch_id, column="t.branch_id")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
@@ -1238,7 +1238,7 @@ async def get_weekly_profit_history(shop_id: int, weeks: int = 8, branch_id=None
 
     # Har bir haftani "shu haftaning DUSHANBASI" bilan belgilab, kunlar
     # bo'yicha yig'ilgan natijalarni shu haftaga jamlaymiz.
-    today = datetime.now()
+    today = config.now()
     monday_today = today - timedelta(days=today.weekday())
     week_starts = [monday_today - timedelta(weeks=i) for i in range(weeks)]
     week_starts.reverse()
@@ -1323,7 +1323,7 @@ async def get_stale_products(shop_id: int, days: int = 30, limit: int = 10):
     sotilmagan va shuncha vaqtdan beri turgan) mahsulotlar. Eng uzoq
     turganidan (eng sekin sotilayotganidan) boshlab tartiblanadi va faqat
     eng "sekin" `limit` tasi qaytariladi (standart - TOP 10)."""
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = config.now() - timedelta(days=days)
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -1412,7 +1412,7 @@ async def get_ai_restock_suggestions(shop_id: int, lookback_days: int = 30, lead
     if lead_time_days is None:
         lead_time_days = await get_restock_lead_time_days(shop_id)
 
-    cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    cutoff = (config.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             """
@@ -1670,7 +1670,7 @@ async def get_daily_stats(shop_id: int, date_str: str = None, branch_id=None) ->
         }
     """
     if not date_str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = config.now().strftime("%Y-%m-%d")
 
     sale_clause, sale_extra = _branch_filter(branch_id, column="t.branch_id")
     tx_clause, tx_extra = _branch_filter(branch_id)
@@ -1783,7 +1783,7 @@ async def add_owner(telegram_id: int, full_name: str = None, username: str = Non
     """Yangi do'kon egasi qo'shiladi va SUBSCRIPTION_TRIAL_DAYS kunlik bepul
     sinov muddati bilan boshlanadi (bosh admin qo'lda qo'shsa ham, o'zi
     ro'yxatdan o'tsa ham - farqi yo'q, har doim trialdan boshlanadi)."""
-    trial_until = (datetime.now() + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).strftime("%Y-%m-%d")
+    trial_until = (config.now() + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).strftime("%Y-%m-%d")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at, "
@@ -1821,7 +1821,7 @@ async def approve_trial(telegram_id: int, days: int, decided_by: int):
     if not owner or owner.get("subscription_status") != "pending_trial":
         return None
 
-    trial_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    trial_until = (config.now() + timedelta(days=days)).strftime("%Y-%m-%d")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "UPDATE owners SET subscription_status = 'trial', subscription_until = ?, trial_used = 1 "
@@ -2086,7 +2086,7 @@ async def count_today_transactions_by_performer(shop_id: int, performed_by: int)
     """SHUBHALI HOLATLAR - 9-BOSQICH (7-qoida): bugun shu xodim (yoki egasi)
     tomonidan kiritilgan transactions yozuvlari sonini qaytaradi (savdo va
     qo'lda kiritilgan kirim/chiqim - barchasi shu jadvalda)."""
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = config.now().strftime("%Y-%m-%d")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM transactions WHERE shop_id = ? AND performed_by = ? "
@@ -2145,7 +2145,7 @@ async def approve_payment(payment_id: int, decided_by: int):
     if not owner:
         return None
 
-    today = datetime.now().date()
+    today = config.now().date()
     base_date = today
     current_until = owner.get("subscription_until")
     if current_until:
@@ -2278,7 +2278,7 @@ async def extend_owner_subscription(telegram_id: int, days: int) -> str | None:
     if not owner:
         return None
 
-    today = datetime.now().date()
+    today = config.now().date()
     base_date = today
     current_until = owner.get("subscription_until")
     if current_until:
@@ -2418,7 +2418,7 @@ async def get_overdue_debts(shop_id: int, days: int = 3):
     eski qoida ishlaydi: yaratilganidan `days` kun o'tgan bo'lsa, muddati o'tgan deb
     hisoblanadi.
     """
-    now = datetime.now()
+    now = config.now()
     cutoff = now - timedelta(days=days)
     debts = await get_debts(shop_id, only_unpaid=True)
     overdue = []
