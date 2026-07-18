@@ -30,7 +30,8 @@ TARIFFS_TEXT = (
 
 
 async def _show_tariffs(message: Message):
-    await message.answer(TARIFFS_TEXT, reply_markup=kb.subscription_plans_menu())
+    plans = await db.get_subscription_plans()
+    await message.answer(TARIFFS_TEXT, reply_markup=kb.subscription_plans_menu(plans))
 
 
 @router.message(F.text == "💳 Obuna")
@@ -79,23 +80,32 @@ async def choose_subscription_plan(callback: CallbackQuery, state: FSMContext):
         return
 
     plan_key = callback.data.split(":", 1)[1]
-    plan = config.SUBSCRIPTION_PLANS.get(plan_key)
+    plans = await db.get_subscription_plans()
+    plan = plans.get(plan_key)
     if not plan:
         await callback.message.answer("❌ Bu tarif topilmadi. Qaytadan urinib ko'ring: /start")
         return
 
-    # 7-bosqich: chek skrinshotini kutamiz. Tanlangan tarif state orqali
-    # keyingi qadamga (receipt_received handler) o'tkaziladi.
+    # 7-bosqich: chek skrinshotini kutamiz. Tanlangan tarif va HOZIRGI narx
+    # (10-bosqich - admin narxni keyin o'zgartirsa ham, shu foydalanuvchi
+    # tanlagan/ko'rgan narxdan to'laydi) state orqali receipt_received'ga
+    # o'tkaziladi.
     await state.set_state(PaymentFlow.waiting_receipt)
-    await state.update_data(subscription_plan=plan_key)
+    await state.update_data(
+        subscription_plan=plan_key,
+        plan_price=plan["price"],
+        plan_days=plan["days"],
+        plan_label=plan["label"],
+    )
 
+    requisites = await db.get_payment_requisites()
     price_text = f"{plan['price']:,}".replace(",", " ")
     text = (
         f"✅ Siz <b>{plan['label']}</b> tarifini tanladingiz — {price_text} so'm.\n\n"
         "💳 To'lov rekvizitlari:\n"
-        f"• Karta: <code>{config.PAYMENT_CARD_NUMBER}</code> ({config.PAYMENT_CARD_HOLDER})\n"
-        f"• Click: {config.PAYMENT_CLICK_NUMBER}\n"
-        f"• Payme: {config.PAYMENT_PAYME_NUMBER}\n\n"
+        f"• Karta: <code>{requisites['card_number']}</code> ({requisites['card_holder']})\n"
+        f"• Click: {requisites['click_number']}\n"
+        f"• Payme: {requisites['payme_number']}\n\n"
         "To'lovni amalga oshirgach, chek/skrinshotni shu yerga rasm qilib yuboring - "
         "u bosh adminga tekshirish uchun boradi va tasdiqlangach obunangiz "
         "avtomatik uzaytiriladi."
@@ -109,30 +119,32 @@ async def choose_subscription_plan(callback: CallbackQuery, state: FSMContext):
 async def receipt_received(message: Message, state: FSMContext):
     data = await state.get_data()
     plan_key = data.get("subscription_plan")
-    plan = config.SUBSCRIPTION_PLANS.get(plan_key)
+    plan_price = data.get("plan_price")
+    plan_days = data.get("plan_days")
+    plan_label = data.get("plan_label")
     await state.clear()
 
-    if not plan:
+    if not plan_key or plan_price is None or plan_days is None:
         await message.answer("❌ Tarif topilmadi, iltimos qaytadan boshlang: /start")
         return
 
     screenshot_file_id = message.photo[-1].file_id
     payment_id = await db.create_payment(
         owner_id=message.from_user.id,
-        amount=plan["price"],
+        amount=plan_price,
         plan=plan_key,
-        days=plan["days"],
+        days=plan_days,
         screenshot_file_id=screenshot_file_id,
     )
 
     owner = await db.get_owner(message.from_user.id)
     owner_label = (owner or {}).get("shop_name") or (owner or {}).get("owner_name") \
         or message.from_user.full_name or str(message.from_user.id)
-    price_text = f"{plan['price']:,}".replace(",", " ")
+    price_text = f"{plan_price:,}".replace(",", " ")
     admin_caption = (
         f"💳 <b>Yangi to'lov (#{payment_id})</b>\n\n"
         f"🏪 {owner_label} (ID: {message.from_user.id})\n"
-        f"📦 Tarif: {plan['label']} — {price_text} so'm ({plan['days']} kun)\n\n"
+        f"📦 Tarif: {plan_label} — {price_text} so'm ({plan_days} kun)\n\n"
         "Chekni tekshirib, tasdiqlang yoki rad eting:"
     )
     sent_to_any_admin = False
