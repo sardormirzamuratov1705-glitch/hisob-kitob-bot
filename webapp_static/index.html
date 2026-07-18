@@ -139,28 +139,33 @@
     </div>
   </div>
 
-  <!-- YANGI REJA - 2-BOSQICH: SKLAD - butunlay YANGI mahsulot yaratish
-       oynasi (nomi/narxi/miqdori). Barkod maydoni 3-bosqichda shu
-       oynaga qo'shiladi. -->
+  <!-- YANGI REJA - 2/9-BOSQICH: SKLAD - butunlay YANGI mahsulot
+       yaratish oynasi (nomi/barkodi/narxi/miqdori). -->
   <div id="modal-sklad-new" class="modal hidden">
     <div class="modal-content">
       <div class="modal-handle"></div>
       <h3>➕ Yangi mahsulot</h3>
+      <p class="muted">Barkodni qo'lda kiriting yoki 📷 orqali skanerlang.</p>
 
       <label>Mahsulot nomi</label>
       <input id="sklad-new-name-input" type="text" placeholder="Masalan: Coca-Cola 0.5L">
 
       <label>Barkod (ixtiyoriy)</label>
       <div class="barcode-input-box">
-        <input id="sklad-new-barcode-input" type="text" placeholder="Qo'lda kiriting yoki skanerlang">
+        <input id="sklad-new-barcode-input" class="barcode-text-input" type="text" placeholder="Qo'lda kiriting yoki skanerlang">
         <button id="sklad-new-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
       </div>
 
-      <label>Tannarx (so'mda)</label>
-      <input id="sklad-new-price-input" type="number" inputmode="decimal" placeholder="0">
-
-      <label>Sotish narxi (ixtiyoriy)</label>
-      <input id="sklad-new-sell-price-input" type="number" inputmode="decimal" placeholder="0">
+      <div class="form-row">
+        <div class="form-col">
+          <label>Tannarx (so'mda)</label>
+          <input id="sklad-new-price-input" type="number" inputmode="decimal" placeholder="0">
+        </div>
+        <div class="form-col">
+          <label>Sotish narxi (ixtiyoriy)</label>
+          <input id="sklad-new-sell-price-input" type="number" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
 
       <label>Boshlang'ich miqdori</label>
       <input id="sklad-new-quantity-input" type="number" inputmode="decimal" value="1">
