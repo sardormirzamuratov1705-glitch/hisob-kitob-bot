@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -36,10 +37,33 @@ async def _subscription_reminder_loop(bot: Bot):
         await asyncio.sleep(24 * 60 * 60)
 
 
+async def _daily_report_loop(bot: Bot):
+    """6-BOSQICH: yuqoridagi ikkita sikldan farqli - bular "bot ishga
+    tushgandan 24 soat keyin" ishlaydi, lekin kunlik hisobot ANIQ bir vaqtda
+    (config.DAILY_REPORT_HOUR:DAILY_REPORT_MINUTE, masalan har kuni 21:00)
+    yuborilishi kerak, shuning uchun har safar "keyingi shu vaqt"gacha
+    qancha qolganini hisoblab, aynan shuncha kutadi (drift yig'ilib
+    qolmasligi uchun har iteratsiyada qaytadan hisoblanadi)."""
+    while True:
+        now = datetime.now()
+        target = now.replace(
+            hour=config.DAILY_REPORT_HOUR, minute=config.DAILY_REPORT_MINUTE,
+            second=0, microsecond=0,
+        )
+        if target <= now:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            await alerts.send_daily_reports_to_all(bot)
+        except Exception as e:
+            logging.warning(f"Kunlik hisobot tsiklida xato: {e}")
+
+
 async def on_startup(bot: Bot):
     await db.init_db()
     asyncio.create_task(_debt_reminder_loop(bot))
     asyncio.create_task(_subscription_reminder_loop(bot))
+    asyncio.create_task(_daily_report_loop(bot))
     if config.WEBHOOK_HOST:
         await bot.set_webhook(config.WEBHOOK_URL, drop_pending_updates=True)
         logging.info(f"Webhook o'rnatildi: {config.WEBHOOK_URL}")
