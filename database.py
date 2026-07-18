@@ -1407,6 +1407,49 @@ async def set_daily_report_enabled(shop_id: int, enabled: bool):
     await set_setting(f"daily_report_enabled_{shop_id}", "1" if enabled else "0")
 
 
+# ---------- SHUBHALI HOLATLAR - 8-BOSQICH: DO'KON EGASI SOZLAYDIGAN CHEGARALAR ----------
+# Har bir chegara - shu do'kon uchun alohida "settings" kalitida saqlanadi
+# (masalan "susp_discount_percent_12345"). Hali sozlanmagan bo'lsa -
+# config.py'dagi standart qiymat ishlatiladi (get_setting default'i orqali).
+# Manfiy qoldiq va tannarxdan past sotish tekshiruvlari bu yerda YO'Q - ular
+# chegarasiz, doim yoqilgan (sozlanmaydi).
+
+SUSPICIOUS_RULE_KEYS = {
+    "discount_percent": ("SUSPICIOUS_DISCOUNT_PERCENT", int),
+    "sale_quantity": ("SUSPICIOUS_SALE_QUANTITY", float),
+    "expense_amount": ("SUSPICIOUS_EXPENSE_AMOUNT", float),
+    "work_hour_start": ("SUSPICIOUS_WORK_HOUR_START", int),
+    "work_hour_end": ("SUSPICIOUS_WORK_HOUR_END", int),
+    "seller_daily_count": ("SUSPICIOUS_SELLER_DAILY_COUNT", int),
+}
+
+
+async def get_suspicious_rules(shop_id: int) -> dict:
+    """Shu do'kon uchun HOZIRGI (agar owner o'zgartirgan bo'lsa - o'sha,
+    aks holda config.py'dagi standart) shubhali holatlar chegaralarini
+    bittada qaytaradi. handlers/reports.py (sozlamalar oynasi) va
+    real vaqtda tekshiruvchi funksiya (9-bosqich) shu yerdan foydalanadi.
+
+    Qaytaradi: {"discount_percent": ..., "sale_quantity": ..., ...}
+    """
+    rules = {}
+    for key, (config_attr, cast) in SUSPICIOUS_RULE_KEYS.items():
+        default = getattr(config, config_attr)
+        raw = await get_setting(f"susp_{key}_{shop_id}", str(default))
+        try:
+            rules[key] = cast(raw)
+        except (TypeError, ValueError):
+            rules[key] = default
+    return rules
+
+
+async def set_suspicious_rule(shop_id: int, key: str, value):
+    """Owner bitta chegarani (masalan "discount_percent") o'ziga moslab
+    o'zgartiradi. key - SUSPICIOUS_RULE_KEYS'dagi kalitlardan biri bo'lishi
+    kerak (handlers tomonida tekshiriladi)."""
+    await set_setting(f"susp_{key}_{shop_id}", str(value))
+
+
 # ---------- 7-BOSQICH: TO'LOVLARNI QO'LDA TASDIQLASH ----------
 
 async def create_payment(owner_id: int, amount: float, plan: str, days: int,
