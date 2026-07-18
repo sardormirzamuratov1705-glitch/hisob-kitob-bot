@@ -512,16 +512,20 @@ async def sale_mixed_cash_amount(message: Message, state: FSMContext):
 async def _finalize_sale(message: Message, state: FSMContext):
     # message bu yerda callback.message (botning o'z xabari) - shuning uchun
     # chat.id orqali shop_id aniqlanadi (from_user bot bo'lib qolgan bo'lardi).
+    # xuddi shu sababdan "amalni bajargan" sifatida ham chat.id ishlatiladi
+    # (shaxsiy chatda chat.id == shu odamning telegram_id'si).
     shop_id = await get_shop_id(message.chat.id)
     if shop_id is None:
         await state.clear()
         return
 
+    performed_by = message.chat.id
     data = await state.get_data()
     results = data.get("results", [])
 
     total = 0.0
     lines = []
+    sale_lines = []
     for r in results:
         product = await db.get_product(shop_id, r["id"])
         if not product:
@@ -533,6 +537,9 @@ async def _finalize_sale(message: Message, state: FSMContext):
             message.bot, shop_id, product, product["quantity"], new_quantity,
             also_notify_chat_id=message.chat.id,
         )
+        # SHUBHALI HOLATLAR - 9-BOSQICH: tekshiruv uchun SOTUVDAN OLDINGI
+        # product holatini saqlab qo'yamiz (product["quantity"] hali eski).
+        sale_lines.append({"product": product, "quantity": r["qty"], "price": r["price"]})
 
         # Kanaldagi postni ham yangilaymiz.
         if product.get("channel_message_id") and config.CHANNEL_ID:
@@ -558,21 +565,39 @@ async def _finalize_sale(message: Message, state: FSMContext):
         cash = data.get("mixed_cash", 0.0)
         card = data.get("mixed_card", 0.0)
         if cash > 0:
-            sale_id = await db.add_transaction(shop_id, "income", cash, description, payment_method="naqd", branch_id=branch_id)
+            sale_id = await db.add_transaction(
+                shop_id, "income", cash, description, payment_method="naqd",
+                branch_id=branch_id, performed_by=performed_by,
+            )
             if card > 0:
                 await db.add_transaction(
                     shop_id, "income", card,
                     description + "\n(aralash to'lovning plastik qismi)",
-                    payment_method="plastik", branch_id=branch_id,
+                    payment_method="plastik", branch_id=branch_id, performed_by=performed_by,
                 )
         else:
-            sale_id = await db.add_transaction(shop_id, "income", card, description, payment_method="plastik", branch_id=branch_id)
+            sale_id = await db.add_transaction(
+                shop_id, "income", card, description, payment_method="plastik",
+                branch_id=branch_id, performed_by=performed_by,
+            )
     else:
-        sale_id = await db.add_transaction(shop_id, "income", total, description, payment_method=payment_method, branch_id=branch_id)
+        sale_id = await db.add_transaction(
+            shop_id, "income", total, description, payment_method=payment_method,
+            branch_id=branch_id, performed_by=performed_by,
+        )
 
     for r in results:
-        await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"])
+        await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"], performed_by=performed_by)
         await db.mark_product_sold(shop_id, r["id"])
+
+    # SHUBHALI HOLATLAR - 9-BOSQICH: real vaqtda tekshiruv. Hozircha faqat
+    # logga yoziladi - Telegram orqali darhol ogohlantirish yuborish
+    # 10-bosqichda shu natijadan foydalanib qo'shiladi.
+    suspicious_flags = await alerts.evaluate_sale_suspicions(shop_id, sale_lines, performed_by=performed_by)
+    if suspicious_flags:
+        logging.warning(
+            f"[SHUBHALI - SAVDO] shop={shop_id} sale_id={sale_id}: " + " | ".join(suspicious_flags)
+        )
 
     await state.clear()
 
