@@ -1556,6 +1556,60 @@ async def get_totals(shop_id: int, branch_id=None):
 
 # ---------- SAVDO TARKIBI / BOG'LAB SOTISH (CROSS-SELL) ----------
 
+async def cancel_sale(shop_id: int, sale_id: int):
+    """Savdoni butunlay bekor qiladi: mahsulot miqdorlarini qaytaradi, sale_items
+    va tegishli transactions (aralash to'lovda ikkalasini ham) yozuvlarini o'chiradi.
+    Natija: {'total': ..., 'items': [...]} yoki None (savdo topilmasa)."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM sale_items WHERE shop_id = ? AND sale_id = ?", (shop_id, sale_id)
+        )
+        items = [dict(r) for r in await cursor.fetchall()]
+        if not items:
+            return None
+
+        cursor = await db.execute(
+            "SELECT * FROM transactions WHERE shop_id = ? AND id = ? AND type = 'income'",
+            (shop_id, sale_id),
+        )
+        main_tx = await cursor.fetchone()
+        main_tx = dict(main_tx) if main_tx else None
+
+        total = 0.0
+        for item in items:
+            total += item["quantity"] * item["price"]
+            cursor2 = await db.execute(
+                "SELECT quantity FROM products WHERE shop_id = ? AND id = ?",
+                (shop_id, item["product_id"]),
+            )
+            prod = await cursor2.fetchone()
+            if prod:
+                await db.execute(
+                    "UPDATE products SET quantity = ? WHERE shop_id = ? AND id = ?",
+                    (prod["quantity"] + item["quantity"], shop_id, item["product_id"]),
+                )
+
+        # Aralash to'lovning plastik qismi alohida transaction sifatida yozilgan
+        # bo'lsa (bir xil izoh + vaqt), uni ham topib o'chiramiz.
+        if main_tx:
+            cursor3 = await db.execute(
+                "SELECT id, amount FROM transactions WHERE shop_id = ? AND type = 'income' "
+                "AND created_at = ? AND description = ? AND payment_method = 'plastik' AND id != ?",
+                (shop_id, main_tx["created_at"], main_tx["description"] + "\n(aralash to'lovning plastik qismi)", sale_id),
+            )
+            sibling = await cursor3.fetchone()
+            if sibling:
+                total_extra = sibling["amount"]
+                await db.execute("DELETE FROM transactions WHERE id = ?", (sibling["id"],))
+
+        await db.execute("DELETE FROM sale_items WHERE shop_id = ? AND sale_id = ?", (shop_id, sale_id))
+        await db.execute("DELETE FROM transactions WHERE shop_id = ? AND id = ?", (shop_id, sale_id))
+        await db.commit()
+
+        return {"total": total, "items": items}
+
+
 async def add_sale_item(shop_id: int, sale_id: int, product_id: int, quantity: float, price: float,
                          performed_by: int = None):
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
