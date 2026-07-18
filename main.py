@@ -12,6 +12,7 @@ from aiogram.types import ErrorEvent
 import config
 import database as db
 import alerts
+import access_control
 from access_control import OwnerOnlyMiddleware
 from handlers import start, products, sales, transactions, debts, reports, users, sellers, branches, subscription
 
@@ -129,6 +130,7 @@ def _make_error_handler(bot: Bot):
 
 async def on_startup(bot: Bot):
     await db.init_db()
+    await access_control.load_extra_admins()
     asyncio.create_task(_debt_reminder_loop(bot))
     asyncio.create_task(_subscription_reminder_loop(bot))
     asyncio.create_task(_daily_report_loop(bot))
