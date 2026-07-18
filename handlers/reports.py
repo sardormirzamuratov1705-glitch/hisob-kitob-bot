@@ -112,6 +112,51 @@ async def branch_report_show(callback: CallbackQuery):
     await callback.answer()
 
 
+def _format_branch_comparison(rows: list) -> str:
+    """FILIALLAR SOLISHTIRUVI - 11-BOSQICH: db.get_branch_comparison()
+    natijasini o'qishga qulay Telegram xabariga aylantiradi."""
+    if not rows:
+        return (
+            "🆚 <b>Filiallar solishtiruvi</b>\n\n"
+            "Hozircha solishtirish uchun yetarli ma'lumot yo'q."
+        )
+
+    medals = ["🥇", "🥈", "🥉"]
+    blocks = [f"🆚 <b>Filiallar solishtiruvi</b> (foyda bo'yicha)"]
+    for i, r in enumerate(rows):
+        rank = medals[i] if i < len(medals) else f"{i + 1}."
+        blocks.append(
+            f"{rank} <b>{r['name']}</b>\n"
+            f"   🛒 Savdo: {r['sales_count']} ta chek\n"
+            f"   💰 Foyda: {r['profit']:.0f} so'm\n"
+            f"   💵 Kirim: {r['income']:.0f} so'm  |  💸 Chiqim: {r['expense']:.0f} so'm\n"
+            f"   📈 Balans: {r['balance']:.0f} so'm"
+        )
+    return "\n\n".join(blocks)
+
+
+@router.message(F.text == "🆚 Filiallar solishtiruvi")
+async def branch_comparison_report(message: Message):
+    """FILIALLAR SOLISHTIRUVI - 11/12-BOSQICH: "🏢 Filial bo'yicha
+    hisobot"dan farqli o'laroq (u yerda faqat BITTA filial tanlab ko'riladi),
+    bu yerda BARCHA filiallar (va agar Bosh filialda ham faoliyat bo'lsa -
+    u ham) BITTA xabarda, foyda bo'yicha kamayish tartibida solishtiriladi."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    branches = await db.get_branches(shop_id)
+    if not branches:
+        await message.answer(
+            "Hozircha filial qo'shilmagan, shuning uchun solishtirish uchun "
+            "hech narsa yo'q. Avval \"🏢 Filiallar\" bo'limidan filial qo'shing."
+        )
+        return
+
+    rows = await db.get_branch_comparison(shop_id)
+    await message.answer(_format_branch_comparison(rows), parse_mode="HTML")
+
+
 def _format_top_products(top_selling, top_profit, scope_name: str = ""):
     lines = []
     if scope_name:
