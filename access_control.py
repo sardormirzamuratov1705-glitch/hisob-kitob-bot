@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery
 
 import config
 import database as db
+import keyboards as kb
 
 
 def is_admin(user_id: int) -> bool:
@@ -103,10 +104,9 @@ async def check_subscription_access(user_id: int) -> dict:
       bloklanadi).
     - Botda umuman ro'yxati yo'q odam: allowed=False, status="unknown".
 
-    DIQQAT: bu funksiya hali hech qanday joyda haqiqiy bloklash uchun
-    ishlatilmaydi (middleware'ga ulash - 5-bosqich). Hozircha faqat
-    natijani hisoblab qaytaradi, masalan admin panelida holat belgisini
-    (✅/⏳/⛔) ko'rsatish yoki keyingi bosqichlarda tekshirish uchun.
+    DIQQAT: 5-bosqichdan boshlab bu funksiya OwnerOnlyMiddleware ichida
+    haqiqiy bloklash uchun ham ishlatiladi. Shuningdek admin panelida holat
+    belgisini (✅/⏳/⛔) ko'rsatish uchun ham qayta ishlatiladi.
     """
     if is_admin(user_id):
         return {"allowed": True, "status": "admin", "days_left": None, "in_grace": False}
@@ -139,6 +139,14 @@ class OwnerOnlyMiddleware(BaseMiddleware):
     Boshqa BARCHA xabar/tugma bosish (matn, callback) begona foydalanuvchidan
     kelsa - hech narsa qilinmasdan e'tiborsiz qoldiriladi.
 
+    5-BOSQICH - OBUNA BLOKLASH: is_authorized=True bo'lgan (ya'ni admin/owner/
+    seller sifatida bazada mavjud) odam ham, agar uning (yoki uni biriktirgan
+    do'kon egasining) obunasi trial+grace period bilan birga tugagan bo'lsa,
+    bundan buyon O'TKAZILMAYDI - handler chaqirilmasdan, o'rniga
+    "⛔ Obunangiz tugagan" ekrani ko'rsatiladi. Yagona istisno - "💳 Obunani
+    uzaytirish" tugmasi (extend_subscription), aks holda odam obunani
+    uzaytirish oynasiga umuman kira olmay qolardi.
+
     DIQQAT: bu middleware faqat botga umuman kirish huquqini tekshiradi.
     Sotuvchining aniq QAYSI bo'limlarga (Sklad narx belgilash, Kirim/Chiqim,
     Hisobot va h.k.) kira olmasligi har bir handler ichida alohida
@@ -149,7 +157,17 @@ class OwnerOnlyMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         user = event.from_user
         if user and await is_authorized(user.id):
-            return await handler(event, data)
+            access = await check_subscription_access(user.id)
+            if access["allowed"]:
+                return await handler(event, data)
+
+            # Obunani uzaytirish tugmasi bloklangan holatda ham ishlashi
+            # kerak - keyingi bosqichlarda shu yerga to'lov oynasi ulanadi.
+            if isinstance(event, CallbackQuery) and event.data == "extend_subscription":
+                return await handler(event, data)
+
+            await self._send_blocked_screen(event)
+            return
 
         if isinstance(event, Message) and event.text and event.text.startswith("/start"):
             return await handler(event, data)
@@ -163,3 +181,16 @@ class OwnerOnlyMiddleware(BaseMiddleware):
         if user:
             logging.info(f"OwnerOnlyMiddleware: ruxsatsiz urinish - user_id={user.id}")
         return
+
+    @staticmethod
+    async def _send_blocked_screen(event):
+        text = "⛔ Obunangiz tugagan.\n\nDavom etish uchun obunani uzaytiring:"
+        markup = kb.blocked_menu()
+        try:
+            if isinstance(event, CallbackQuery):
+                await event.answer()
+                await event.message.answer(text, reply_markup=markup)
+            elif isinstance(event, Message):
+                await event.answer(text, reply_markup=markup)
+        except Exception as e:
+            logging.warning(f"Bloklash ekranini yuborib bo'lmadi: {e}")
