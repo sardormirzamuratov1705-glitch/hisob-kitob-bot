@@ -186,12 +186,14 @@ async def send_daily_reports_to_all(bot):
     """Har kuni belgilangan vaqtda (main.py'dagi _daily_report_loop) chaqiriladi -
     BARCHA do'kon egalariga, birma-bir, o'zining kunlik hisobotini yuboradi.
 
-    DIQQAT (7-bosqich bilan bog'liq): hozircha bu yerda yoqish/o'chirish
-    sozlamasi TEKSHIRILMAYDI - har bir do'kon egasiga har kuni yuboriladi.
-    7-bosqichda shu funksiya ichiga "agar shu ega kunlik hisobotni
-    o'chirgan bo'lsa - o'tkazib yuborish" tekshiruvi qo'shiladi."""
+    KUNLIK HISOBOT - 7-BOSQICH: yuborishdan oldin har bir ega uchun
+    db.get_daily_report_enabled() tekshiriladi - agar owner "🔔 Kunlik
+    hisobot" bo'limidan o'zi o'chirib qo'ygan bo'lsa, unga umuman
+    yuborilmaydi (boshqa egalarga esa davom etadi)."""
     owner_ids = await db.get_owner_ids()
     for shop_id in owner_ids:
+        if not await db.get_daily_report_enabled(shop_id):
+            continue
         await send_daily_report(bot, shop_id)
 
 
