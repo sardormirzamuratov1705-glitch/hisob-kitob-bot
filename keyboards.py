@@ -45,6 +45,16 @@ def landing_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def blocked_menu() -> InlineKeyboardMarkup:
+    """Obuna (trial + grace period) tugagan ega/sotuvchiga ko'rsatiladigan
+    yagona ekran tugmasi. Bosilganda (6-bosqich) tariflar va to'lov
+    rekvizitlari oynasi ochiladi - handlers/subscription.py (keyingi
+    bosqichda qo'shiladi)."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Obunani uzaytirish", callback_data="extend_subscription")
+    return builder.as_markup()
+
+
 def users_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="➕ Do'kon egasi qo'shish")
