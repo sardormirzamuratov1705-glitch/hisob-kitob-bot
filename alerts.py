@@ -197,6 +197,149 @@ async def send_daily_reports_to_all(bot):
         await send_daily_report(bot, shop_id)
 
 
+# ---------- SHUBHALI HOLATLAR - 9-BOSQICH: REAL VAQTDA TEKSHIRUV ----------
+# DIQQAT: bu bo'limdagi funksiyalar hozircha faqat ANIQLAYDI va topganini
+# matn ro'yxati sifatida qaytaradi - hech kimga Telegram orqali hech narsa
+# YUBORMAYDI (chaqiruvchi tomonda hozircha logga yozib qo'yiladi, xolos).
+# Egaga/adminga DARHOL Telegram ogohlantirishi yuborish - 10-bosqich, va u
+# aynan shu funksiyalar qaytargan ro'yxatdan foydalanadi.
+
+async def check_sale_line_suspicions(shop_id: int, product: dict, quantity: float, sale_price: float) -> list:
+    """Bitta savdo qatori (bitta chekdagi bitta mahsulot) uchun 8-bosqichda
+    tasdiqlangan 1/2/3/4-qoidalarni tekshiradi:
+      1) mahsulot qoldig'i shu sotuvdan keyin manfiy bo'lib qolishi (chegarasiz)
+      2) sotuv narxi tannarxdan past bo'lishi (chegarasiz)
+      3) tavsiya etilgan narxdan katta chegirma (rules['discount_percent'])
+      4) bitta savdoda katta miqdor (rules['sale_quantity'])
+    `product` - db.get_product() natijasi, SOTUVDAN OLDINGI holatda (ya'ni
+    product['quantity'] hali kamaytirilmagan bo'lishi kerak)."""
+    rules = await db.get_suspicious_rules(shop_id)
+    flags = []
+
+    remaining = product["quantity"] - quantity
+    if remaining < 0:
+        flags.append(
+            f"❌ <b>{product['name']}</b> qoldig'i MANFIY bo'lib qoldi "
+            f"({remaining:.0f} dona) — miqdorni tekshiring."
+        )
+
+    cost_price = product.get("price") or 0
+    if sale_price < cost_price:
+        flags.append(
+            f"⚠️ <b>{product['name']}</b> tannarxidan PAST sotildi: "
+            f"{sale_price:.0f} so'm (tannarx {cost_price:.0f} so'm)."
+        )
+
+    sell_price = product.get("sell_price")
+    if sell_price and sell_price > 0 and sale_price < sell_price:
+        discount_percent = (sell_price - sale_price) / sell_price * 100
+        if discount_percent >= rules["discount_percent"]:
+            flags.append(
+                f"⚠️ <b>{product['name']}</b>ga katta chegirma berildi: "
+                f"{discount_percent:.0f}% (tavsiya narx {sell_price:.0f} so'm, "
+                f"sotilgan narx {sale_price:.0f} so'm)."
+            )
+
+    if quantity >= rules["sale_quantity"]:
+        flags.append(
+            f"⚠️ <b>{product['name']}</b>dan bir martada g'ayrioddiy ko'p "
+            f"sotildi: {quantity:.0f} dona."
+        )
+
+    return flags
+
+
+def check_work_hour_suspicion(rules: dict) -> str:
+    """6-qoida: hozirgi vaqt owner belgilagan ish vaqti oralig'idan
+    TASHQARIDAmi, tekshiradi. Bitta chek/tranzaksiya uchun BIR MARTA
+    chaqirilishi kerak (har bir mahsulot qatori uchun emas - aks holda bir
+    xil xabar bir nechta marta takrorlanadi). Hech narsa topilmasa None."""
+    now = datetime.now()
+    start, end = rules["work_hour_start"], rules["work_hour_end"]
+    if start <= end:
+        in_hours = start <= now.hour < end
+    else:
+        # Masalan 22 dan ertalabgi 6 gacha kabi kechani kesib o'tadigan oraliq.
+        in_hours = now.hour >= start or now.hour < end
+    if in_hours:
+        return None
+    return (
+        f"🕐 Amal ish vaqtidan TASHQARIDA bajarildi (soat {now.strftime('%H:%M')}, "
+        f"belgilangan ish vaqti {start:02d}:00–{end:02d}:00)."
+    )
+
+
+async def check_expense_suspicion(shop_id: int, amount: float) -> str:
+    """5-qoida: bitta chiqim belgilangan chegaradan yuqorimi, tekshiradi."""
+    rules = await db.get_suspicious_rules(shop_id)
+    if amount >= rules["expense_amount"]:
+        return f"⚠️ G'ayrioddiy katta chiqim kiritildi: {amount:.0f} so'm."
+    return None
+
+
+async def check_seller_activity_suspicion(shop_id: int, performed_by: int) -> str:
+    """7-qoida: bugun shu xodim/ega (performed_by) tomonidan kiritilgan
+    savdo/kirim-chiqim yozuvlari soni belgilangan chegaradan ko'pmi,
+    tekshiradi. performed_by yo'q bo'lsa (None) - tekshirilmaydi."""
+    if not performed_by:
+        return None
+    rules = await db.get_suspicious_rules(shop_id)
+    count = await db.count_today_transactions_by_performer(shop_id, performed_by)
+    if count >= rules["seller_daily_count"]:
+        return (
+            f"⚠️ Bugun bitta xodim/foydalanuvchidan g'ayrioddiy ko'p yozuv "
+            f"kiritildi: {count} ta (ID: {performed_by})."
+        )
+    return None
+
+
+async def evaluate_sale_suspicions(shop_id: int, sale_lines: list, performed_by: int = None) -> list:
+    """Butun savdo cheki (bitta yoki bir nechta mahsulot qatori) yakunlanganda
+    chaqiriladi - handlers/sales.py._finalize_sale shu yerdan foydalanadi.
+
+    sale_lines - [{"product": <sotuvdan OLDINGI product dict>,
+                    "quantity": ..., "price": ...}, ...]
+    Barcha topilgan shubhali holatlarni (1,2,3,4-qatorlar bo'yicha + 6,7)
+    BITTA ro'yxatga yig'ib qaytaradi (bo'sh ro'yxat - hech narsa topilmadi)."""
+    rules = await db.get_suspicious_rules(shop_id)
+    flags = []
+    for line in sale_lines:
+        flags.extend(
+            await check_sale_line_suspicions(shop_id, line["product"], line["quantity"], line["price"])
+        )
+
+    work_hour_flag = check_work_hour_suspicion(rules)
+    if work_hour_flag:
+        flags.append(work_hour_flag)
+
+    seller_flag = await check_seller_activity_suspicion(shop_id, performed_by)
+    if seller_flag:
+        flags.append(seller_flag)
+
+    return flags
+
+
+async def evaluate_expense_suspicions(shop_id: int, amount: float, performed_by: int = None) -> list:
+    """Kirim-chiqimda yangi "chiqim" yozuvi kiritilganda chaqiriladi -
+    handlers/transactions.py. 5, 6 va 7-qoidalarni tekshiradi."""
+    rules = await db.get_suspicious_rules(shop_id)
+    flags = []
+
+    expense_flag = await check_expense_suspicion(shop_id, amount)
+    if expense_flag:
+        flags.append(expense_flag)
+
+    work_hour_flag = check_work_hour_suspicion(rules)
+    if work_hour_flag:
+        flags.append(work_hour_flag)
+
+    seller_flag = await check_seller_activity_suspicion(shop_id, performed_by)
+    if seller_flag:
+        flags.append(seller_flag)
+
+    return flags
+
+
 # ---------- 8-BOSQICH: OBUNA MUDDATI ESLATMALARI ----------
 # Muddat tugashiga necha kun qolganda eslatma yuborilishi kerak. 0 - aynan
 # tugaydigan kunning o'zi (subscription_until = bugun, ya'ni ertadan
