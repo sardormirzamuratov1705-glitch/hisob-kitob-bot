@@ -9,6 +9,7 @@ import database as db
 import keyboards as kb
 import alerts
 from access_control import get_shop_id, get_branch_id
+from dedupe import user_lock, DuplicateAction
 
 router = Router()
 
@@ -78,6 +79,14 @@ async def add_transaction_description(message: Message, state: FSMContext):
         await state.clear()
         return
 
+    try:
+        async with user_lock(message.from_user.id):
+            await _add_transaction_locked(message, state, shop_id)
+    except DuplicateAction:
+        pass
+
+
+async def _add_transaction_locked(message: Message, state: FSMContext, shop_id: int):
     data = await state.get_data()
     branch_id = await get_branch_id(message.from_user.id)
     performed_by = message.from_user.id
