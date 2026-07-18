@@ -14,7 +14,62 @@ SUBSCRIPTION_TRIAL_DAYS = 14
 # do'kon egalari to'satdan bloklanib qolmasligi uchun bir martalik
 # "sovg'a" muddati - init_db() ichida faqat subscription_status hali
 # NULL bo'lgan qatorlarga qo'llaniladi (1-bosqich, moslik siyosati).
-SUBSCRIPTION_GRANDFATHER_DAYS = 30
+# Obuna tugaganidan keyin ham botga kirish davom etadigan "muhlat" - odam
+# birdan bloklanib qolmasligi, to'lov qilishga vaqt topishi uchun.
+SUBSCRIPTION_GRACE_DAYS = 3
+
+
+def compute_subscription_access(subscription_status: str, subscription_until: str) -> dict:
+    """Berilgan subscription_status/subscription_until asosida "hozir botga
+    kirish mumkinmi" degan YAGONA hisoblashni bajaradi. Bu funksiya faqat
+    hisoblaydi - hech kimni bloklamaydi (bloklash middleware'i 5-bosqichda
+    shu funksiya natijasidan foydalanadi).
+
+    Qaytaradi:
+        {
+            "allowed": bool,     - hozircha kirish mumkinmi
+            "status": str,       - "trial" | "active" | "expired" | "blocked" | "unknown"
+            "days_left": int | None,  - subscription_until'gacha necha kun qoldi
+                                         (manfiy - necha kun oldin tugagan)
+            "in_grace": bool,    - muddat tugagan, lekin SUBSCRIPTION_GRACE_DAYS
+                                   ichida (hali "expired" lekin vaqtincha ochiq)
+        }
+    """
+    if subscription_status == "blocked":
+        # Bosh admin majburan yopgan - grace period ham qo'llanmaydi.
+        return {"allowed": False, "status": "blocked", "days_left": None, "in_grace": False}
+
+    if not subscription_status or not subscription_until:
+        # Obuna tizimi hali bu ega uchun ishlamagan/noma'lum holat (nazariy
+        # jihatdan bo'lmasligi kerak, chunki init_db() barcha eskilarga ham
+        # qiymat beradi) - xavfsiz tomonga og'ib ruxsat beramiz.
+        return {"allowed": True, "status": "unknown", "days_left": None, "in_grace": False}
+
+    try:
+        until_date = datetime.strptime(subscription_until, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return {"allowed": True, "status": "unknown", "days_left": None, "in_grace": False}
+
+    days_left = (until_date - datetime.now().date()).days
+
+    if days_left >= 0:
+        # "trial" yoki "active" - muddat hali tugamagan.
+        return {"allowed": True, "status": subscription_status, "days_left": days_left, "in_grace": False}
+
+    days_overdue = -days_left
+    if days_overdue <= SUBSCRIPTION_GRACE_DAYS:
+        return {"allowed": True, "status": "expired", "days_left": days_left, "in_grace": True}
+
+    return {"allowed": False, "status": "expired", "days_left": days_left, "in_grace": False}
+
+
+async def get_owner_subscription_access(owner_telegram_id: int) -> dict | None:
+    """compute_subscription_access() ni bazadan shu ega uchun subscription_status/
+    subscription_until'ni o'qib chaqiradi. Ega topilmasa - None."""
+    owner = await get_owner(owner_telegram_id)
+    if not owner:
+        return None
+    return compute_subscription_access(owner.get("subscription_status"), owner.get("subscription_until"))
 
 
 async def init_db():
