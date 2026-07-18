@@ -156,6 +156,102 @@ body {
 
 .search-box input {
   padding-left: 38px;
+  padding-right: 46px;
+}
+
+/* ---------- 4-BOSQICH: BARKOD SKANERLASH ---------- */
+
+.scan-icon-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.scan-icon-btn:active { opacity: 0.8; }
+
+.scanner-modal-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.scanner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.scanner-header h3 { margin: 0; font-size: 17px; }
+
+.scanner-close-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border: none;
+  border-radius: 50%;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scanner-close-btn:active { opacity: 0.7; }
+
+.scanner-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+
+#scanner-reader {
+  width: 100%;
+  height: 100%;
+}
+
+#scanner-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+
+/* html5-qrcode standart holatda kamera ostiga "izoh" matnini o'zi
+   qo'shib qo'yishi mumkin - bizga kerak emas, chunki o'zimizning
+   #scanner-status matnimiz bor. */
+#scanner-reader img, #scanner-reader br { display: none; }
+
+.scanner-frame {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 38%;
+  bottom: 38%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.scanner-status {
+  text-align: center;
+  margin: 12px 0 2px;
 }
 
 .section-title {
