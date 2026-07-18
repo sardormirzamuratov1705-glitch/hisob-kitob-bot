@@ -25,6 +25,7 @@ import hmac
 import json
 import logging
 import time
+from pathlib import Path
 from urllib.parse import parse_qsl
 
 from aiohttp import web
@@ -240,6 +241,26 @@ async def api_sale_submit(request: web.Request):
     return web.json_response({"ok": True, "sale_id": outcome["sale_id"], "total": outcome["total"]})
 
 
+async def webapp_index(request: web.Request):
+    """"/webapp" VA "/webapp/" - ikkalasi ham index.html'ni qaytaradi.
+
+    DIQQAT (403 XATOSI TUZATILDI): avval bu yerda aiohttp'ning add_static()
+    ishlatilgan edi - lekin aiohttp static route DIREKTORIYA so'ralganda
+    (masalan "/webapp/") ICHIDAGI index.html'ni O'ZI QIDIRIB TOPMAYDI va
+    show_index=False bo'lgani uchun "403 Forbidden" qaytaradi. Shu sababli
+    endi har bir fayl uchun ANIQ (aniq nomi bilan) route beriladi - hech
+    qanday noaniqlik/403 xavfi qolmaydi."""
+    return web.FileResponse(Path(config.WEBAPP_STATIC_DIR) / "index.html")
+
+
+async def webapp_app_js(request: web.Request):
+    return web.FileResponse(Path(config.WEBAPP_STATIC_DIR) / "app.js")
+
+
+async def webapp_style_css(request: web.Request):
+    return web.FileResponse(Path(config.WEBAPP_STATIC_DIR) / "style.css")
+
+
 def create_web_app(bot) -> web.Application:
     """Bitta aiohttp Application yaratadi - unga main.py kerak bo'lsa
     (WEBHOOK_HOST sozlangan bo'lsa) Telegram webhook route'ini ham
@@ -252,7 +273,14 @@ def create_web_app(bot) -> web.Application:
     app.router.add_get("/api/webapp/products", api_products)
     app.router.add_post("/api/webapp/sale", api_sale_submit)
 
-    app.router.add_static("/webapp/", path=config.WEBAPP_STATIC_DIR, show_index=False, name="webapp_static")
+    # MUHIM: har bir statik fayl uchun ANIQ route (yuqoridagi izohga qarang -
+    # add_static() o'rniga, 403 Forbidden xatosining oldini olish uchun).
+    # Yangi statik fayl (masalan rasm) qo'shilsa, shu yerga yana bitta
+    # add_get qatori qo'shish kifoya.
+    app.router.add_get("/webapp", webapp_index)
+    app.router.add_get("/webapp/", webapp_index)
+    app.router.add_get("/webapp/app.js", webapp_app_js)
+    app.router.add_get("/webapp/style.css", webapp_style_css)
 
     async def health(request):
         return web.json_response({"status": "ok"})
