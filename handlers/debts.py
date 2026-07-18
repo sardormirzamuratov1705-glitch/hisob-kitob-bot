@@ -308,6 +308,34 @@ async def list_debts(message: Message):
         )
 
 
+@router.callback_query(F.data.startswith("payfull_debt_"))
+async def pay_debt_full_start(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
+    debt_id = int(callback.data.split("_")[-1])
+    debt = await db.get_debt(shop_id, debt_id)
+    if not debt:
+        await callback.answer("Qarz topilmadi", show_alert=True)
+        return
+    if debt["is_paid"]:
+        await callback.answer("Bu qarz allaqachon to'liq to'langan ✅", show_alert=True)
+        return
+
+    remaining = debt["amount"] - (debt.get("paid_amount") or 0)
+    await state.update_data(debt_id=debt_id, pay_amount=remaining)
+    await state.set_state(PayDebt.payment_method)
+    await callback.answer()
+    await callback.message.answer(
+        f"👤 <b>{debt['customer_name']}</b>\n"
+        f"To'lanadi: <b>{remaining:.0f} so'm</b> (to'liq)\n\n"
+        f"To'lov qanday qabul qilindi?",
+        reply_markup=kb.payment_method_kb(),
+        parse_mode="HTML",
+    )
+
+
 @router.callback_query(F.data.startswith("pay_debt_"))
 async def pay_debt_start(callback: CallbackQuery, state: FSMContext):
     shop_id = await _require_shop_cb(callback)
