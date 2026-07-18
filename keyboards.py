@@ -227,12 +227,14 @@ def category_move_kb(categories, product_id: int, current_category_id=None) -> I
     return builder.as_markup()
 
 
-def branch_manage_kb(branches) -> InlineKeyboardMarkup:
-    """Filiallarni boshqarish (o'chirish) va yangisini qo'shish uchun menyu."""
+def branch_manage_kb(branches, current_branch_id=None) -> InlineKeyboardMarkup:
+    """Filiallarni boshqarish: nomga bosish = shu filialga o'tish (joriy
+    filial ✅ bilan belgilanadi), o'chirish alohida tugma bilan."""
     builder = InlineKeyboardBuilder()
     row_sizes = []
     for b in branches:
-        builder.button(text=f"🏢 {b['name']}", callback_data=f"branch_noop_{b['id']}")
+        mark = "✅" if b["id"] == current_branch_id else "🏢"
+        builder.button(text=f"{mark} {b['name']}", callback_data=f"branch_switch_{b['id']}")
         builder.button(text="🗑", callback_data=f"branch_delete_{b['id']}")
         row_sizes.append(2)
     builder.button(text="➕ Filial qo'shish", callback_data="branch_manage_new")
