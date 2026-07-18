@@ -44,6 +44,7 @@ const API = {
   sale: "/api/webapp/sale",
   skladProducts: "/api/webapp/sklad/products",
   skladAddQuantity: "/api/webapp/sklad/add-quantity",
+  skladCreateProduct: "/api/webapp/sklad/create-product",
 };
 
 let cart = []; // [{id, name, qty, price, stock}]
@@ -815,6 +816,96 @@ function skladErrorText(data) {
     forbidden: "🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan.",
   };
   return map[data.error] || "Skladga qo'shishda xatolik yuz berdi.";
+}
+
+// YANGI REJA - 2-BOSQICH: SKLAD - butunlay YANGI mahsulot yaratish
+// (bot bilan matnli yozishmasdan, to'g'ridan-to'g'ri mini-appdan).
+// Barkod bilan to'ldirish (skanerlash) 3-4-bosqichlarda shu yerga
+// qo'shiladi - hozircha faqat nom/narx/miqdor.
+function openSkladNewProductModal() {
+  if (!currentUser.canAddStock) {
+    tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
+    return;
+  }
+  el("sklad-new-name-input").value = "";
+  el("sklad-new-price-input").value = "";
+  el("sklad-new-sell-price-input").value = "";
+  el("sklad-new-quantity-input").value = 1;
+  el("modal-sklad-new").classList.remove("hidden");
+}
+
+el("sklad-new-product-btn").addEventListener("click", openSkladNewProductModal);
+
+el("sklad-new-cancel-btn").addEventListener("click", () => {
+  el("modal-sklad-new").classList.add("hidden");
+});
+
+el("sklad-new-save-btn").addEventListener("click", async () => {
+  const name = el("sklad-new-name-input").value.trim();
+  const price = parseFloat(el("sklad-new-price-input").value);
+  const sellPriceRaw = el("sklad-new-sell-price-input").value;
+  const quantity = parseFloat(el("sklad-new-quantity-input").value);
+
+  if (!name) {
+    tg.showAlert("Mahsulot nomini kiriting.");
+    return;
+  }
+  if (isNaN(price) || price < 0) {
+    tg.showAlert("Tannarxni to'g'ri kiriting.");
+    return;
+  }
+  if (isNaN(quantity) || quantity < 0) {
+    tg.showAlert("Miqdorni to'g'ri kiriting.");
+    return;
+  }
+
+  const body = { name, price, quantity };
+  if (sellPriceRaw !== "") {
+    const sellPrice = parseFloat(sellPriceRaw);
+    if (isNaN(sellPrice) || sellPrice < 0) {
+      tg.showAlert("Sotish narxini to'g'ri kiriting.");
+      return;
+    }
+    body.sell_price = sellPrice;
+  }
+
+  const btn = el("sklad-new-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Saqlanmoqda...";
+
+  try {
+    const res = await apiFetch(API.skladCreateProduct, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(skladCreateErrorText(data));
+      return;
+    }
+
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-sklad-new").classList.add("hidden");
+    tg.showAlert(`✅ "${data.product.name}" mahsuloti qo'shildi.`);
+    loadSkladProducts(el("sklad-search-input").value.trim());
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Qo'shish";
+  }
+});
+
+function skladCreateErrorText(data) {
+  const map = {
+    missing_name: "Mahsulot nomini kiriting.",
+    invalid_price: "Tannarx noto'g'ri.",
+    invalid_sell_price: "Sotish narxi noto'g'ri.",
+    invalid_quantity: "Miqdor noto'g'ri.",
+    forbidden: "🔒 Sizga skladga mahsulot qo'shishga ruxsat berilmagan.",
+    barcode_exists: `Bu barkod allaqachon "${data.product ? data.product.name : ""}" mahsulotida bor.`,
+  };
+  return map[data.error] || "Mahsulot qo'shishda xatolik yuz berdi.";
 }
 
 el("sklad-scan-btn").addEventListener("click", () => {
