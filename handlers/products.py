@@ -9,7 +9,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
-from access_control import get_shop_id
+from access_control import get_shop_id, is_owner_level
 
 router = Router()
 
@@ -28,6 +28,13 @@ class AddProduct(StatesGroup):
 
 class CategoryManage(StatesGroup):
     new_name = State()
+
+
+class SetDiscount(StatesGroup):
+    """Mahsulotga vaqtinchalik chegirma narx belgilash - FAQAT do'kon
+    egasiga ruxsat etilgan (har bir handlerda is_owner_level tekshiriladi)."""
+    price = State()
+    days = State()
 
 
 class SearchProduct(StatesGroup):
@@ -342,6 +349,12 @@ def _product_caption(p: dict) -> str:
         caption += f"Savdo narxi: {p['sell_price']:.0f} so'm\n"
     if p.get("min_price"):
         caption += f"Eng past narx: {p['min_price']:.0f} so'm\n"
+    discount = db.product_discount_info(p)
+    if discount:
+        caption += (
+            f"🏷 Chegirma narxi: {discount['price']:.0f} so'm "
+            f"({discount['days_left']} kun qoldi)\n"
+        )
     caption += f"Miqdori: {p['quantity']:.0f}"
     if p.get("alert_quantity"):
         caption += f"\nOgohlantirish chegarasi: {p['alert_quantity']:.0f} dona"
@@ -352,7 +365,11 @@ async def _send_products(message: Message, products):
     """Berilgan mahsulotlar ro'yxatini bittalab, rasm bilan/rasmsiz chiqaradi."""
     for p in products:
         caption = _product_caption(p)
-        markup = kb.product_action_kb(p["id"], category_id=p.get("category_id"))
+        markup = kb.product_action_kb(
+            p["id"],
+            category_id=p.get("category_id"),
+            has_discount=bool(db.product_discount_info(p)),
+        )
         if p["photo_file_id"]:
             await message.answer_photo(
                 photo=p["photo_file_id"],
@@ -557,6 +574,117 @@ async def delete_product_cb(callback: CallbackQuery):
         await callback.message.delete()
     except Exception:
         pass
+
+
+# ---------- CHEGIRMA (FAQAT DO'KON EGASI) ----------
+# Mahsulotga vaqtinchalik chegirma narx belgilash. Muddati (kun soni)
+# tugagach database.product_discount_info() uni avtomatik "tugagan" deb
+# hisoblay boshlaydi - alohida fon vazifasi/cron shart emas.
+
+@router.callback_query(F.data.startswith("prod_discount_cancel_"))
+async def product_discount_cancel_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    if not await is_owner_level(callback.from_user.id):
+        await callback.answer("⛔ Bu amal faqat do'kon egasiga ruxsat etilgan.", show_alert=True)
+        return
+    product_id = int(callback.data.split("_")[-1])
+    cleared = await db.clear_product_discount(shop_id, product_id)
+    if not cleared:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await callback.answer("✅ Chegirma bekor qilindi", show_alert=True)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("prod_discount_") & ~F.data.startswith("prod_discount_cancel_"))
+async def product_discount_start_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    if not await is_owner_level(callback.from_user.id):
+        await callback.answer("⛔ Bu amal faqat do'kon egasiga ruxsat etilgan.", show_alert=True)
+        return
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(shop_id, product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await state.update_data(discount_product_id=product_id)
+    await state.set_state(SetDiscount.price)
+    await callback.answer()
+    await callback.message.answer(
+        f"<b>{product['name']}</b> uchun chegirma narxini kiriting (so'mda):",
+        parse_mode="HTML",
+    )
+
+
+@router.message(SetDiscount.price)
+async def product_discount_price_input(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None or not await is_owner_level(message.from_user.id):
+        await state.clear()
+        return
+    try:
+        price = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 25000")
+        return
+    if price <= 0:
+        await message.answer("Narx 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
+        return
+
+    data = await state.get_data()
+    product = await db.get_product(shop_id, data["discount_product_id"])
+    if not product:
+        await message.answer("❌ Mahsulot topilmadi.")
+        await state.clear()
+        return
+    if price < product["price"]:
+        await message.answer(
+            f"❌ Chegirma narxi tannarxdan ({product['price']:.0f} so'm) past bo'lishi mumkin emas, "
+            f"aks holda zararga ketasiz. Qaytadan kiriting:"
+        )
+        return
+
+    await state.update_data(discount_price=price)
+    await state.set_state(SetDiscount.days)
+    await message.answer("Chegirma necha kun amal qiladi? Masalan: 7")
+
+
+@router.message(SetDiscount.days)
+async def product_discount_days_input(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None or not await is_owner_level(message.from_user.id):
+        await state.clear()
+        return
+    try:
+        days = int(message.text.replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat butun son kiriting. Masalan: 7")
+        return
+    if days <= 0:
+        await message.answer("Kunlar soni 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
+        return
+
+    data = await state.get_data()
+    product = await db.get_product(shop_id, data["discount_product_id"])
+    if not product:
+        await message.answer("❌ Mahsulot topilmadi.")
+        await state.clear()
+        return
+
+    await db.set_product_discount(shop_id, product["id"], data["discount_price"], days)
+    await state.clear()
+    await message.answer(
+        f"✅ <b>{product['name']}</b> uchun {data['discount_price']:.0f} so'mlik chegirma "
+        f"{days} kunga belgilandi.",
+        parse_mode="HTML",
+    )
 
 
 # ---------- MAHSULOTNI BO'LIMLAR ORASIDA KO'CHIRISH / BO'LIMDAN CHIQARISH ----------
