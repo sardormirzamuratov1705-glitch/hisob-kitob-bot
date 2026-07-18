@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
 import database as db
@@ -27,6 +28,10 @@ class ExtendSubscription(StatesGroup):
 
 class EditPaymentSetting(StatesGroup):
     waiting_value = State()
+
+
+class Broadcast(StatesGroup):
+    waiting_text = State()
 
 
 # 10-BOSQICH: "⚙️ To'lov sozlamalari" bo'limida tahrirlanadigan kalitlar va
@@ -735,4 +740,85 @@ async def edit_setting_finish(message: Message, state: FSMContext):
         await _payment_settings_text(),
         parse_mode="HTML",
         reply_markup=kb.payment_settings_kb(),
+    )
+
+
+# ---------- UMUMIY E'LON (BROADCAST) ----------
+# Bosh admin BARCHA do'kon egalari va sotuvchilarga bir vaqtda xabar
+# yuborishi uchun (masalan yangi funksiya haqida e'lon).
+
+@router.message(F.text == "📢 E'lon yuborish")
+async def broadcast_start(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.set_state(Broadcast.waiting_text)
+    await message.answer(
+        "Barcha do'kon egalari va sotuvchilarga yuboriladigan xabar matnini yozing:"
+    )
+
+
+@router.message(Broadcast.waiting_text)
+async def broadcast_preview(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+    if not message.text:
+        await message.answer("Iltimos, matn ko'rinishida yozing.")
+        return
+
+    await state.update_data(text=message.text)
+    owners = await db.get_owners()
+    sellers = await db.get_all_sellers()
+    total = len(owners) + len(sellers)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Yuborish", callback_data="broadcast_send")
+    builder.button(text="❌ Bekor qilish", callback_data="broadcast_cancel")
+    builder.adjust(2)
+    await message.answer(
+        f"📢 <b>Xabar shu ko'rinishda yuboriladi:</b>\n\n{message.text}\n\n"
+        f"👥 Qabul qiluvchilar: {total} ta ({len(owners)} do'kon egasi, {len(sellers)} sotuvchi)\n\n"
+        f"Yuborishni tasdiqlaysizmi?",
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "broadcast_cancel")
+async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer("Bekor qilindi")
+    await callback.message.edit_text("❌ E'lon yuborish bekor qilindi.")
+
+
+@router.callback_query(F.data == "broadcast_send")
+async def broadcast_send(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Bu bo'lim faqat bosh adminlar uchun.", show_alert=True)
+        return
+
+    data = await state.get_data()
+    text = data.get("text")
+    await state.clear()
+    if not text:
+        await callback.answer()
+        await callback.message.edit_text("Xabar topilmadi, qaytadan urinib ko'ring.")
+        return
+
+    await callback.answer("Yuborilmoqda...")
+
+    owners = await db.get_owners()
+    sellers = await db.get_all_sellers()
+    recipient_ids = {o["telegram_id"] for o in owners} | {s["telegram_id"] for s in sellers}
+
+    sent, failed = 0, 0
+    for telegram_id in recipient_ids:
+        try:
+            await callback.bot.send_message(telegram_id, f"📢 <b>E'lon</b>\n\n{text}", parse_mode="HTML")
+            sent += 1
+        except Exception:
+            failed += 1
+
+    await callback.message.edit_text(
+        f"✅ E'lon yuborildi.\n\nYetkazildi: {sent} ta\nYetkazilmadi: {failed} ta"
     )
