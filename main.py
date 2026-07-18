@@ -71,7 +71,7 @@ async def _daily_report_loop(bot: Bot):
     qancha qolganini hisoblab, aynan shuncha kutadi (drift yig'ilib
     qolmasligi uchun har iteratsiyada qaytadan hisoblanadi)."""
     while True:
-        now = datetime.now()
+        now = config.now()
         target = now.replace(
             hour=config.DAILY_REPORT_HOUR, minute=config.DAILY_REPORT_MINUTE,
             second=0, microsecond=0,
