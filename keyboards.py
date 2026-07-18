@@ -36,6 +36,15 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
+def landing_menu() -> InlineKeyboardMarkup:
+    """Botni hali tanimaydigan (ro'yxatdan o'tmagan) odamga /start bosganda
+    ko'rsatiladigan "landing" oynadagi yagona tugma - ro'yxatdan o'tishni
+    boshlash uchun. Handler: handlers/start.py -> self_register callback."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📝 Ro'yxatdan o'tish", callback_data="self_register")
+    return builder.as_markup()
+
+
 def users_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="➕ Do'kon egasi qo'shish")
