@@ -1111,7 +1111,62 @@ async def get_branch_comparison(shop_id: int) -> list:
     return result
 
 
-# ---------- OYLIK FOYDA PROGNOZI - 14-BOSQICH ----------
+async def get_seller_comparison(shop_id: int) -> list:
+    """Har bir sotuvchi (va do'kon egasining o'zi) bo'yicha savdo/foyda/
+    kirim-chiqim ko'rsatkichlarini solishtirish uchun qaytaradi (get_branch_comparison
+    bilan bir xil mantiq, lekin filial emas - performed_by bo'yicha guruhlanadi).
+    Do'kon egasi faqat o'zi biror amal qilgan bo'lsa ro'yxatga qo'shiladi,
+    sotuvchilar esa hozircha faoliyati bo'lmasa ham har doim ko'rsatiladi.
+    Natija foyda bo'yicha kamayish tartibida."""
+    sellers = await get_sellers(shop_id)
+    groups = [{"actor_id": shop_id, "name": "👤 Do'kon egasi", "is_owner": True}] + [
+        {
+            "actor_id": s["telegram_id"],
+            "name": f"🧑‍💼 {s.get('seller_name') or s.get('full_name') or ('#' + str(s['telegram_id']))}",
+            "is_owner": False,
+        }
+        for s in sellers
+    ]
+
+    result = []
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        for g in groups:
+            actor_id = g["actor_id"]
+            cursor = await db.execute(
+                "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0), "
+                "COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) "
+                "FROM transactions WHERE shop_id = ? AND performed_by = ?",
+                (shop_id, actor_id),
+            )
+            income, expense = await cursor.fetchone()
+
+            cursor = await db.execute(
+                """
+                SELECT COUNT(DISTINCT si.sale_id),
+                       COALESCE(SUM((si.price - p.price) * si.quantity), 0)
+                FROM sale_items si
+                JOIN products p ON p.id = si.product_id
+                WHERE si.shop_id = ? AND si.performed_by = ?
+                """,
+                (shop_id, actor_id),
+            )
+            sales_count, profit = await cursor.fetchone()
+
+            if g["is_owner"] and income == 0 and expense == 0 and not sales_count:
+                continue
+
+            result.append({
+                "actor_id": actor_id,
+                "name": g["name"],
+                "income": income or 0,
+                "expense": expense or 0,
+                "balance": (income or 0) - (expense or 0),
+                "sales_count": sales_count or 0,
+                "profit": profit or 0,
+            })
+
+    result.sort(key=lambda r: r["profit"], reverse=True)
+    return result
 
 async def get_monthly_profit_history(shop_id: int, months: int = 6, branch_id=None) -> list:
     """Oxirgi `months` ta OY (joriy oy ham kiradi, hali tugamagan bo'lsa
