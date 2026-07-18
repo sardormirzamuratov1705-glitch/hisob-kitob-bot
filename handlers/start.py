@@ -255,6 +255,7 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
             message.from_user.full_name,
             message.from_user.username,
             added_by=invite["created_by"],
+            branch_id=invite.get("branch_id"),
         )
         await message.answer(
             "✅ Tabriklaymiz! Siz sotuvchi sifatida ro'yxatdan o'tdingiz."
