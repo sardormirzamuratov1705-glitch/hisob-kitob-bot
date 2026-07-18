@@ -144,14 +144,16 @@ def owner_action_kb(telegram_id: int, blocked: bool = False) -> InlineKeyboardMa
 def extend_subscription_kb(telegram_id: int) -> InlineKeyboardMarkup:
     """9-BOSQICH: "➕ Uzaytirish" bosilganda ko'rsatiladigan muddat tanlash
     tugmalari - tayyor variantlar (+30/+90/+365 kun) yoki admin qo'lda
-    erkin kun sonini kiritishi uchun."""
+    erkin kun sonini kiritishi uchun. "-7 kun" - xato qo'shib qo'yilgan
+    kunlarni tuzatish uchun tez tugma (masalan adashib +30 bosilsa)."""
     builder = InlineKeyboardBuilder()
     builder.button(text="+30 kun", callback_data=f"extend_days:{telegram_id}:30")
     builder.button(text="+90 kun", callback_data=f"extend_days:{telegram_id}:90")
     builder.button(text="+365 kun", callback_data=f"extend_days:{telegram_id}:365")
-    builder.button(text="✏️ Erkin kun kiritish", callback_data=f"extend_custom:{telegram_id}")
+    builder.button(text="-7 kun", callback_data=f"extend_days:{telegram_id}:-7")
+    builder.button(text="✏️ Erkin kun kiritish (+/-)", callback_data=f"extend_custom:{telegram_id}")
     builder.button(text="⬅️ Orqaga", callback_data=f"extend_back:{telegram_id}")
-    builder.adjust(3, 1, 1)
+    builder.adjust(3, 1, 1, 1)
     return builder.as_markup()
 
 
