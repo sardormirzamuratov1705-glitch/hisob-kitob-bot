@@ -6,6 +6,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
+import config
 import database as db
 import keyboards as kb
 from access_control import is_admin, is_authorized, get_role
@@ -16,10 +17,10 @@ router = Router()
 # ---------- NOTANISH ODAM UCHUN "LANDING" OYNA ----------
 # Hali bazada umuman yo'q (na admin, na owner, na seller) har qanday kishi
 # /start bossa - shu oyna ko'rsatiladi: bot nima qila olishi haqida qisqa
-# tanishtiruv + "Ro'yxatdan o'tish" tugmasi. O'zi tugmani bosishi bilan
-# ro'yxatdan o'tish oqimi (ism/do'kon nomi/telefon so'rash va 14 kunlik
-# trial boshlash) 3-bosqichda ulanadi - hozircha faqat tugma va uning
-# joyini tayyorlaymiz.
+# tanishtiruv + "Ro'yxatdan o'tish" tugmasi. Tugma bosilganda pastdagi
+# self_register_start ishga tushadi: yangi do'kon egasi avtomatik
+# yaratiladi (14 kunlik trial bilan) va ism/do'kon nomi/telefon so'raladigan
+# qisqa so'rovnoma boshlanadi.
 
 LANDING_TEXT = (
     "👋 Assalomu alaykum!\n\n"
@@ -39,13 +40,50 @@ async def _send_landing(message: Message):
 
 @router.callback_query(F.data == "self_register")
 async def self_register_start(callback: CallbackQuery, state: FSMContext):
-    # TODO (3-bosqich): bu yerda haqiqiy o'z-o'zidan ro'yxatdan o'tish
-    # so'rovnomasi (ism, do'kon nomi, telefon) boshlanadi va yangi do'kon
-    # egasi 14 kunlik trial bilan avtomatik yaratiladi.
+    """Landing oynasidagi "📝 Ro'yxatdan o'tish" tugmasi. Notanish odam
+    darhol (hech qanday tasdiqlashsiz) yangi, mustaqil do'kon egasi sifatida
+    yaratiladi va SUBSCRIPTION_TRIAL_DAYS kunlik bepul sinov muddati
+    avtomatik boshlanadi (db.add_owner ichida). Shundan so'ng ism/do'kon
+    nomi/telefon so'raladigan qisqa so'rovnoma (_start_owner_onboarding)
+    davom etadi - xuddi bosh admin tomonidan qo'shilgan egadagi kabi."""
     await callback.answer()
-    await callback.message.answer(
-        "📝 Ro'yxatdan o'tish tez orada shu yerda ochiladi. Iltimos, kuting."
+    user_id = callback.from_user.id
+
+    if is_admin(user_id):
+        await callback.message.answer("Siz allaqachon bosh adminsiz - ro'yxatdan o'tish shart emas.")
+        return
+    if await db.is_owner(user_id):
+        await callback.message.answer("Siz allaqachon do'kon egasi sifatida ro'yxatdasiz.")
+        return
+    if await db.is_seller(user_id):
+        await callback.message.answer("Siz allaqachon bir do'konga sotuvchi sifatida ulangansiz.")
+        return
+
+    # added_by=None - bosh admin tomonidan emas, o'zi ro'yxatdan o'tgani
+    # bildiradi (admin bo'limidagi "Do'kon egalari ro'yxati"da farqlash uchun).
+    await db.add_owner(
+        user_id,
+        callback.from_user.full_name,
+        callback.from_user.username,
+        added_by=None,
     )
+
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await callback.message.bot.send_message(
+                admin_id,
+                f"🆕 Yangi do'kon egasi o'zi ro'yxatdan o'tdi: "
+                f"{callback.from_user.full_name} (ID: {user_id}).\n"
+                f"🎁 {db.SUBSCRIPTION_TRIAL_DAYS} kunlik bepul sinov muddati avtomatik boshlandi.",
+            )
+        except Exception as e:
+            logging.warning(f"Adminga ({admin_id}) xabar yuborib bo'lmadi: {e}")
+
+    await callback.message.answer(
+        "✅ Tabriklaymiz! Siz do'kon egasi sifatida ro'yxatdan o'tdingiz.\n"
+        f"🎁 Sizga {db.SUBSCRIPTION_TRIAL_DAYS} kunlik bepul sinov muddati taqdim etildi."
+    )
+    await _start_owner_onboarding(callback.message, state)
 
 
 # ---------- DO'KON EGASI UCHUN QISQA SO'ROVNOMA ----------
