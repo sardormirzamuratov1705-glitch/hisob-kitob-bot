@@ -14,6 +14,7 @@ SUBSCRIPTION_TRIAL_DAYS = 14
 # do'kon egalari to'satdan bloklanib qolmasligi uchun bir martalik
 # "sovg'a" muddati - init_db() ichida faqat subscription_status hali
 # NULL bo'lgan qatorlarga qo'llaniladi (1-bosqich, moslik siyosati).
+SUBSCRIPTION_GRANDFATHER_DAYS = 30
 # Obuna tugaganidan keyin ham botga kirish davom etadigan "muhlat" - odam
 # birdan bloklanib qolmasligi, to'lov qilishga vaqt topishi uchun.
 SUBSCRIPTION_GRACE_DAYS = 3
