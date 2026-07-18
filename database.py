@@ -1328,6 +1328,69 @@ async def get_pending_payments():
         return [dict(r) for r in rows]
 
 
+# ---------- 9-BOSQICH: ADMIN PANELIDAN OBUNANI QO'LDA BOSHQARISH ----------
+
+async def extend_owner_subscription(telegram_id: int, days: int) -> str | None:
+    """Bosh admin do'kon egalari ro'yxatidan "➕ Uzaytirish" orqali qo'lda
+    obuna qo'shadi (+30/+90/+365 yoki erkin kun soni) - to'lov chekisiz,
+    to'g'ridan-to'g'ri. approve_payment() dagi bir xil mantiq: agar ega hali
+    FAOL muddatga ega bo'lsa, kunlar mavjud subscription_until USTIGA
+    qo'shiladi (yo'qotilmaydi), aks holda bugungi kundan boshlab hisoblanadi.
+
+    Bloklangan bo'lsa ham shu funksiya orqali uzaytirilsa, avtomatik ravishda
+    blokdan chiqariladi ('active' qilib belgilanadi) - aks holda kunlar
+    qo'shilgani bilan kirish hali taqiqlangan bo'lib qolardi.
+
+    Ega topilmasa - None, aks holda yangi subscription_until (YYYY-MM-DD)
+    qaytaradi."""
+    owner = await get_owner(telegram_id)
+    if not owner:
+        return None
+
+    today = datetime.now().date()
+    base_date = today
+    current_until = owner.get("subscription_until")
+    if current_until:
+        try:
+            parsed_until = datetime.strptime(current_until, "%Y-%m-%d").date()
+            if parsed_until > today:
+                base_date = parsed_until
+        except (TypeError, ValueError):
+            pass
+
+    new_until = (base_date + timedelta(days=days)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE owners SET subscription_status = 'active', subscription_until = ? "
+            "WHERE telegram_id = ?",
+            (new_until, telegram_id),
+        )
+        await db.commit()
+    return new_until
+
+
+async def set_owner_blocked(telegram_id: int, blocked: bool) -> bool:
+    """Bosh admin "🚫 Majburiy bloklash" / "✅ Blokdan chiqarish" tugmasi.
+
+    blocked=True - subscription_status='blocked' qilib belgilaydi: bu holat
+    grace period'ga ham qaramaydi, ega (va uning sotuvchilari) darhol botga
+    kira olmay qoladi (access_control.compute_subscription_access).
+
+    blocked=False - 'active' holatiga qaytaradi (subscription_until
+    o'zgarmaydi) - agar muddat hali o'tmagan bo'lsa darhol qayta kirish
+    imkoni tiklanadi, o'tgan bo'lsa oddiy "muddati tugagan" holatiga
+    (grace/bloklash ekrani) qaytadi.
+
+    Ega topilmasa - False."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE owners SET subscription_status = ? WHERE telegram_id = ?",
+            ("blocked" if blocked else "active", telegram_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 # ---------- QARZDORLAR ----------
 
 async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, description: str,
