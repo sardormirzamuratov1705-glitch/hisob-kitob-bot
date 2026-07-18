@@ -16,6 +16,7 @@ import access_control
 from access_control import OwnerOnlyMiddleware
 from fsm_storage import SQLiteStorage
 from handlers import start, products, sales, transactions, debts, reports, users, sellers, branches, subscription
+import webapp
 
 
 async def notify_admins_error(bot: Bot, context: str, exc: Exception):
@@ -161,6 +162,26 @@ async def on_shutdown(bot: Bot):
         await bot.delete_webhook()
 
 
+async def _run_polling_and_webserver(dp: Dispatcher, bot: Bot, app):
+    """POLLING rejimida ham (WEBHOOK_HOST sozlanmagan bo'lsa) veb-server
+    (WebApp statik fayllari + API) PARALLEL ishga tushishi kerak - aks holda
+    "🛒 Savdo" WebApp tugmasi ochiladigan HTTPS manzil umuman ishlamay qoladi.
+    Shuning uchun ikkalasi ham (bot polling VA aiohttp server) bitta asyncio
+    tsiklida, bir-biriga xalal bermay, parallel ishlaydi."""
+    from aiohttp import web as aiohttp_web
+
+    runner = aiohttp_web.AppRunner(app)
+    await runner.setup()
+    site = aiohttp_web.TCPSite(runner, host="0.0.0.0", port=config.PORT)
+    await site.start()
+    logging.info(f"Veb-server (WebApp/API) {config.PORT}-portda ishga tushdi.")
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await runner.cleanup()
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -197,6 +218,12 @@ def main():
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
+    # ---------- VEB-SERVER (WEB APP - 1-BOSQICH) ----------
+    # WebApp statik fayllari (webapp_static/) va API (webapp.py) shu bitta
+    # aiohttp ilovasida joylashadi - webhook rejimida bo'lsa, Telegram
+    # webhook route'i ham AYNAN SHU ilovaga qo'shiladi (bitta port, bitta server).
+    app = webapp.create_web_app(bot)
+
     if config.WEBHOOK_HOST:
         # ---------- WEBHOOK REJIMI ----------
         # Telegram xabarlarni o'zi bizga "itarib" beradi (push qiladi),
@@ -205,13 +232,15 @@ def main():
         from aiohttp import web
         from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-        app = web.Application()
         SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=config.WEBHOOK_PATH)
         setup_application(app, dp, bot=bot)
         web.run_app(app, host="0.0.0.0", port=config.PORT)
     else:
         # ---------- POLLING REJIMI (eski, zaxira) ----------
-        asyncio.run(dp.start_polling(bot))
+        # Endi bot polling qilayotganda ham veb-server (WebApp/API) PARALLEL
+        # ishlaydi - shuning uchun oddiy asyncio.run(dp.start_polling(bot))
+        # o'rniga ikkalasini birga ishga tushiradigan funksiya chaqiriladi.
+        asyncio.run(_run_polling_and_webserver(dp, bot, app))
 
 
 if __name__ == "__main__":
