@@ -350,7 +350,16 @@ async def _record_sale_price(target: Message, price: float, state: FSMContext) -
         await state.clear()
         return False
 
-    if product.get("min_price") and price < product["min_price"]:
+    # Chegirma faol bo'lgan mahsulotlarda "eng past narx" cheklovi
+    # vaqtincha bekor qilinadi - chegirma summasi eng past narxdan past
+    # yoki teng bo'lsa ham sotishga xalal bermasligi kerak. Tannarxdan
+    # (zararga sotmaslik) past narx esa har doim, chegirma bor-yo'qligidan
+    # qat'i nazar, taqiqlanadi. Chegirma muddati tugagach - eng past narx
+    # cheklovi avtomatik yana ishlay boshlaydi (db.product_discount_info()
+    # o'sha payt None qaytaradi).
+    has_active_discount = bool(db.product_discount_info(product))
+
+    if product.get("min_price") and price < product["min_price"] and not has_active_discount:
         await target.answer(
             f"❌ Narx eng past narxdan ({product['min_price']:.0f} so'm) past bo'lishi mumkin emas. Qaytadan kiriting:"
         )
