@@ -112,6 +112,8 @@ async def init_db():
             ("last_sold_at", "TEXT"),
             ("shop_id", "INTEGER"),
             ("category_id", "INTEGER"),
+            ("discount_price", "REAL"),
+            ("discount_until", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
@@ -518,6 +520,62 @@ async def get_product(shop_id: int, product_id: int):
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+
+def product_discount_info(product: dict) -> dict | None:
+    """Mahsulotning HOZIRGI faol chegirmasi bor-yo'qligini hisoblaydi
+    (discount_price/discount_until ustunlaridan, qayta DB so'rovisiz - shu
+    sabab bu oddiy sinxron funksiya, compute_subscription_access kabi).
+
+    Muddat (discount_until) o'tib ketgan bo'lsa - None qaytariladi, ya'ni
+    chegirma "avtomatik o'chgan" hisoblanadi: buning uchun alohida fon
+    vazifasi/cron shart emas, faqat har safar shu funksiya orqali
+    tekshiriladi (mahsulot ro'yxatida ko'rsatishda va sotuvda narx
+    tanlashda).
+
+    Qaytaradi: {"price": float, "days_left": int} yoki None.
+    """
+    price = product.get("discount_price")
+    until = product.get("discount_until")
+    if not price or not until:
+        return None
+    try:
+        until_date = datetime.strptime(until, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+    days_left = (until_date - datetime.now().date()).days
+    if days_left < 0:
+        return None
+    return {"price": price, "days_left": days_left}
+
+
+async def set_product_discount(shop_id: int, product_id: int, discount_price: float, days: int) -> bool:
+    """Do'kon egasi tomonidan mahsulotga vaqtinchalik chegirma narx
+    belgilanadi (faqat egaga ruxsat - tekshiruv handlers/products.py'da,
+    access_control.is_owner_level orqali amalga oshiriladi).
+
+    discount_until = bugundan `days` kun keyingi sana sifatida saqlanadi -
+    shu sanadan keyin product_discount_info() uni avtomatik "tugagan" deb
+    hisoblay boshlaydi."""
+    discount_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE products SET discount_price = ?, discount_until = ? WHERE id = ? AND shop_id = ?",
+            (discount_price, discount_until, product_id, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def clear_product_discount(shop_id: int, product_id: int) -> bool:
+    """Chegirmani muddatidan oldin qo'lda bekor qilish (faqat ega uchun)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE products SET discount_price = NULL, discount_until = NULL WHERE id = ? AND shop_id = ?",
+            (product_id, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def update_product_quantity(shop_id: int, product_id: int, quantity: float):
