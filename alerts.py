@@ -340,6 +340,52 @@ async def evaluate_expense_suspicions(shop_id: int, amount: float, performed_by:
     return flags
 
 
+# ---------- SHUBHALI HOLATLAR - 10-BOSQICH: DARHOL OGOHLANTIRISH ----------
+# 9-bosqichdagi evaluate_sale_suspicions / evaluate_expense_suspicions
+# funksiyalari topgan ro'yxatni ENDI shu yerdagi funksiya orqali to'g'ridan-
+# to'g'ri do'kon EGASIGA Telegram xabari qilib yuboramiz (shuning uchun
+# "Adminga" emas - bosh admin (config.ADMIN_IDS) hech qanday do'konga ega
+# emas va shu do'kondagi shubhali holatlarga aloqasi yo'q, xuddi boshqa
+# barcha shop-darajasidagi ogohlantirishlar - masalan notify_stock_change -
+# kabi faqat shop_id'ga yuboriladi).
+#
+# Owner "🚨 Shubhali holatlar" bo'limidan bu xabarlarni o'zi o'chirib
+# qo'yishi mumkin (db.get_suspicious_alert_enabled/set_suspicious_alert_enabled,
+# handlers/reports.py) - o'chirilgan bo'lsa ham tekshiruv logga yozilishda
+# davom etadi (evaluate_* funksiyalari chaqiruvchi tomonda hamon
+# logging.warning qiladi), faqat Telegram xabari yuborilmaydi.
+
+def build_suspicious_alert_text(flags: list, title: str) -> str:
+    """Bitta savdo/chiqim yozuvi bo'yicha topilgan shubhali holatlar
+    ro'yxatini (evaluate_sale_suspicions yoki evaluate_expense_suspicions
+    natijasi) o'qishga qulay Telegram xabariga aylantiradi."""
+    lines = "\n".join(f"— {flag}" for flag in flags)
+    return f"🚨 <b>Shubhali holat aniqlandi</b> ({title})\n\n{lines}"
+
+
+async def send_suspicious_alert(bot, shop_id: int, flags: list, title: str) -> bool:
+    """Bitta do'kon egasiga shubhali holatlar haqida DARHOL (voqea sodir
+    bo'lgan zahoti) Telegram xabari yuboradi.
+
+    - flags bo'sh bo'lsa - hech narsa qilinmaydi (chaqiruvchi tomonda ham
+      tekshirilgan, lekin bu yerda ham xavfsizlik uchun qayta tekshiriladi).
+    - Owner bu xabarlarni "🚨 Shubhali holatlar" bo'limidan o'chirib
+      qo'ygan bo'lsa - yuborilmaydi.
+    Muvaffaqiyatli yuborilsa True, aks holda (o'chirilgan yoki xabar
+    yuborib bo'lmasa - masalan bloklangan bo'lsa) False qaytaradi."""
+    if not flags:
+        return False
+    if not await db.get_suspicious_alert_enabled(shop_id):
+        return False
+
+    try:
+        await bot.send_message(shop_id, build_suspicious_alert_text(flags, title), parse_mode="HTML")
+        return True
+    except Exception as e:
+        logging.warning(f"Shubhali holat ogohlantirishini yuborib bo'lmadi (shop {shop_id}): {e}")
+        return False
+
+
 # ---------- 8-BOSQICH: OBUNA MUDDATI ESLATMALARI ----------
 # Muddat tugashiga necha kun qolganda eslatma yuborilishi kerak. 0 - aynan
 # tugaydigan kunning o'zi (subscription_until = bugun, ya'ni ertadan
