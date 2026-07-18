@@ -11,6 +11,7 @@ tg.expand();
 const API = {
   me: "/api/webapp/me",
   products: "/api/webapp/products",
+  crossSell: "/api/webapp/cross_sell",
   sale: "/api/webapp/sale",
 };
 
@@ -188,6 +189,7 @@ function renderCartBar() {
   if (cart.length === 0) {
     if (bar) bar.remove();
     badge.classList.add("hidden");
+    hideCrossSell();
     return;
   }
 
@@ -203,6 +205,67 @@ function renderCartBar() {
     document.body.appendChild(bar);
   }
   bar.innerHTML = `<span>🛒 Savat: ${cart.length} tur</span><span>${formatNum(total)} so'm</span>`;
+
+  loadCrossSell();
+}
+
+// ---------- 3-BOSQICH: CROSS-SELL TAKLIFI ----------
+// Matnli oqimdagi "💡 Odatda bu tovar(lar) bilan birga quyidagilar ham
+// sotib olinadi" taklifi bilan bir xil mantiq (db.get_cross_sell_suggestions),
+// lekin bu yerda bosilganda to'g'ridan-to'g'ri savatga qo'shish oynasi ochiladi.
+
+function hideCrossSell() {
+  const bar = el("cross-sell-bar");
+  if (!bar) return;
+  bar.classList.add("hidden");
+  bar.innerHTML = "";
+}
+
+async function loadCrossSell() {
+  if (cart.length === 0) {
+    hideCrossSell();
+    return;
+  }
+  try {
+    const ids = cart.map((c) => c.id).join(",");
+    const res = await apiFetch(`${API.crossSell}?ids=${encodeURIComponent(ids)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderCrossSell(data.suggestions || []);
+  } catch (e) {
+    // Cross-sell ixtiyoriy qo'shimcha - xatosi asosiy savdo oqimini
+    // to'xtatmasligi kerak, shuning uchun jim o'tkazib yuboramiz.
+  }
+}
+
+function renderCrossSell(suggestions) {
+  const bar = el("cross-sell-bar");
+  if (!bar) return;
+  const cartIds = new Set(cart.map((c) => c.id));
+  const filtered = suggestions.filter((p) => !cartIds.has(p.id));
+
+  if (filtered.length === 0) {
+    hideCrossSell();
+    return;
+  }
+
+  bar.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "cross-sell-title";
+  title.textContent = "💡 Odatda bu bilan birga:";
+  bar.appendChild(title);
+
+  const chips = document.createElement("div");
+  chips.className = "cross-sell-chips";
+  filtered.forEach((p) => {
+    const chip = document.createElement("button");
+    chip.className = "cross-sell-chip";
+    chip.textContent = `➕ ${p.name}`;
+    chip.addEventListener("click", () => openAddModal(p));
+    chips.appendChild(chip);
+  });
+  bar.appendChild(chips);
+  bar.classList.remove("hidden");
 }
 
 function openCartScreen() {
