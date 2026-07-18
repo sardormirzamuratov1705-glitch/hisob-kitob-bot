@@ -26,6 +26,7 @@ class AddProduct(StatesGroup):
     min_price = State()
     quantity = State()
     alert_quantity = State()
+    barcode = State()
     photo = State()
 
 
@@ -46,6 +47,7 @@ class EditProductField(StatesGroup):
     do'kon egasiga ruxsat etilgan (har bir handlerda is_owner_level
     tekshiriladi)."""
     value = State()
+    barcode_value = State()
 
 
 class ProductShortage(StatesGroup):
@@ -114,7 +116,7 @@ async def _require_shop_cb(callback: CallbackQuery):
 
 EXCEL_TEMPLATE_HEADERS = [
     "Nomi", "Tannarx", "Sotuv narxi", "Eng past narx", "Miqdori",
-    "Ogohlantirish chegarasi", "Bo'lim",
+    "Ogohlantirish chegarasi", "Bo'lim", "Barkod",
 ]
 
 
@@ -129,7 +131,7 @@ def _build_products_template_file() -> str:
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    ws.append(["Coca-Cola 1.5L", 8000, 10000, 9000, 50, 5, "Ichimliklar"])
+    ws.append(["Coca-Cola 1.5L", 8000, 10000, 9000, 50, 5, "Ichimliklar", "4870204012345"])
     for column_cells in ws.columns:
         length = max(len(str(cell.value or "")) for cell in column_cells)
         ws.column_dimensions[column_cells[0].column_letter].width = length + 3
@@ -149,7 +151,7 @@ async def send_products_excel_template(message: Message):
             caption=(
                 "📥 <b>Sklad shablon fayli</b>\n\n"
                 "Ustunlar: <b>Nomi</b>, <b>Tannarx</b> va <b>Miqdori</b> - majburiy. "
-                "Sotuv narxi, Eng past narx, Ogohlantirish chegarasi va Bo'lim - ixtiyoriy "
+                "Sotuv narxi, Eng past narx, Ogohlantirish chegarasi, Bo'lim va Barkod - ixtiyoriy "
                 "(bo'lim nomi hali mavjud bo'lmasa, avtomatik yaratiladi).\n\n"
                 "Mavjud nomdagi mahsulot qatorga tushsa - miqdori qo'shiladi va tannarxi "
                 "o'rtacha (weighted average) qayta hisoblanadi, yangi nom bo'lsa - yangi "
@@ -240,6 +242,10 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
                 category_id = category["id"]
                 cat_by_name[key] = category_id
 
+        barcode = None
+        if len(row) > 7 and row[7] not in (None, ""):
+            barcode = str(row[7]).strip()
+
         existing = existing_by_name.get(name.lower())
         if existing:
             final_sell_price = sell_price if sell_price is not None else existing.get("sell_price")
@@ -251,6 +257,8 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
             )
             if category_id is not None:
                 await db.set_product_category(shop_id, existing["id"], category_id)
+            if barcode and existing["id"] is not None:
+                await db.set_product_barcode(shop_id, existing["id"], barcode)
             existing["quantity"] = existing["quantity"] + quantity
             updated += 1
         else:
@@ -258,6 +266,7 @@ async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
                 shop_id, name, price, quantity, None,
                 sell_price=sell_price, min_price=min_price,
                 alert_quantity=alert_quantity, category_id=category_id,
+                barcode=barcode,
             )
             existing_by_name[name.lower()] = {
                 "id": None, "quantity": quantity, "price": price,
@@ -515,10 +524,44 @@ async def add_product_alert_quantity(message: Message, state: FSMContext):
         await message.answer("Iltimos, faqat raqam kiriting. Masalan: 5 (kerak bo'lmasa 0)")
         return
     await state.update_data(alert_quantity=alert_quantity if alert_quantity > 0 else None)
+    await state.set_state(AddProduct.barcode)
+    await message.answer(
+        "Mahsulot barkodini yuboring (shtrix-kod skaneri ulangan bo'lsa, uni "
+        "mahsulot ustiga skanerlashingiz mumkin - kod avtomatik matn sifatida keladi), "
+        "yoki o'tkazib yuboring:",
+        reply_markup=kb.skip_barcode_kb(),
+    )
+
+
+@router.message(AddProduct.barcode)
+async def add_product_barcode(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None:
+        await state.clear()
+        return
+    barcode = message.text.strip()
+    existing = await db.find_product_by_barcode(shop_id, barcode)
+    warn = ""
+    if existing:
+        warn = f"\n⚠️ Diqqat: bu barkod allaqachon <b>{existing['name']}</b> mahsulotiga biriktirilgan."
+    await state.update_data(barcode=barcode)
     await state.set_state(AddProduct.photo)
     await message.answer(
+        f"Barkod saqlandi: <code>{barcode}</code>{warn}\n\n"
         "Mahsulot rasmini yuboring (yoki rasmsiz davom eting):",
-        reply_markup=kb.skip_photo_kb()
+        reply_markup=kb.skip_photo_kb(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(AddProduct.barcode, F.data == "skip_barcode")
+async def add_product_skip_barcode(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(barcode=None)
+    await state.set_state(AddProduct.photo)
+    await callback.answer()
+    await callback.message.answer(
+        "Mahsulot rasmini yuboring (yoki rasmsiz davom eting):",
+        reply_markup=kb.skip_photo_kb(),
     )
 
 
@@ -556,15 +599,17 @@ async def add_product_photo(message: Message, state: FSMContext):
         shop_id, data["name"], data["price"], data["quantity"], photo_file_id, channel_message_id,
         sell_price=data["sell_price"], min_price=data["min_price"],
         alert_quantity=data.get("alert_quantity"), category_id=data.get("category_id"),
+        barcode=data.get("barcode"),
     )
     await state.clear()
     alert_line = ""
     if data.get("alert_quantity"):
         alert_line = f"Ogohlantirish chegarasi: {data['alert_quantity']:.0f} dona\n"
+    barcode_line = f"Barkod: {data['barcode']}\n" if data.get("barcode") else ""
     await message.answer(
         f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nTannarx: {data['price']:.0f} so'm\n"
         f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
-        f"Miqdori: {data['quantity']:.0f}\n{alert_line}",
+        f"Miqdori: {data['quantity']:.0f}\n{alert_line}{barcode_line}",
         reply_markup=kb.sklad_menu(),
         parse_mode="HTML"
     )
@@ -582,15 +627,17 @@ async def add_product_skip_photo(callback: CallbackQuery, state: FSMContext):
         shop_id, data["name"], data["price"], data["quantity"], None,
         sell_price=data["sell_price"], min_price=data["min_price"],
         alert_quantity=data.get("alert_quantity"), category_id=data.get("category_id"),
+        barcode=data.get("barcode"),
     )
     await state.clear()
     alert_line = ""
     if data.get("alert_quantity"):
         alert_line = f"Ogohlantirish chegarasi: {data['alert_quantity']:.0f} dona\n"
+    barcode_line = f"Barkod: {data['barcode']}\n" if data.get("barcode") else ""
     await callback.message.answer(
         f"✅ Mahsulot qo'shildi:\n<b>{data['name']}</b>\nTannarx: {data['price']:.0f} so'm\n"
         f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
-        f"Miqdori: {data['quantity']:.0f}\n{alert_line}",
+        f"Miqdori: {data['quantity']:.0f}\n{alert_line}{barcode_line}",
         reply_markup=kb.sklad_menu(),
         parse_mode="HTML"
     )
@@ -617,6 +664,8 @@ def _product_caption(p: dict) -> str:
     caption += f"Miqdori: {p['quantity']:.0f}"
     if p.get("alert_quantity"):
         caption += f"\nOgohlantirish chegarasi: {p['alert_quantity']:.0f} dona"
+    if p.get("barcode"):
+        caption += f"\n🏷 Barkod: {p['barcode']}"
     return caption
 
 
@@ -967,7 +1016,7 @@ async def product_discount_days_input(message: Message, state: FSMContext):
 # (tannarx/sotuv narxi/eng past narx) miqdorga tegmasdan to'g'ridan-to'g'ri
 # almashtirish uchun.
 
-EDIT_FIELD_LABELS = {"price": "Tannarx", "sell_price": "Sotuv narxi", "min_price": "Eng past narx"}
+EDIT_FIELD_LABELS = {"price": "Tannarx", "sell_price": "Sotuv narxi", "min_price": "Eng past narx", "barcode": "Barkod"}
 
 
 @router.callback_query(F.data.startswith("prod_edit_"))
@@ -1008,12 +1057,53 @@ async def product_edit_field_start_cb(callback: CallbackQuery, state: FSMContext
         return
 
     await state.update_data(edit_product_id=product_id, edit_field=field)
-    await state.set_state(EditProductField.value)
     await callback.answer()
+
+    if field == "barcode":
+        await state.set_state(EditProductField.barcode_value)
+        await callback.message.answer(
+            f"<b>{product['name']}</b> uchun yangi barkodni yuboring "
+            f"(skanerlab yoki qo'lda kiriting). Barkodni olib tashlash uchun \"-\" yozing:",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.set_state(EditProductField.value)
     await callback.message.answer(
         f"<b>{product['name']}</b> uchun yangi {EDIT_FIELD_LABELS[field]} qiymatini kiriting (so'mda):",
         parse_mode="HTML",
     )
+
+
+@router.message(EditProductField.barcode_value)
+async def product_edit_field_barcode_value(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None or not await is_owner_level(message.from_user.id):
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    product = await db.get_product(shop_id, data["edit_product_id"])
+    if not product:
+        await message.answer("❌ Mahsulot topilmadi.")
+        await state.clear()
+        return
+
+    raw = message.text.strip()
+    if raw == "-":
+        await db.set_product_barcode(shop_id, product["id"], None)
+        await state.clear()
+        await message.answer("✅ Barkod olib tashlandi.")
+        return
+
+    existing = await db.find_product_by_barcode(shop_id, raw)
+    warn = ""
+    if existing and existing["id"] != product["id"]:
+        warn = f"\n⚠️ Diqqat: bu barkod allaqachon <b>{existing['name']}</b> mahsulotiga biriktirilgan."
+
+    await db.set_product_barcode(shop_id, product["id"], raw)
+    await state.clear()
+    await message.answer(f"✅ Barkod saqlandi: <code>{raw}</code>{warn}", parse_mode="HTML")
 
 
 @router.message(EditProductField.value)
