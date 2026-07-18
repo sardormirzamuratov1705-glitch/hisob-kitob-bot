@@ -88,6 +88,18 @@ def payment_settings_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def trial_decision_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    """O'ZI ro'yxatdan o'tgan (self_register) yangi do'kon egasi haqida bosh
+    adminga yuboriladigan xabardagi tugmalar - handlers/subscription.py'dagi
+    approve_trial:/reject_trial: callback'lari. "✅ Tasdiqlash" bosilganda
+    admin necha kunlik sinov muddati berishni matn ko'rinishida kiritadi."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Tasdiqlash", callback_data=f"approve_trial:{telegram_id}")
+    builder.button(text="❌ Rad etish", callback_data=f"reject_trial:{telegram_id}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def blocked_menu() -> InlineKeyboardMarkup:
     """Obuna (trial + grace period) tugagan ega/sotuvchiga ko'rsatiladigan
     yagona ekran tugmasi. Bosilganda (6-bosqich) tariflar va to'lov
