@@ -1164,6 +1164,95 @@ async def get_low_stock_products(shop_id: int):
         return [dict(row) for row in rows]
 
 
+# ---------- AI BUYURTMA TAVSIYASI - 16-BOSQICH ----------
+# "🧾 Olinishi kerak bo'lgan tovarlar" (get_low_stock_products) - xodim
+# QO'LDA belgilagan qattiq chegaraga (alert_quantity) asoslanadi va u
+# sozlanmagan mahsulotlar uchun umuman ishlamaydi. Bu yerdagi qoida esa
+# HECH QANDAY qo'lda sozlashsiz, faqat haqiqiy SOTILISH TEZLIGI + joriy
+# QOLDIQ asosida "qachon buyurtma berish kerak"ligini o'zi hisoblab beradi.
+
+async def get_restock_lead_time_days(shop_id: int) -> int:
+    """Do'kon egasi "🤖 AI buyurtma tavsiyasi" bo'limidan o'ziga moslab
+    o'zgartirishi mumkin bo'lgan yetkazib berish muddati (kunlarda)."""
+    value = await get_setting(f"restock_lead_time_days_{shop_id}", str(config.RESTOCK_LEAD_TIME_DAYS_DEFAULT))
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return config.RESTOCK_LEAD_TIME_DAYS_DEFAULT
+
+
+async def set_restock_lead_time_days(shop_id: int, days: int):
+    await set_setting(f"restock_lead_time_days_{shop_id}", str(days))
+
+
+async def get_ai_restock_suggestions(shop_id: int, lookback_days: int = 30, lead_time_days: int = None) -> list:
+    """AI BUYURTMA TAVSIYASI - 16-BOSQICH: oddiy, tushunarli qoida - har bir
+    mahsulotning SOTILISH TEZLIGINI (oxirgi `lookback_days` kunda kuniga
+    o'rtacha necha dona sotilgani) joriy QOLDIQQA taqqoslab, "necha kunlik
+    zaxira qolgani"ni (days_left) hisoblaydi. Agar shu son do'kon egasi
+    belgilagan YETKAZIB BERISH MUDDATIDAN (lead_time_days) kichik yoki teng
+    bo'lsa - "hozir buyurtma berish kerak" deb hisoblanadi, chunki tovar
+    yetib kelguncha sklad tugab qolishi mumkin.
+
+    Faqat oxirgi `lookback_days` kunda KAMIDA bitta marta sotilgan (ya'ni
+    o'lchash mumkin bo'lgan sotilish tezligiga ega) mahsulotlar hisobga
+    olinadi - umuman sotilmayotgan tovar uchun "necha kunda tugaydi"
+    hisoblashning ma'nosi yo'q (bunday tovarlar "🐌 Sekin sotiladigan
+    tovarlar"da alohida ko'rsatiladi, bu yerga tushmaydi).
+
+    Qaytaradi - eng SHOSHILINCH (days_left eng kichik)dan boshlab:
+        {
+            "product": <mahsulot dict>,
+            "daily_sales_rate": float,  - kuniga o'rtacha necha dona sotiladi
+            "days_left": float,         - joriy qoldiq necha kunlik sotishga yetadi
+            "suggested_qty": float,     - yetkazib berish muddati davomida
+                                          zaxira tugab qolmasligi uchun tavsiya
+                                          etilgan qo'shimcha buyurtma miqdori
+        }
+    """
+    if lead_time_days is None:
+        lead_time_days = await get_restock_lead_time_days(shop_id)
+
+    cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT si.product_id, SUM(si.quantity)
+            FROM sale_items si
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ? AND date(t.created_at) >= ?
+            GROUP BY si.product_id
+            """,
+            (shop_id, cutoff),
+        )
+        sold_by_product = {row[0]: (row[1] or 0) for row in await cursor.fetchall()}
+
+    products = await get_all_products(shop_id)
+    suggestions = []
+    for p in products:
+        sold_qty = sold_by_product.get(p["id"], 0)
+        if sold_qty <= 0:
+            continue
+
+        daily_rate = sold_qty / lookback_days
+        days_left = p["quantity"] / daily_rate
+        if days_left > lead_time_days:
+            continue
+
+        needed_for_lead_time = daily_rate * lead_time_days
+        suggested_qty = max(needed_for_lead_time - p["quantity"], 0)
+
+        suggestions.append({
+            "product": p,
+            "daily_sales_rate": daily_rate,
+            "days_left": days_left,
+            "suggested_qty": suggested_qty,
+        })
+
+    suggestions.sort(key=lambda s: s["days_left"])
+    return suggestions
+
+
 async def add_manual_restock_item(shop_id: int, name: str, note: str = None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
