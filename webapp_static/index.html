@@ -13,8 +13,12 @@
 <body>
 <div id="app">
 
+  <!-- 6-BOSQICH: "Savdo" / "Sklad" bo'limlari orasida almashtirgich -->
   <div id="app-header" class="app-header">
-    <div class="app-header-title">🛒 Savdo</div>
+    <div class="section-tabs">
+      <button id="tab-sale" type="button" class="section-tab active" data-section="sale">🛒 Savdo</button>
+      <button id="tab-sklad" type="button" class="section-tab" data-section="sklad">📦 Sklad</button>
+    </div>
     <div id="header-cart-badge" class="header-cart-badge hidden">0</div>
   </div>
 
@@ -66,6 +70,17 @@
     <button id="back-to-products-btn" class="secondary-btn">⬅️ Mahsulot qo'shish</button>
   </div>
 
+  <!-- 3-EKRAN (7-BOSQICH): SKLAD - skanerlab yoki qidirib miqdor kiritish -->
+  <div id="screen-sklad" class="screen hidden">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input id="sklad-search-input" type="text" placeholder="Mahsulot qidirish...">
+      <button id="sklad-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
+    </div>
+    <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
+    <div id="sklad-product-list" class="product-list"></div>
+  </div>
+
   <!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera bilan barkod skanerlash oynasi -->
   <div id="modal-scanner" class="modal hidden">
     <div class="modal-content scanner-modal-content">
@@ -99,6 +114,23 @@
       <div class="modal-actions">
         <button id="modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
         <button id="modal-add-btn" class="primary-btn">Savatga qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7-BOSQICH: SKLAD - miqdor kiritish oynasi (narx so'ramaydi) -->
+  <div id="modal-sklad-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="sklad-modal-product-name"></h3>
+      <p id="sklad-modal-product-stock" class="muted"></p>
+
+      <label>Nechta dona keldi?</label>
+      <input id="sklad-modal-qty-input" type="number" inputmode="decimal" value="1">
+
+      <div class="modal-actions">
+        <button id="sklad-modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="sklad-modal-add-btn" class="primary-btn">➕ Skladga qo'shish</button>
       </div>
     </div>
   </div>
