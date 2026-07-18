@@ -68,6 +68,8 @@ def _owner_card_text(o: dict, access: dict | None) -> str:
     emoji = subscription_status_emoji(access)
     if access and access.get("status") == "blocked":
         sub_line = "\n⛔ Majburiy bloklangan"
+    elif access and access.get("status") == "pending_trial":
+        sub_line = f"\n{emoji} Sinov muddati hali tasdiqlanmagan"
     elif access and access.get("days_left") is not None:
         days_left = access["days_left"]
         if days_left >= 0:
