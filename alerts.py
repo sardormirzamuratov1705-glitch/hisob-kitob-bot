@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import database as db
 import keyboards as kb
@@ -117,6 +118,68 @@ async def send_debt_reminders(bot, days_threshold: int = 3):
             await bot.send_message(shop_id, text, parse_mode="HTML")
         except Exception as e:
             logging.warning(f"Qarz eslatmasini yuborib bo'lmadi (shop {shop_id}): {e}")
+
+
+# ---------- 5-BOSQICH: KUNLIK HISOBOT (TELEGRAM) ----------
+# DB'dagi statistika (database.get_daily_stats) bitta do'kon egasiga chiroyli
+# formatda yuboriladigan xabarga aylantiriladi. Avtomatik jo'natish (har kuni
+# belgilangan vaqtda) va yoqish/o'chirish sozlamasi 6-7-bosqichda qo'shiladi -
+# bu yerda faqat "bitta shop_id uchun hisobotni tuzish va yuborish" bor,
+# shuning uchun uni istalgan joydan (masalan "🔄 Bugungi hisobot" tugmasidan
+# qo'lda ham) chaqirish mumkin bo'ladi.
+
+def _format_date_uz(date_str: str) -> str:
+    """'YYYY-MM-DD' ni '01.02.2025' ko'rinishiga o'tkazadi. Format noto'g'ri
+    bo'lsa (kutilmagan holat) - o'zgarishsiz qaytaradi."""
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return date_str
+
+
+def build_daily_report_text(stats: dict, owner: dict = None) -> str:
+    """database.get_daily_stats() natijasini o'qishga qulay Telegram xabariga
+    aylantiradi. owner - db.get_owner() natijasi (ixtiyoriy) - do'kon nomi
+    bor bo'lsa sarlavhaga qo'shiladi."""
+    shop_name = (owner or {}).get("shop_name")
+    title_suffix = f" — {shop_name}" if shop_name else ""
+
+    balance = stats["income_total"] - stats["expense_total"]
+
+    if stats["sales_count"] == 0:
+        sales_line = "Bugun hali savdo bo'lmadi."
+    else:
+        sales_line = (
+            f"🛒 Savdo: <b>{stats['sales_count']}</b> ta chek — "
+            f"{stats['sales_total']:.0f} so'm\n"
+            f"💰 Foyda: <b>{stats['profit_total']:.0f} so'm</b>"
+        )
+
+    return (
+        f"📅 <b>Kunlik hisobot — {_format_date_uz(stats['date'])}</b>{title_suffix}\n\n"
+        f"{sales_line}\n\n"
+        f"💵 Kirim (jami): {stats['income_total']:.0f} so'm\n"
+        f"💸 Chiqim (jami): {stats['expense_total']:.0f} so'm\n"
+        f"📈 Kunlik balans: <b>{balance:.0f} so'm</b>\n\n"
+        f"📦 Sotilgan tovar tannarxi: {stats['stock_cost_out']:.0f} so'm\n"
+        f"📦 Joriy sklad qiymati: {stats['current_stock_value']:.0f} so'm"
+    )
+
+
+async def send_daily_report(bot, shop_id: int) -> bool:
+    """Bitta do'kon egasiga bugungi kunlik hisobotni yuboradi.
+    Muvaffaqiyatli yuborilsa True, aks holda (masalan foydalanuvchi botni
+    bloklagan bo'lsa) False qaytaradi - shu bilan send_debt_reminders va
+    send_subscription_reminders'dagi patternga mos keladi."""
+    stats = await db.get_daily_stats(shop_id)
+    owner = await db.get_owner(shop_id)
+    text = build_daily_report_text(stats, owner)
+    try:
+        await bot.send_message(shop_id, text, parse_mode="HTML")
+        return True
+    except Exception as e:
+        logging.warning(f"Kunlik hisobotni yuborib bo'lmadi (shop {shop_id}): {e}")
+        return False
 
 
 # ---------- 8-BOSQICH: OBUNA MUDDATI ESLATMALARI ----------
