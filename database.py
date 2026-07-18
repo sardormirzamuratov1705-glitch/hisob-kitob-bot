@@ -711,6 +711,41 @@ async def update_product_quantity(shop_id: int, product_id: int, quantity: float
         await db.commit()
 
 
+async def add_stock_quantity(shop_id: int, product_id: int, add_qty: float):
+    """SKLAD - MINI APP - 6-BOSQICH: mahsulot miqdorini TEZ oshiradi
+    (masalan "yetkazib beruvchidan tovar keldi, sanab qo'yaylik" holati).
+
+    DIQQAT - bu update_product_purchase()DAN farqli: tannarx/savdo
+    narxi/eng past narxni O'ZGARTIRMAYDI, faqat miqdorni qo'shadi - chunki
+    "Sklad" bo'limi (mini app) atayin OSON/TEZ oqim sifatida
+    mo'ljallangan (skanerla yoki qidir -> sonini kirit -> tayyor), narx
+    kiritishni talab qilmaydi. Narxni ham yangilash kerak bo'lsa, foydalanuvchi
+    hamon botdagi "✏️ Tahrirlash" yoki "📦 Kam qolganini to'ldirish" (to'liq
+    xarid) oqimidan foydalanishi mumkin - ular o'zgarishsiz qoladi.
+
+    Muvaffaqiyatli bo'lsa {"name","old_quantity","new_quantity"} qaytaradi,
+    mahsulot topilmasa - None."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT name, quantity FROM products WHERE id = ? AND shop_id = ?",
+            (product_id, shop_id),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+
+        old_quantity = row["quantity"] or 0
+        new_quantity = old_quantity + add_qty
+
+        await db.execute(
+            "UPDATE products SET quantity = ? WHERE id = ? AND shop_id = ?",
+            (new_quantity, product_id, shop_id),
+        )
+        await db.commit()
+        return {"name": row["name"], "old_quantity": old_quantity, "new_quantity": new_quantity}
+
+
 async def update_product_purchase(shop_id: int, product_id: int, add_quantity: float,
                                     purchase_price: float, sell_price: float, min_price: float,
                                     alert_quantity=None):
