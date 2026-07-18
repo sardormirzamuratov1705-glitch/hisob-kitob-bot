@@ -39,6 +39,23 @@ PAYMENT_CARD_HOLDER = os.getenv("PAYMENT_CARD_HOLDER", "F.I.Sh. To'ldiring")
 PAYMENT_CLICK_NUMBER = os.getenv("PAYMENT_CLICK_NUMBER", "+998 90 123 45 67")
 PAYMENT_PAYME_NUMBER = os.getenv("PAYMENT_PAYME_NUMBER", "+998 90 123 45 67")
 
+# ---------- 6-BOSQICH: KUNLIK HISOBOT YUBORISH VAQTI ----------
+# Har kuni shu vaqtda (SERVER vaqti bo'yicha, Railway'da odatda UTC!) barcha
+# do'kon egalariga avtomatik kunlik hisobot yuboriladi (alerts.py,
+# main.py._daily_report_loop). .env orqali "HH:MM" formatida o'zgartiring,
+# masalan: DAILY_REPORT_TIME=21:30
+# Noto'g'ri format kiritilsa (masalan xato yozilsa) - xavfsiz standart
+# qiymat (21:00) ishlatiladi, bot ishga tushmay qolmaydi.
+_daily_report_time_raw = os.getenv("DAILY_REPORT_TIME", "21:00")
+try:
+    _hour_str, _minute_str = _daily_report_time_raw.strip().split(":")
+    DAILY_REPORT_HOUR = int(_hour_str)
+    DAILY_REPORT_MINUTE = int(_minute_str)
+    if not (0 <= DAILY_REPORT_HOUR <= 23 and 0 <= DAILY_REPORT_MINUTE <= 59):
+        raise ValueError
+except (ValueError, AttributeError):
+    DAILY_REPORT_HOUR, DAILY_REPORT_MINUTE = 21, 0
+
 # Tariflar ro'yxati - handlers/subscription.py shu yerdan o'qiydi (tugmalar,
 # narx ko'rsatish va tanlangan tarifga qarab subscription_until'ni necha
 # kunga uzaytirish kerakligini aniqlash uchun). "days" - 7-bosqichda
