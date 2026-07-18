@@ -264,6 +264,41 @@ async def init_db():
             )
             """
         )
+        # Bosh adminlar - ilgari FAQAT .env (config.ADMIN_IDS) orqali
+        # belgilanardi, redeploy talab qilardi. Endi mavjud bosh admin
+        # botning o'zidan turib YANGI bosh admin qo'sha oladi (forward/ID
+        # yoki bir martalik havola orqali) - shu jadvalga yoziladi.
+        # config.ADMIN_IDS - "bootstrap" ro'yxat sifatida saqlanib qoladi
+        # (.env orqali qo'shilganlar), bu jadval esa botdan turib
+        # qo'shilganlarni saqlaydi; access_control.is_admin() ikkalasini
+        # ham tekshiradi.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL UNIQUE,
+                full_name TEXT,
+                username TEXT,
+                added_by INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        # Yangi bosh admin qo'shish uchun bir martalik taklif linklari -
+        # owner_invites bilan bir xil naqsh: FAQAT BITTA odam, FAQAT BITTA
+        # marta ishlata oladi.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admin_invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                created_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                used_by INTEGER,
+                used_at TEXT
+            )
+            """
+        )
         # Bosh admin tomonidan yaratiladigan bir martalik taklif linklari -
         # har bir link faqat BITTA odam tomonidan ishlatilishi mumkin
         # (link.used_by bo'sh bo'lsa - hali ishlatilmagan, ishlatilgach
@@ -1867,6 +1902,83 @@ async def use_owner_invite(token: str, used_by: int) -> bool:
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
             "UPDATE owner_invites SET used_by = ?, used_at = ? "
+            "WHERE token = ? AND used_by IS NULL",
+            (used_by, _now(), token),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+# ---------- BOSH ADMINLAR (botdan turib qo'shilganlar) ----------
+# config.ADMIN_IDS (.env) - "bootstrap" ro'yxat. Bu yerdagi funksiyalar esa
+# mavjud bosh admin tomonidan botning o'zidan turib qo'shilgan QO'SHIMCHA
+# adminlar uchun (redeploy shart emas). access_control.is_admin() ikkalasini
+# ham (config.ADMIN_IDS + shu jadval) tekshiradi.
+
+async def add_admin(telegram_id: int, full_name: str | None, username: str | None, added_by: int):
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO admins (telegram_id, full_name, username, added_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (telegram_id, full_name, username, added_by, _now()),
+        )
+        await db.commit()
+
+
+async def get_admin_ids() -> list:
+    """Botdan turib qo'shilgan (config.ADMIN_IDS'dan tashqari) barcha
+    qo'shimcha adminlarning telegram_id ro'yxati - bot ishga tushganda
+    xotiraga (access_control._extra_admin_ids) yuklab olinadi."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute("SELECT telegram_id FROM admins")
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def get_admins() -> list:
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM admins ORDER BY created_at DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def remove_admin(telegram_id: int) -> bool:
+    """Faqat botdan turib qo'shilgan adminlarni o'chirish mumkin - .env
+    (config.ADMIN_IDS) orqali kiritilganlar bu jadvalda umuman yo'q, ular
+    faqat .env orqali olib tashlanadi."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def create_admin_invite(created_by: int) -> str:
+    """Yangi bosh admin qo'shish uchun bir martalik taklif tokeni yaratadi."""
+    token = secrets.token_urlsafe(12)
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        await db.execute(
+            "INSERT INTO admin_invites (token, created_by, created_at) VALUES (?, ?, ?)",
+            (token, created_by, _now()),
+        )
+        await db.commit()
+    return token
+
+
+async def get_admin_invite(token: str):
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM admin_invites WHERE token = ?", (token,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def use_admin_invite(token: str, used_by: int) -> bool:
+    """Race-safe: token faqat hali ishlatilmagan bo'lsa (used_by IS NULL)
+    'ishlatilgan' deb belgilanadi."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "UPDATE admin_invites SET used_by = ?, used_at = ? "
             "WHERE token = ? AND used_by IS NULL",
             (used_by, _now(), token),
         )
