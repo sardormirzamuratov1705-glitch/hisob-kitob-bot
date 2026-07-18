@@ -1,6 +1,7 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import config
 import database as db
 import keyboards as kb
 
@@ -78,7 +79,19 @@ async def send_customer_debt_reminder(bot, debt: dict) -> bool:
         return False
 
 
-async def send_debt_reminders(bot, days_threshold: int = 3):
+def _debt_severity(days_ago: int) -> str:
+    """QARZ ESLATMASI - 13-BOSQICH: muddati o'tgan qarzning og'irlik darajasini
+    belgilaydi - do'kon egasining ro'yxatida eng jiddiylari darhol ko'zga
+    tashlanishi uchun (ro'yxat allaqachon eng eskisidan boshlab saralangan,
+    bu faqat vizual belgi qo'shadi)."""
+    if days_ago >= 30:
+        return "🔴"
+    if days_ago >= 7:
+        return "🟠"
+    return "🟡"
+
+
+async def send_debt_reminders(bot, days_threshold: int = None):
     """Har kuni bir marta chaqiriladi (main.py'dagi fon vazifadan).
 
     Endi har bir DO'KON alohida ko'rib chiqiladi (bir necha mustaqil do'kon
@@ -86,14 +99,25 @@ async def send_debt_reminders(bot, days_threshold: int = 3):
     xabar oladi, boshqa do'konning qarzdorlari haqida hech narsa ko'rmaydi.
 
     Har bir muddati o'tgan qarz uchun:
-    - agar mijoz start-link orqali botga ulangan bo'lsa - unga to'g'ridan-to'g'ri eslatma yuboriladi;
-    - shu bilan birga o'sha do'kon egasiga ham umumiy ro'yxat yuboriladi
-      (mijoz hali ulanmagan bo'lsa ham, u ko'rib qo'ng'iroq qilishi mumkin).
+    - agar mijoz start-link orqali botga ulangan bo'lsa - unga to'g'ridan-
+      to'g'ri eslatma yuboriladi, LEKIN faqat config.DEBT_CUSTOMER_REMINDER_
+      INTERVAL_DAYS kunda bir marta (13-BOSQICH: mijozni HAR KUNI bezovta
+      qilmaslik uchun - debts.last_reminder_at shu maqsadda ishlatiladi);
+    - shu bilan birga o'sha do'kon egasiga HAR DOIM (mijozga eslatma
+      yuborilgan-yuborilmaganidan qat'i nazar) to'liq ro'yxat yuboriladi -
+      har bir qarz qancha kun o'tganiga qarab 🟡/🟠/🔴 belgisi bilan
+      (13-BOSQICH: eng jiddiylari - 30+ kun - 🔴 bilan darhol ko'rinadi).
 
     Bosh admin (config.ADMIN_IDS) endi hech qanday do'konga ega emas, shuning
     uchun bu xabarlarni olmaydi - uning yagona vazifasi do'kon egalarini
     boshqarish.
     """
+    if days_threshold is None:
+        days_threshold = config.DEBT_OVERDUE_DAYS_DEFAULT
+
+    interval = timedelta(days=config.DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS)
+    now = datetime.now()
+
     owner_ids = await db.get_owner_ids()
     for shop_id in owner_ids:
         overdue = await db.get_overdue_debts(shop_id, days=days_threshold)
@@ -101,18 +125,39 @@ async def send_debt_reminders(bot, days_threshold: int = 3):
             continue
 
         for d in overdue:
-            await send_customer_debt_reminder(bot, d)
+            last_sent = d.get("last_reminder_at")
+            due_for_customer_reminder = True
+            if last_sent:
+                try:
+                    due_for_customer_reminder = (
+                        now - datetime.strptime(last_sent, "%Y-%m-%d %H:%M:%S") >= interval
+                    )
+                except ValueError:
+                    due_for_customer_reminder = True
+
+            if due_for_customer_reminder:
+                sent = await send_customer_debt_reminder(bot, d)
+                if sent:
+                    await db.update_debt_reminder_sent(d["id"])
 
         lines = [
-            f"• {d['customer_name']} ({d['phone']}) — {d['amount']:.0f} so'm, "
-            f"{d['days_ago']} kundan beri qarzda"
+            f"{_debt_severity(d['days_ago'])} {d['customer_name']} ({d['phone']}) — "
+            f"{d['amount']:.0f} so'm, {d['days_ago']} kundan beri qarzda"
             + (" 🔗" if d.get("customer_chat_id") else "")
             for d in overdue
         ]
+        severe_count = sum(1 for d in overdue if d["days_ago"] >= 30)
+        severe_line = (
+            f"\n\n🔴 Shulardan <b>{severe_count} tasi</b> 30 kundan ko'proq muddat o'tgan - "
+            "alohida e'tibor talab qiladi!"
+            if severe_count else ""
+        )
         text = (
             f"🔔 <b>Qarzdorlar eslatmasi</b>\n"
-            f"{days_threshold}+ kundan beri to'lanmagan qarzlar:\n\n" + "\n".join(lines) +
-            "\n\n🔗 belgisi — mijozga eslatma avtomatik yuborildi."
+            f"{days_threshold}+ kundan beri (yoki belgilangan muddatdan) to'lanmagan qarzlar:\n\n"
+            + "\n".join(lines) + severe_line +
+            "\n\n🔗 belgisi — mijozga eslatma avtomatik yuborildi (har "
+            f"{config.DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS} kunda bir marta)."
         )
         try:
             await bot.send_message(shop_id, text, parse_mode="HTML")
