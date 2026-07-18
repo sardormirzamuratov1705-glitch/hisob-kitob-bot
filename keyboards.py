@@ -223,10 +223,23 @@ def hisobot_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="📊 Umumiy hisobot")
     builder.button(text="🏢 Filial bo'yicha hisobot")
+    builder.button(text="🔔 Kunlik hisobot")
     builder.button(text="📥 Excel yuklab olish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
+
+
+def daily_report_settings_kb(enabled: bool) -> InlineKeyboardMarkup:
+    """KUNLIK HISOBOT - 7-BOSQICH: "🔔 Kunlik hisobot" bo'limidagi
+    yoqish/o'chirish tugmasi - handlers/reports.py'dagi
+    daily_report_toggle: callback'iga olib boradi."""
+    builder = InlineKeyboardBuilder()
+    if enabled:
+        builder.button(text="🔕 O'chirish", callback_data="daily_report_toggle:off")
+    else:
+        builder.button(text="🔔 Yoqish", callback_data="daily_report_toggle:on")
+    return builder.as_markup()
 
 
 def report_branch_kb(branches, prefix: str, include_all: bool = False) -> InlineKeyboardMarkup:
