@@ -182,6 +182,19 @@ async def send_daily_report(bot, shop_id: int) -> bool:
         return False
 
 
+async def send_daily_reports_to_all(bot):
+    """Har kuni belgilangan vaqtda (main.py'dagi _daily_report_loop) chaqiriladi -
+    BARCHA do'kon egalariga, birma-bir, o'zining kunlik hisobotini yuboradi.
+
+    DIQQAT (7-bosqich bilan bog'liq): hozircha bu yerda yoqish/o'chirish
+    sozlamasi TEKSHIRILMAYDI - har bir do'kon egasiga har kuni yuboriladi.
+    7-bosqichda shu funksiya ichiga "agar shu ega kunlik hisobotni
+    o'chirgan bo'lsa - o'tkazib yuborish" tekshiruvi qo'shiladi."""
+    owner_ids = await db.get_owner_ids()
+    for shop_id in owner_ids:
+        await send_daily_report(bot, shop_id)
+
+
 # ---------- 8-BOSQICH: OBUNA MUDDATI ESLATMALARI ----------
 # Muddat tugashiga necha kun qolganda eslatma yuborilishi kerak. 0 - aynan
 # tugaydigan kunning o'zi (subscription_until = bugun, ya'ni ertadan
