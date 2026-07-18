@@ -12,7 +12,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
-from access_control import get_shop_id, is_owner_level, get_role
+from access_control import get_shop_id, is_owner_level, get_role, get_branch_id
 
 router = Router()
 
@@ -46,6 +46,14 @@ class EditProductField(StatesGroup):
     do'kon egasiga ruxsat etilgan (har bir handlerda is_owner_level
     tekshiriladi)."""
     value = State()
+
+
+class ProductShortage(StatesGroup):
+    """Skladda ro'yxatda bor, lekin realda (inventarizatsiyada) topilmagan
+    mahsulotni \"kamomad\" sifatida hisobdan chiqarish - miqdor kamaytiriladi
+    va yo'qolgan tovarning tannarx qiymati Kirim/Chiqim bo'limiga avtomatik
+    chiqim (zarar) sifatida yoziladi. FAQAT do'kon egasiga ruxsat etilgan."""
+    quantity = State()
 
 
 class ExcelFill(StatesGroup):
@@ -1059,6 +1067,89 @@ async def product_edit_field_value(message: Message, state: FSMContext):
     await db.update_product_field(shop_id, product["id"], field, value)
     await state.clear()
     await message.answer(f"✅ {EDIT_FIELD_LABELS[field]} {value:.0f} so'mga o'zgartirildi.")
+
+
+# ---------- KAMOMAD CHIQARISH (FAQAT DO'KON EGASI) ----------
+# Skladda ro'yxatda ko'rsatilgan, lekin real hayotda (masalan tekshiruv/
+# inventarizatsiya vaqtida) topilmagan mahsulotni hisobdan chiqarish:
+# miqdor kamaytiriladi va yo'qolgan tovarning tannarx qiymati Kirim/Chiqim
+# bo'limiga avtomatik chiqim (zarar) sifatida yoziladi - shu bilan
+# Hisobot/kassa balansida ham to'g'ri ko'rinadi.
+
+@router.callback_query(F.data.startswith("prod_shortage_"))
+async def product_shortage_start_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    if not await is_owner_level(callback.from_user.id):
+        await callback.answer("⛔ Bu amal faqat do'kon egasiga ruxsat etilgan.", show_alert=True)
+        return
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(shop_id, product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    if product["quantity"] <= 0:
+        await callback.answer("Skladda bu mahsulotdan miqdor ko'rsatilmagan.", show_alert=True)
+        return
+
+    await state.update_data(shortage_product_id=product_id)
+    await state.set_state(ProductShortage.quantity)
+    await callback.answer()
+    await callback.message.answer(
+        f"<b>{product['name']}</b> - skladda {product['quantity']:.0f} dona ko'rsatilgan.\n"
+        f"Realda nechta yetishmayapti (kamomad)?",
+        parse_mode="HTML",
+    )
+
+
+@router.message(ProductShortage.quantity)
+async def product_shortage_quantity_input(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None or not await is_owner_level(message.from_user.id):
+        await state.clear()
+        return
+    try:
+        qty = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 2")
+        return
+    if qty <= 0:
+        await message.answer("Miqdor 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
+        return
+
+    data = await state.get_data()
+    product = await db.get_product(shop_id, data["shortage_product_id"])
+    if not product:
+        await message.answer("❌ Mahsulot topilmadi.")
+        await state.clear()
+        return
+    if qty > product["quantity"]:
+        await message.answer(
+            f"Skladda faqat {product['quantity']:.0f} dona ko'rsatilgan - shundan ko'p kamomad "
+            f"chiqara olmaysiz. Qaytadan kiriting:"
+        )
+        return
+
+    new_quantity = product["quantity"] - qty
+    await db.update_product_quantity(shop_id, product["id"], new_quantity)
+
+    loss_amount = qty * product["price"]
+    branch_id = await get_branch_id(message.from_user.id)
+    await db.add_transaction(
+        shop_id, "expense", loss_amount,
+        f"📉 Kamomad: {product['name']} - {qty:.0f} dona",
+        branch_id=branch_id, performed_by=message.from_user.id,
+    )
+
+    await state.clear()
+    await message.answer(
+        f"✅ <b>{product['name']}</b> uchun {qty:.0f} dona kamomad chiqarildi.\n"
+        f"Yangi qoldiq: {new_quantity:.0f} dona.\n"
+        f"💸 Zarar sifatida chiqim qo'shildi: {loss_amount:.0f} so'm.",
+        parse_mode="HTML",
+        reply_markup=kb.sklad_menu(),
+    )
 
 
 # ---------- MAHSULOTNI BO'LIMLAR ORASIDA KO'CHIRISH / BO'LIMDAN CHIQARISH ----------
