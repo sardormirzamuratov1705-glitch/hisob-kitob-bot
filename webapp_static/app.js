@@ -39,6 +39,7 @@ function getInitData() {
 const API = {
   me: "/api/webapp/me",
   products: "/api/webapp/products",
+  productByBarcode: "/api/webapp/products/by-barcode",
   crossSell: "/api/webapp/cross_sell",
   sale: "/api/webapp/sale",
 };
@@ -428,6 +429,120 @@ function saleErrorText(data) {
   };
   return map[data.error] || "Savdoni yakunlashda xatolik yuz berdi.";
 }
+
+// ---------- 4-BOSQICH: BARKOD SKANERLASH (KAMERA) ----------
+// html5-qrcode kutubxonasining PASTKI DARAJADAGI Html5Qrcode klassidan
+// foydalanamiz (Html5QrcodeScanner emas) - chunki bizga kutubxonaning
+// tayyor katta paneli (o'z tugmalari/torch va h.k. bilan) emas, faqat
+// video oqimi kerak, qolgan UI (ramka, "yopish" tugmasi, status matni)
+// ilovaning o'z uslubida (style.css) chizilgan.
+
+const BARCODE_FORMATS = window.Html5QrcodeSupportedFormats
+  ? [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.CODABAR,
+      Html5QrcodeSupportedFormats.ITF,
+      Html5QrcodeSupportedFormats.QR_CODE,
+    ]
+  : undefined;
+
+let html5QrCode = null;
+let scanHandled = false;
+
+function setScannerStatus(text) {
+  el("scanner-status").textContent = text;
+}
+
+async function openScanner() {
+  scanHandled = false;
+  setScannerStatus("Kamerani barkodga to'g'rilang...");
+  el("modal-scanner").classList.remove("hidden");
+
+  if (!window.Html5Qrcode) {
+    setScannerStatus("Skaner kutubxonasi yuklanmadi. Internetni tekshiring.");
+    return;
+  }
+
+  try {
+    html5QrCode = new Html5Qrcode("scanner-reader", {
+      formatsToSupport: BARCODE_FORMATS,
+      verbose: false,
+    });
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 260, height: 160 } },
+      onBarcodeDecoded,
+      () => {} // har bir kadrda "topilmadi" - bu normal holat, e'tiborsiz qoldiramiz
+    );
+  } catch (err) {
+    setScannerStatus("Kameraga ruxsat berilmadi. Telegram sozlamalaridan ruxsat bering.");
+  }
+}
+
+async function stopScanner() {
+  if (!html5QrCode) return;
+  try {
+    if (html5QrCode.isScanning) {
+      await html5QrCode.stop();
+    }
+    html5QrCode.clear();
+  } catch (e) {
+    // Kamera allaqachon to'xtagan bo'lishi mumkin - e'tiborsiz qoldiramiz.
+  }
+  html5QrCode = null;
+}
+
+async function closeScanner() {
+  el("modal-scanner").classList.add("hidden");
+  await stopScanner();
+}
+
+async function onBarcodeDecoded(decodedText) {
+  if (scanHandled) return; // bitta kadrda bir necha marta chaqirilishining oldini olamiz
+  scanHandled = true;
+  tg.HapticFeedback.impactOccurred("light");
+  setScannerStatus("Qidirilmoqda...");
+  await stopScanner();
+  el("modal-scanner").classList.add("hidden");
+  await lookupProductByBarcode(decodedText);
+}
+
+async function lookupProductByBarcode(code) {
+  try {
+    const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.error === "not_found") {
+        tg.showAlert(`Bu barkod bo'yicha mahsulot topilmadi:\n${code}`);
+      } else {
+        tg.showAlert("Barkod bo'yicha qidirishda xatolik yuz berdi.");
+      }
+      return;
+    }
+    const product = data.product;
+    if (!product.quantity || product.quantity <= 0) {
+      tg.showAlert(`"${product.name}" skladda tugagan (0 dona).`);
+      return;
+    }
+    openAddModal(product);
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+el("scan-btn").addEventListener("click", openScanner);
+el("scanner-close-btn").addEventListener("click", closeScanner);
+
+// Ilova fonga o'tsa (masalan foydalanuvchi Telegramdan chiqib ketsa) -
+// kamerani ochiq qoldirmaslik uchun to'xtatamiz (batareya/maxfiylik).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) closeScanner();
+});
 
 // ---------- QIDIRUV ----------
 
