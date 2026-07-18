@@ -114,6 +114,8 @@ def subscription_status_emoji(access: dict | None) -> str:
     ✅ - hammasi joyida (muddatga hali ancha bor)
     """
     if not access or not access.get("allowed"):
+        if access and access.get("status") == "pending_trial":
+            return "🕓"
         return "⛔"
     if access.get("in_grace"):
         return "⏳"
@@ -208,6 +210,14 @@ class OwnerOnlyMiddleware(BaseMiddleware):
                 if fsm_state is not None and await fsm_state.get_state() == PaymentFlow.waiting_receipt.state:
                     return await handler(event, data)
 
+            if access.get("status") == "pending_trial":
+                # O'ZI ro'yxatdan o'tgan, lekin bosh admin hali sinov muddatini
+                # tasdiqlamagan - "obuna tugagan" ekrani emas, "so'rov ko'rib
+                # chiqilmoqda" ekrani ko'rsatiladi (to'lov/uzaytirish tugmasi
+                # bu yerda mantiqsiz - hali hech qanday obuna boshlanmagan).
+                await self._send_pending_trial_screen(event)
+                return
+
             await self._send_blocked_screen(event)
             return
 
@@ -236,3 +246,20 @@ class OwnerOnlyMiddleware(BaseMiddleware):
                 await event.answer(text, reply_markup=markup)
         except Exception as e:
             logging.warning(f"Bloklash ekranini yuborib bo'lmadi: {e}")
+
+    @staticmethod
+    async def _send_pending_trial_screen(event):
+        text = (
+            "⏳ Ro'yxatdan o'tish so'rovingiz bosh adminga yuborilgan va "
+            "hozircha ko'rib chiqilmoqda.\n\n"
+            "Bosh admin sinov muddatini tasdiqlashi bilan sizga xabar beriladi - "
+            "iltimos, biroz kuting."
+        )
+        try:
+            if isinstance(event, CallbackQuery):
+                await event.answer()
+                await event.message.answer(text)
+            elif isinstance(event, Message):
+                await event.answer(text)
+        except Exception as e:
+            logging.warning(f"Kutish ekranini yuborib bo'lmadi: {e}")
