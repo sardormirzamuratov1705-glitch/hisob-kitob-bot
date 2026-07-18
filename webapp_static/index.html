@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Savdo</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera orqali barkod o'qish uchun
+     html5-qrcode kutubxonasi (EAN/UPC/CODE-128 va h.k.ni qo'llab-quvvatlaydi). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <link rel="stylesheet" href="/webapp/style.css">
 </head>
 <body>
@@ -32,6 +35,7 @@
     <div class="search-box">
       <span class="search-icon">🔍</span>
       <input id="search-input" type="text" placeholder="Mahsulot qidirish...">
+      <button id="scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
     </div>
     <div id="cross-sell-bar" class="cross-sell-bar hidden"></div>
     <div id="product-list" class="product-list"></div>
@@ -60,6 +64,22 @@
 
     <button id="finalize-btn" class="primary-btn full-width hidden">✅ Savdoni yakunlash</button>
     <button id="back-to-products-btn" class="secondary-btn">⬅️ Mahsulot qo'shish</button>
+  </div>
+
+  <!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera bilan barkod skanerlash oynasi -->
+  <div id="modal-scanner" class="modal hidden">
+    <div class="modal-content scanner-modal-content">
+      <div class="modal-handle"></div>
+      <div class="scanner-header">
+        <h3>📷 Barkodni skanerlang</h3>
+        <button id="scanner-close-btn" class="scanner-close-btn" type="button">✕</button>
+      </div>
+      <div class="scanner-viewport">
+        <div id="scanner-reader"></div>
+        <div class="scanner-frame"></div>
+      </div>
+      <p id="scanner-status" class="muted scanner-status">Kamerani barkodga to'g'rilang...</p>
+    </div>
   </div>
 
   <!-- Savatga qo'shish oynasi (miqdor/narx) -->
