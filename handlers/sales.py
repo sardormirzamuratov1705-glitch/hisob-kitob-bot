@@ -9,7 +9,7 @@ import config
 import database as db
 import keyboards as kb
 import alerts
-from access_control import get_shop_id, get_branch_id
+from access_control import get_shop_id, get_branch_id, get_role
 
 router = Router()
 
@@ -215,7 +215,10 @@ async def sale_cancel(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
     except Exception:
         pass
-    await callback.message.answer("Savdo bekor qilindi.", reply_markup=kb.kirim_chiqim_menu())
+    # "🛒 Savdo" endi Kirim/Chiqim ichida emas, asosiy menyuda mustaqil tugma -
+    # shuning uchun bekor qilingach ham asosiy menyuga qaytariladi.
+    role = await get_role(callback.from_user.id)
+    await callback.message.answer("Savdo bekor qilindi.", reply_markup=kb.main_menu(role))
 
 
 @router.callback_query(SaleFlow.choosing, F.data == "sale_confirm")
@@ -581,8 +584,11 @@ async def _finalize_sale(message: Message, state: FSMContext):
         method_label = {"naqd": "💵 Naqd", "plastik": "💳 Plastik"}.get(payment_method, "")
         method_line = f"\nTo'lov turi: {method_label}" if method_label else ""
 
+    # "🛒 Savdo" endi Kirim/Chiqim ichida emas, asosiy menyuda mustaqil tugma -
+    # shuning uchun savdo yakunlangach ham asosiy menyuga qaytariladi.
+    role = await get_role(message.chat.id)
     await message.answer(
         f"✅ Savdo yakunlandi!\n\n" + "\n".join(lines) + f"\n\n<b>Jami: {total:.0f} so'm</b>{method_line}",
-        reply_markup=kb.kirim_chiqim_menu(),
+        reply_markup=kb.main_menu(role),
         parse_mode="HTML"
     )
