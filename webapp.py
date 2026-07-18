@@ -152,18 +152,7 @@ async def api_products(request: web.Request):
 
     query = request.query.get("q", "")
     products = await _sellable_products(auth["shop_id"], query)
-    payload = [
-        {
-            "id": p["id"],
-            "name": p["name"],
-            "quantity": p["quantity"],
-            "price": p["price"],
-            "sell_price": p.get("sell_price"),
-            "min_price": p.get("min_price"),
-            "discount_price": (db.product_discount_info(p) or {}).get("price"),
-        }
-        for p in products
-    ]
+    payload = [_product_payload(p) for p in products]
     return web.json_response({"products": payload})
 
 
@@ -171,6 +160,7 @@ def _product_payload(p: dict) -> dict:
     """api_products va api_cross_sell bitta xil shakldagi mahsulot obyektini
     qaytarishi uchun umumiy funksiya - front-end (app.js) ikkalasini ham
     bitta renderProducts()/openAddModal() bilan ishlata oladi."""
+    discount = db.product_discount_info(p)
     return {
         "id": p["id"],
         "name": p["name"],
@@ -178,7 +168,8 @@ def _product_payload(p: dict) -> dict:
         "price": p["price"],
         "sell_price": p.get("sell_price"),
         "min_price": p.get("min_price"),
-        "discount_price": (db.product_discount_info(p) or {}).get("price"),
+        "discount_price": discount["price"] if discount else None,
+        "discount_days_left": discount["days_left"] if discount else None,
     }
 
 
