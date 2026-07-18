@@ -1450,6 +1450,21 @@ async def set_suspicious_rule(shop_id: int, key: str, value):
     await set_setting(f"susp_{key}_{shop_id}", str(value))
 
 
+async def count_today_transactions_by_performer(shop_id: int, performed_by: int) -> int:
+    """SHUBHALI HOLATLAR - 9-BOSQICH (7-qoida): bugun shu xodim (yoki egasi)
+    tomonidan kiritilgan transactions yozuvlari sonini qaytaradi (savdo va
+    qo'lda kiritilgan kirim/chiqim - barchasi shu jadvalda)."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM transactions WHERE shop_id = ? AND performed_by = ? "
+            "AND date(created_at) = ?",
+            (shop_id, performed_by, today),
+        )
+        row = await cursor.fetchone()
+        return row[0] or 0
+
+
 # ---------- 7-BOSQICH: TO'LOVLARNI QO'LDA TASDIQLASH ----------
 
 async def create_payment(owner_id: int, amount: float, plan: str, days: int,
