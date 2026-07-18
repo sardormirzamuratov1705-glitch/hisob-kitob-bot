@@ -226,7 +226,7 @@ async def cancel_sale_yes(callback: CallbackQuery):
         await callback.answer()
         return
     sale_id = int(callback.data.replace("cancelsaleyes_", ""))
-    result = await db.cancel_sale(shop_id, sale_id)
+    result = await db.cancel_sale(shop_id, sale_id, performed_by=callback.from_user.id)
     await callback.answer()
     if not result:
         await callback.message.edit_text(f"🧾 #{sale_id} - bu savdo topilmadi (avval bekor qilingan bo'lishi mumkin).")
