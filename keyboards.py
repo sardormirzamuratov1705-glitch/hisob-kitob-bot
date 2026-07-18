@@ -186,9 +186,25 @@ def sellers_menu() -> ReplyKeyboardMarkup:
     builder.button(text="➕ Sotuvchi qo'shish")
     builder.button(text="🔗 Sotuvchi uchun link")
     builder.button(text="📋 Sotuvchilar ro'yxati")
+    builder.button(text="🔐 Sklad ruxsati")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
+
+
+def sklad_permission_kb(allowed: bool) -> InlineKeyboardMarkup:
+    """8-BOSQICH: "🔐 Sklad ruxsati" bosilganda ko'rsatiladigan tugmalar -
+    hozirgi holat ✅ bilan belgilanadi, ikkinchisi bosilsa handlers/sellers.py
+    dagi sklad_perm_on/sklad_perm_off callback'i ishlaydi. allowed - hozirgi
+    db.get_sellers_can_add_stock() qiymati (Mini App "Sklad" bo'limidagi
+    sotuvchi uchun)."""
+    builder = InlineKeyboardBuilder()
+    on_mark = "✅ " if allowed else ""
+    off_mark = "✅ " if not allowed else ""
+    builder.button(text=f"{on_mark}🔓 Sotuvchiga ruxsat berilgan", callback_data="sklad_perm_on")
+    builder.button(text=f"{off_mark}🚫 Faqat egaga (sotuvchiga taqiqlangan)", callback_data="sklad_perm_off")
+    builder.adjust(1, 1)
+    return builder.as_markup()
 
 
 def seller_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
