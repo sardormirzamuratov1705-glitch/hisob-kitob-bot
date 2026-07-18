@@ -86,14 +86,40 @@ def users_menu() -> ReplyKeyboardMarkup:
     builder.button(text="➕ Do'kon egasi qo'shish")
     builder.button(text="🔗 Bir martalik link")
     builder.button(text="📋 Do'kon egalari ro'yxati")
+    builder.button(text="💳 Kutilayotgan to'lovlar")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
-def owner_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
+def owner_action_kb(telegram_id: int, blocked: bool = False) -> InlineKeyboardMarkup:
+    """9-BOSQICH: do'kon egalari ro'yxatidagi har bir ega ostidagi
+    boshqaruv tugmalari - obunani uzaytirish, majburiy bloklash/blokdan
+    chiqarish va o'chirish. blocked - shu eganing hozirgi
+    subscription_status='blocked' holatidami (True bo'lsa "Blokdan
+    chiqarish" tugmasi ko'rsatiladi, aks holda "Majburiy bloklash")."""
     builder = InlineKeyboardBuilder()
+    builder.button(text="➕ Uzaytirish", callback_data=f"extend_menu:{telegram_id}")
+    if blocked:
+        builder.button(text="✅ Blokdan chiqarish", callback_data=f"unblock_owner:{telegram_id}")
+    else:
+        builder.button(text="🚫 Majburiy bloklash", callback_data=f"block_owner:{telegram_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"remove_owner_{telegram_id}")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup()
+
+
+def extend_subscription_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    """9-BOSQICH: "➕ Uzaytirish" bosilganda ko'rsatiladigan muddat tanlash
+    tugmalari - tayyor variantlar (+30/+90/+365 kun) yoki admin qo'lda
+    erkin kun sonini kiritishi uchun."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="+30 kun", callback_data=f"extend_days:{telegram_id}:30")
+    builder.button(text="+90 kun", callback_data=f"extend_days:{telegram_id}:90")
+    builder.button(text="+365 kun", callback_data=f"extend_days:{telegram_id}:365")
+    builder.button(text="✏️ Erkin kun kiritish", callback_data=f"extend_custom:{telegram_id}")
+    builder.button(text="⬅️ Orqaga", callback_data=f"extend_back:{telegram_id}")
+    builder.adjust(3, 1, 1)
     return builder.as_markup()
 
 
