@@ -522,6 +522,23 @@ async def init_db():
             """
         )
 
+        # AUDIT JURNALI - kim, qachon, nima qilgani (sezilarli/moliyaviy
+        # amallar: kirim/chiqim, savdo bekor qilish, mahsulot o'chirish va h.k.).
+        # Yozuvlar hech qachon o'zgartirilmaydi/o'chirilmaydi - shu jadval
+        # boshqa jadvallardagi yozuv o'chib ketgan taqdirda ham iz qoldiradi.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_id INTEGER NOT NULL,
+                actor_id INTEGER,
+                action TEXT NOT NULL,
+                details TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
         await db.commit()
 
 
@@ -1300,12 +1317,13 @@ async def set_owner_current_branch(telegram_id: int, branch_id):
         await db.commit()
 
 
-async def delete_product(shop_id: int, product_id: int):
+async def delete_product(shop_id: int, product_id: int, performed_by: int = None, product_name: str = None):
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await db.execute(
             "DELETE FROM products WHERE id = ? AND shop_id = ?", (product_id, shop_id)
         )
         await db.commit()
+    await log_action(shop_id, performed_by, "Mahsulot o'chirildi", product_name or f"#{product_id}")
 
 
 async def mark_product_sold(shop_id: int, product_id: int):
@@ -1500,7 +1518,12 @@ async def add_transaction(shop_id: int, type_: str, amount: float, description: 
             (shop_id, type_, amount, description, _now(), payment_method, performed_by, branch_id),
         )
         await db.commit()
-        return cursor.lastrowid
+        tx_id = cursor.lastrowid
+
+    label = "Kirim" if type_ == "income" else "Chiqim"
+    first_line = (description or "").split("\n")[0]
+    await log_action(shop_id, performed_by, label, f"#{tx_id}, {amount:.0f} so'm - {first_line}")
+    return tx_id
 
 
 async def get_payment_method_totals(shop_id: int, type_: str = "income", branch_id=None):
@@ -1556,7 +1579,40 @@ async def get_totals(shop_id: int, branch_id=None):
 
 # ---------- SAVDO TARKIBI / BOG'LAB SOTISH (CROSS-SELL) ----------
 
-async def cancel_sale(shop_id: int, sale_id: int):
+async def _actor_name(shop_id: int, actor_id: int) -> str:
+    if not actor_id:
+        return "Noma'lum"
+    if actor_id == shop_id:
+        return "Do'kon egasi"
+    seller = await get_seller(actor_id)
+    if seller:
+        return seller.get("seller_name") or seller.get("full_name") or f"Xodim #{actor_id}"
+    return f"#{actor_id}"
+
+
+async def log_action(shop_id: int, actor_id: int, action: str, details: str = ""):
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        await db.execute(
+            "INSERT INTO audit_log (shop_id, actor_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)",
+            (shop_id, actor_id, action, details, _now()),
+        )
+        await db.commit()
+
+
+async def get_audit_log(shop_id: int, limit: int = 30):
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM audit_log WHERE shop_id = ? ORDER BY id DESC LIMIT ?",
+            (shop_id, limit),
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+        for row in rows:
+            row["actor_name"] = await _actor_name(shop_id, row["actor_id"])
+        return rows
+
+
+async def cancel_sale(shop_id: int, sale_id: int, performed_by: int = None):
     """Savdoni butunlay bekor qiladi: mahsulot miqdorlarini qaytaradi, sale_items
     va tegishli transactions (aralash to'lovda ikkalasini ham) yozuvlarini o'chiradi.
     Natija: {'total': ..., 'items': [...]} yoki None (savdo topilmasa)."""
@@ -1607,6 +1663,10 @@ async def cancel_sale(shop_id: int, sale_id: int):
         await db.execute("DELETE FROM transactions WHERE shop_id = ? AND id = ?", (shop_id, sale_id))
         await db.commit()
 
+        await log_action(
+            shop_id, performed_by, "Savdo bekor qilindi",
+            f"#{sale_id}, summa: {total:.0f} so'm, {len(items)} ta mahsulot",
+        )
         return {"total": total, "items": items}
 
 
