@@ -64,7 +64,22 @@ def sellers_menu() -> ReplyKeyboardMarkup:
 
 def seller_action_kb(telegram_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="🔄 Filialni o'zgartirish", callback_data=f"seller_branch_menu_{telegram_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"remove_seller_{telegram_id}")
+    builder.adjust(1, 1)
+    return builder.as_markup()
+
+
+def seller_branch_choice_kb(telegram_id: int, branches, current_branch_id=None) -> InlineKeyboardMarkup:
+    """Sotuvchini boshqa filialga ko'chirish uchun filiallar ro'yxati.
+    "Bosh filial" (filialsiz) variant ham har doim mavjud."""
+    builder = InlineKeyboardBuilder()
+    mark = "✅" if current_branch_id is None else "🏠"
+    builder.button(text=f"{mark} Bosh filial", callback_data=f"seller_branch_set_{telegram_id}_0")
+    for b in branches:
+        mark = "✅" if b["id"] == current_branch_id else "🏢"
+        builder.button(text=f"{mark} {b['name']}", callback_data=f"seller_branch_set_{telegram_id}_{b['id']}")
+    builder.adjust(1)
     return builder.as_markup()
 
 
