@@ -488,7 +488,12 @@ const BARCODE_FORMATS = window.Html5QrcodeSupportedFormats
 
 let html5QrCode = null;
 let scanHandled = false;
-let scannerMode = "sale"; // 7-BOSQICH: "sale" (Savdo, uzluksiz savatga qo'shish) | "sklad" (bitta-bittalab, miqdor kiritish oynasi)
+// YANGI REJA - 6-BOSQICH: endi UCHALA rejim ham ("sale", "sklad",
+// "sklad_new") bitta-bittalab ishlaydi - skanerlandi -> kamera
+// to'xtaydi -> tegishli oyna ochiladi -> keyingisi uchun foydalanuvchi
+// 📷 tugmasini yana bosadi (avvalgi "sale" uchun uzluksiz-skanerlash
+// dizayni bekor qilindi, qarang: handleSaleBarcodeScan izohi).
+let scannerMode = "sale"; // "sale" | "sklad" | "sklad_new"
 
 function setScannerStatus(text, type) {
   const box = el("scanner-status");
@@ -496,14 +501,6 @@ function setScannerStatus(text, type) {
   box.classList.remove("scanner-status-success", "scanner-status-error");
   if (type === "success") box.classList.add("scanner-status-success");
   if (type === "error") box.classList.add("scanner-status-error");
-}
-
-function resetScannerStatusSoon(delay = 1600) {
-  setTimeout(() => {
-    if (!el("modal-scanner").classList.contains("hidden")) {
-      setScannerStatus(defaultScannerStatusText());
-    }
-  }, delay);
 }
 
 function defaultScannerStatusText() {
