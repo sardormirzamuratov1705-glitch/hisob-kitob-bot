@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 
 import config
 import database as db
@@ -98,11 +98,15 @@ class OwnerOnlyMiddleware(BaseMiddleware):
     faqat bosh admin (config.ADMIN_IDS), bazaga qo'shilgan do'kon egalari va
     ularning sotuvchilariga ochiq.
 
-    Yagona istisno: /start buyrug'i - bu mijozlarga qarz eslatmasi uchun
-    yuborilgan shaxsiy link (t.me/bot?start=debt_<id>) orqali botni ochish
-    imkonini beradi. handlers/start.py o'zi bu holatda faqat "botga ulandi"
-    xabarini beradi va hech qanday menyu ko'rsatmaydi - shuning uchun bu yerda
-    /start ni oddiy o'tkazib yuborish xavfsiz.
+    Ikkita istisno:
+    1) /start buyrug'i - bu mijozlarga qarz eslatmasi uchun yuborilgan
+       shaxsiy link (t.me/bot?start=debt_<id>) orqali botni ochish imkonini
+       beradi, shuningdek notanish odamga "landing" oynasini ko'rsatadi.
+       handlers/start.py o'zi ruxsatsiz holatlarda faqat shu ekranlarni
+       beradi va hech qanday maxfiy menyu ko'rsatmaydi - shuning uchun
+       /start ni oddiy o'tkazib yuborish xavfsiz.
+    2) "self_register" callback tugmasi - landing oynasidagi "Ro'yxatdan
+       o'tish" tugmasi notanish odam uchun ham ishlashi kerak.
 
     Boshqa BARCHA xabar/tugma bosish (matn, callback) begona foydalanuvchidan
     kelsa - hech narsa qilinmasdan e'tiborsiz qoldiriladi.
@@ -120,6 +124,12 @@ class OwnerOnlyMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if isinstance(event, Message) and event.text and event.text.startswith("/start"):
+            return await handler(event, data)
+
+        # "Landing" oynasidagi "📝 Ro'yxatdan o'tish" tugmasi - hali botga
+        # umuman notanish (is_authorized=False) odam ham buni bosa olishi
+        # kerak, aks holda tugma jim (hech narsa qilmay) qolib ketadi.
+        if isinstance(event, CallbackQuery) and event.data == "self_register":
             return await handler(event, data)
 
         if user:
