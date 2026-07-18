@@ -157,6 +157,62 @@ async def branch_comparison_report(message: Message):
     await message.answer(_format_branch_comparison(rows), parse_mode="HTML")
 
 
+_UZ_MONTHS = {
+    "01": "Yanvar", "02": "Fevral", "03": "Mart", "04": "Aprel", "05": "May", "06": "Iyun",
+    "07": "Iyul", "08": "Avgust", "09": "Sentabr", "10": "Oktabr", "11": "Noyabr", "12": "Dekabr",
+}
+
+
+def _format_month_uz(month_key: str) -> str:
+    """'YYYY-MM' ni 'Iyul 2026' ko'rinishiga o'tkazadi. Format noto'g'ri
+    bo'lsa - o'zgarishsiz qaytaradi."""
+    try:
+        year, month = month_key.split("-")
+        return f"{_UZ_MONTHS.get(month, month)} {year}"
+    except ValueError:
+        return month_key
+
+
+@router.message(F.text == "📈 Oylik prognoz")
+async def monthly_forecast_report(message: Message):
+    """OYLIK FOYDA PROGNOZI - 14-BOSQICH: oxirgi 6 oylik savdo/foyda
+    tarixini va (agar kamida bitta TO'LIQ tugagan oy bo'lsa) keyingi oy
+    uchun oddiy o'rtachaga asoslangan prognozni ko'rsatadi. Batafsil
+    o'sish/pasayish tahlili (trend) - 15-bosqichda alohida qo'shiladi,
+    bu yerda faqat "oddiy hisoblash" (oxirgi oylar o'rtachasi) bor."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    history = await db.get_monthly_profit_history(shop_id, months=6)
+    forecast = await db.get_profit_forecast(shop_id)
+
+    blocks = ["📈 <b>Oylik foyda — so'nggi 6 oy</b>"]
+    month_lines = [
+        f"• {_format_month_uz(h['month'])}: {h['sales_count']} ta chek, foyda {h['profit']:.0f} so'm"
+        for h in history
+    ]
+    blocks.append("\n".join(month_lines))
+
+    any_data = any(h["sales_count"] for h in history)
+    if not any_data:
+        blocks.append("Hozircha savdo tarixi yo'q.")
+    elif forecast:
+        blocks.append(
+            f"🔮 <b>Prognoz — {_format_month_uz(forecast['forecast_month'])}</b>\n"
+            f"Oxirgi {forecast['based_on_months']} oy o'rtachasi asosida taxminiy foyda: "
+            f"<b>{forecast['forecast_profit']:.0f} so'm</b>\n"
+            f"(o'rtacha savdo summasi: {forecast['avg_sales_total']:.0f} so'm)"
+        )
+    else:
+        blocks.append(
+            "🔮 Prognoz uchun kamida bitta TO'LIQ tugagan oylik savdo tarixi kerak "
+            "(joriy oy hali tugamagani uchun hisobga olinmaydi)."
+        )
+
+    await message.answer("\n\n".join(blocks), parse_mode="HTML")
+
+
 def _format_top_products(top_selling, top_profit, scope_name: str = ""):
     lines = []
     if scope_name:
