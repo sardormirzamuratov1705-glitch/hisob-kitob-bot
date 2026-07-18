@@ -1,10 +1,35 @@
 import os
+from datetime import datetime, timedelta, timezone as _timezone
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+
+# ---------- 5-BOSQICH: VAQT MINTAQASI ----------
+# Railway (va ko'pchilik boshqa hosting)da server odatda UTC vaqtida ishlaydi,
+# lekin botning barcha foydalanuvchilari O'zbekistonda (UTC+5, DST YO'Q -
+# yil bo'yi o'zgarmaydi). Agar bazaga/kunlik hisobot vaqtiga oddiy
+# datetime.now() (ya'ni server/UTC vaqti) yozilsa - savdo vaqtlari, "bugungi
+# holat", kunlik hisobot yuborilish vaqti va h.k. haqiqiy Toshkent vaqtidan
+# 5 soatga siljib qoladi (masalan UTC kechasi soat 00:00-05:00 oralig'ida
+# "bugun" Toshkentda allaqachon ERTASI kun bo'ladi).
+#
+# Shuning uchun butun botda datetime.now() o'RNIGA config.now() ishlatiladi -
+# u har doim, server qayerda joylashganidan qat'i nazar, Toshkent vaqtini
+# qaytaradi (naiv datetime sifatida, ya'ni .strftime()/.date()/timedelta
+# arifmetikasi eskisidek ishlayveradi - hech qayerda qo'shimcha o'zgartirish
+# kerak emas).
+TASHKENT_TZ = _timezone(timedelta(hours=5))
+
+
+def now() -> datetime:
+    """Har doim Toshkent (UTC+5) vaqtini qaytaradi - server vaqti (odatda
+    UTC) qanday bo'lishidan qat'i nazar. datetime.now()ning to'g'ridan-to'g'ri
+    o'rnini bosadi (naiv datetime qaytaradi)."""
+    return datetime.now(TASHKENT_TZ).replace(tzinfo=None)
+
 
 # Mahsulot rasmlari shu kanalga yuboriladi va file_id o'sha yerdan olinadi.
 # Kanal ID manfiy sondan boshlanadi, masalan: -1001234567890
@@ -40,7 +65,8 @@ PAYMENT_CLICK_NUMBER = os.getenv("PAYMENT_CLICK_NUMBER", "+998 90 123 45 67")
 PAYMENT_PAYME_NUMBER = os.getenv("PAYMENT_PAYME_NUMBER", "+998 90 123 45 67")
 
 # ---------- 6-BOSQICH: KUNLIK HISOBOT YUBORISH VAQTI ----------
-# Har kuni shu vaqtda (SERVER vaqti bo'yicha, Railway'da odatda UTC!) barcha
+# Har kuni shu vaqtda (O'ZBEKISTON/Toshkent vaqti bo'yicha, UTC+5 - config.now()
+# orqali, server qayerda joylashganidan qat'i nazar) barcha
 # do'kon egalariga avtomatik kunlik hisobot yuboriladi (alerts.py,
 # main.py._daily_report_loop). .env orqali "HH:MM" formatida o'zgartiring,
 # masalan: DAILY_REPORT_TIME=21:30
