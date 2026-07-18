@@ -292,6 +292,21 @@ async def api_sale_submit(request: web.Request):
     return web.json_response({"ok": True, "sale_id": outcome["sale_id"], "total": outcome["total"]})
 
 
+def _no_cache_file_response(path: Path) -> web.FileResponse:
+    """DIQQAT (KESH MUAMMOSI TUZATILDI): Telegram Desktop/mobil webview
+    statik fayllarni (index.html/app.js/style.css) juda qattiq keshlab
+    qo'yadi - shu sababli kod yangilab deploy qilingandan keyin ham
+    foydalanuvchida ESKI app.js ishlab qolishi mumkin edi (masalan initData
+    tuzatishi kabi muhim javob bermay qolganday tuyulishi). Shu headerlar
+    orqali brauzer/webview har safar serverdan yangi nusxa so'rashga
+    majburlanadi."""
+    resp = web.FileResponse(path)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 async def webapp_index(request: web.Request):
     """"/webapp" VA "/webapp/" - ikkalasi ham index.html'ni qaytaradi.
 
@@ -301,15 +316,15 @@ async def webapp_index(request: web.Request):
     show_index=False bo'lgani uchun "403 Forbidden" qaytaradi. Shu sababli
     endi har bir fayl uchun ANIQ (aniq nomi bilan) route beriladi - hech
     qanday noaniqlik/403 xavfi qolmaydi."""
-    return web.FileResponse(Path(config.WEBAPP_STATIC_DIR) / "index.html")
+    return _no_cache_file_response(Path(config.WEBAPP_STATIC_DIR) / "index.html")
 
 
 async def webapp_app_js(request: web.Request):
-    return web.FileResponse(Path(config.WEBAPP_STATIC_DIR) / "app.js")
+    return _no_cache_file_response(Path(config.WEBAPP_STATIC_DIR) / "app.js")
 
 
 async def webapp_style_css(request: web.Request):
-    return web.FileResponse(Path(config.WEBAPP_STATIC_DIR) / "style.css")
+    return _no_cache_file_response(Path(config.WEBAPP_STATIC_DIR) / "style.css")
 
 
 def create_web_app(bot) -> web.Application:
