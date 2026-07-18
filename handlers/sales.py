@@ -559,16 +559,22 @@ async def _finalize_sale(message: Message, state: FSMContext):
         pass
 
 
-async def _finalize_sale_locked(message: Message, state: FSMContext):
-    shop_id = await get_shop_id(message.chat.id)
-    if shop_id is None:
-        await state.clear()
-        return
+async def perform_sale_transaction(bot, shop_id: int, performed_by: int, results: list,
+                                    payment_method: str, mixed_cash: float = None,
+                                    mixed_card: float = None, notify_chat_id: int = None) -> dict:
+    """Savdoning "biznes qoidalari" qismi - Telegram Message/FSMContext'ga
+    BOG'LIQ EMAS: sklad miqdorini kamaytiradi, kirim yozuvini yaratadi,
+    kanaldagi postni yangilaydi, shubhali holatlarni tekshiradi.
 
-    performed_by = message.chat.id
-    data = await state.get_data()
-    results = data.get("results", [])
+    results: [{"id":product_id, "name":.., "qty":.., "price":..}, ...]
+    Qaytaradi: {"sale_id":.., "total":.., "lines":[matn qatorlari]}
 
+    MUHIM (WEB APP - 1-BOSQICH): bu funksiya endi ikkita joydan chaqiriladi -
+    Telegramdagi eski matnli savdo oqimi (_finalize_sale_locked, pastda) VA
+    veb-app API'si (webapp.py). Shu orqali ikkala yo'lda ham AYNAN BIR XIL
+    qoidalar (sklad, kirim, shubhali tekshiruv) ta'minlanadi - biznes
+    mantiqni ikki joyda alohida-alohida yozib, keyinchalik ikkisi bir-biridan
+    farqlab qolish xavfi yo'q."""
     total = 0.0
     lines = []
     sale_lines = []
@@ -580,8 +586,8 @@ async def _finalize_sale_locked(message: Message, state: FSMContext):
         new_quantity = product["quantity"] - r["qty"]
         await db.update_product_quantity(shop_id, r["id"], new_quantity)
         await alerts.notify_stock_change(
-            message.bot, shop_id, product, product["quantity"], new_quantity,
-            also_notify_chat_id=message.chat.id,
+            bot, shop_id, product, product["quantity"], new_quantity,
+            also_notify_chat_id=notify_chat_id,
         )
         # SHUBHALI HOLATLAR - 9-BOSQICH: tekshiruv uchun SOTUVDAN OLDINGI
         # product holatini saqlab qo'yamiz (product["quantity"] hali eski).
@@ -591,7 +597,7 @@ async def _finalize_sale_locked(message: Message, state: FSMContext):
         if product.get("channel_message_id") and config.CHANNEL_ID:
             try:
                 caption = f"📦 {product['name']} | {new_quantity:.0f} dona qoldi"
-                await message.bot.edit_message_caption(
+                await bot.edit_message_caption(
                     chat_id=config.CHANNEL_ID,
                     message_id=product["channel_message_id"],
                     caption=caption,
@@ -604,12 +610,11 @@ async def _finalize_sale_locked(message: Message, state: FSMContext):
         lines.append(f"• {r['name']}: {r['qty']:.0f} dona x {r['price']:.0f} so'm = {line_total:.0f} so'm")
 
     description = "Savdo:\n" + "\n".join(lines)
-    payment_method = data.get("payment_method")
-    branch_id = await get_branch_id(message.chat.id)
+    branch_id = await get_branch_id(performed_by)
 
     if payment_method == "aralash":
-        cash = data.get("mixed_cash", 0.0)
-        card = data.get("mixed_card", 0.0)
+        cash = mixed_cash or 0.0
+        card = mixed_card or 0.0
         if cash > 0:
             sale_id = await db.add_transaction(
                 shop_id, "income", cash, description, payment_method="naqd",
@@ -636,16 +641,34 @@ async def _finalize_sale_locked(message: Message, state: FSMContext):
         await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"], performed_by=performed_by)
         await db.mark_product_sold(shop_id, r["id"])
 
-    # SHUBHALI HOLATLAR - 9/10-BOSQICH: real vaqtda tekshiruv + topilsa
-    # do'kon egasiga darhol Telegram ogohlantirishi (loglash bilan bir
-    # qatorda - owner o'zining xabarlarini o'chirib qo'ygan bo'lsa ham,
-    # logda iz qolaveradi).
     suspicious_flags = await alerts.evaluate_sale_suspicions(shop_id, sale_lines, performed_by=performed_by)
     if suspicious_flags:
         logging.warning(
             f"[SHUBHALI - SAVDO] shop={shop_id} sale_id={sale_id}: " + " | ".join(suspicious_flags)
         )
-        await alerts.send_suspicious_alert(message.bot, shop_id, suspicious_flags, "savdo")
+        await alerts.send_suspicious_alert(bot, shop_id, suspicious_flags, "savdo")
+
+    return {"sale_id": sale_id, "total": total, "lines": lines}
+
+
+async def _finalize_sale_locked(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.chat.id)
+    if shop_id is None:
+        await state.clear()
+        return
+
+    performed_by = message.chat.id
+    data = await state.get_data()
+    results = data.get("results", [])
+    payment_method = data.get("payment_method")
+
+    outcome = await perform_sale_transaction(
+        message.bot, shop_id, performed_by, results, payment_method,
+        mixed_cash=data.get("mixed_cash"), mixed_card=data.get("mixed_card"),
+        notify_chat_id=message.chat.id,
+    )
+    total = outcome["total"]
+    lines = outcome["lines"]
 
     await state.clear()
 
