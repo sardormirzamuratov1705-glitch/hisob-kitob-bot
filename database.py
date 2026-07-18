@@ -40,6 +40,13 @@ def compute_subscription_access(subscription_status: str, subscription_until: st
         # Bosh admin majburan yopgan - grace period ham qo'llanmaydi.
         return {"allowed": False, "status": "blocked", "days_left": None, "in_grace": False}
 
+    if subscription_status == "pending_trial":
+        # O'zi ro'yxatdan o'tgan, lekin bosh admin hali sinov muddatini
+        # tasdiqlamagan/kun sonini belgilamagan holat - subscription_until
+        # hali NULL, shuning uchun quyidagi umumiy "unknown" filialiga
+        # tushib ketmasligi uchun bu yerda alohida ushlanadi.
+        return {"allowed": False, "status": "pending_trial", "days_left": None, "in_grace": False}
+
     if not subscription_status or not subscription_until:
         # Obuna tizimi hali bu ega uchun ishlamagan/noma'lum holat (nazariy
         # jihatdan bo'lmasligi kerak, chunki init_db() barcha eskilarga ham
@@ -1149,6 +1156,59 @@ async def add_owner(telegram_id: int, full_name: str = None, username: str = Non
             (telegram_id, full_name, username, added_by, _now(), trial_until),
         )
         await db.commit()
+
+
+async def add_owner_pending(telegram_id: int, full_name: str = None, username: str = None):
+    """O'ZI (bosh admin ishtirokisiz) landing oynadagi "📝 Ro'yxatdan o'tish"
+    tugmasi orqali ro'yxatdan o'tgan yangi do'kon egasi shu funksiya bilan
+    qo'shiladi - trial DARHOL boshlanmaydi, subscription_status='pending_trial'
+    va subscription_until=NULL bilan "kutish" holatida qoladi. Bosh admin
+    keyinchalik approve_trial() orqali necha kunlik sinov muddati berishni
+    o'zi belgilaydi (yoki reject_trial() bilan butunlay rad etadi)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at, "
+            "subscription_status, subscription_until, trial_used) "
+            "VALUES (?, ?, ?, NULL, ?, 'pending_trial', NULL, 0)",
+            (telegram_id, full_name, username, _now()),
+        )
+        await db.commit()
+
+
+async def approve_trial(telegram_id: int, days: int, decided_by: int):
+    """Bosh admin "pending_trial" holatidagi egaga necha kunlik sinov
+    muddati berishni tasdiqlaydi - subscription_status='trial',
+    subscription_until=bugun+days qilib belgilanadi. Ega "pending_trial"
+    holatida bo'lmasa (masalan allaqachon tasdiqlangan/rad etilgan) -
+    None qaytaradi (ikki marta bosilib qolishning oldini olish uchun)."""
+    owner = await get_owner(telegram_id)
+    if not owner or owner.get("subscription_status") != "pending_trial":
+        return None
+
+    trial_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE owners SET subscription_status = 'trial', subscription_until = ?, trial_used = 1 "
+            "WHERE telegram_id = ?",
+            (trial_until, telegram_id),
+        )
+        await db.commit()
+
+    owner["subscription_status"] = "trial"
+    owner["subscription_until"] = trial_until
+    return owner
+
+
+async def reject_trial(telegram_id: int, decided_by: int) -> bool:
+    """Bosh admin "pending_trial" holatidagi ro'yxatdan o'tish so'rovini
+    rad etadi - ega bazadan butunlay o'chiriladi (xohlasa keyinroq qaytadan
+    ro'yxatdan o'tishi mumkin bo'ladi). Ega "pending_trial" holatida
+    bo'lmasa - False qaytaradi."""
+    owner = await get_owner(telegram_id)
+    if not owner or owner.get("subscription_status") != "pending_trial":
+        return False
+    await remove_owner(telegram_id)
+    return True
 
 
 async def remove_owner(telegram_id: int) -> bool:
