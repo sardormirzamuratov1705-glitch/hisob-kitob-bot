@@ -998,6 +998,74 @@ async def get_profit_forecast(shop_id: int, lookback_months: int = 3, branch_id=
     }
 
 
+# ---------- TREND TAHLILI - 15-BOSQICH: HAFTALIK KESIM ----------
+
+async def get_weekly_profit_history(shop_id: int, weeks: int = 8, branch_id=None) -> list:
+    """Oxirgi `weeks` ta KALENDAR HAFTA (Dushanbadan Yakshanbagacha, joriy
+    hafta ham kiradi, hali tugamagan bo'lsa ham) bo'yicha savdo/foyda
+    statistikasini xronologik tartibda qaytaradi - get_monthly_profit_history
+    bilan bir xil mantiq, faqat oy o'rniga hafta kesimida (15-BOSQICH: trend
+    tahlili uchun - "oy/hafta kesimida o'sish/pasayish").
+
+    branch_id - filial bo'yicha kesim (None=barcha, 0=Bosh filial, <id>=filial).
+
+    Qaytaradi - har bir element:
+        {"week_start": "YYYY-MM-DD", "week_end": "YYYY-MM-DD",
+         "sales_count": int, "sales_total": float, "profit": float}
+    """
+    days = weeks * 7
+    start_date = (datetime.now() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+
+    clause, extra = _branch_filter(branch_id, column="t.branch_id")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            f"""
+            SELECT date(t.created_at) AS day,
+                   COUNT(DISTINCT si.sale_id) AS sales_count,
+                   COALESCE(SUM(si.quantity * si.price), 0) AS sales_total,
+                   COALESCE(SUM((si.price - p.price) * si.quantity), 0) AS profit
+            FROM sale_items si
+            JOIN products p ON p.id = si.product_id
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ? AND date(t.created_at) >= ?{clause}
+            GROUP BY day
+            """,
+            [shop_id, start_date] + extra,
+        )
+        daily = {
+            r[0]: {"sales_count": r[1], "sales_total": r[2], "profit": r[3]}
+            for r in await cursor.fetchall()
+        }
+
+    # Har bir haftani "shu haftaning DUSHANBASI" bilan belgilab, kunlar
+    # bo'yicha yig'ilgan natijalarni shu haftaga jamlaymiz.
+    today = datetime.now()
+    monday_today = today - timedelta(days=today.weekday())
+    week_starts = [monday_today - timedelta(weeks=i) for i in range(weeks)]
+    week_starts.reverse()
+
+    history = []
+    for w_start in week_starts:
+        w_end = w_start + timedelta(days=6)
+        sales_count = sales_total = profit = 0
+        d = w_start
+        while d <= w_end:
+            data = daily.get(d.strftime("%Y-%m-%d"))
+            if data:
+                sales_count += data["sales_count"]
+                sales_total += data["sales_total"]
+                profit += data["profit"]
+            d += timedelta(days=1)
+        history.append({
+            "week_start": w_start.strftime("%Y-%m-%d"),
+            "week_end": w_end.strftime("%Y-%m-%d"),
+            "sales_count": sales_count,
+            "sales_total": sales_total,
+            "profit": profit,
+        })
+    return history
+
+
 async def delete_branch(shop_id: int, branch_id: int) -> bool:
     async with aiosqlite.connect(config.DB_PATH) as db:
         await _ensure_branch_schema(db)
