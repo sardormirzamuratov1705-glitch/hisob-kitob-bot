@@ -7,6 +7,16 @@ import aiosqlite
 import config
 
 
+# ---------- OBUNA TIZIMI SOZLAMALARI ----------
+# Yangi ro'yxatdan o'tgan do'kon egasiga beriladigan bepul sinov muddati.
+SUBSCRIPTION_TRIAL_DAYS = 14
+# Obuna tizimi kodga qo'shilishidan OLDIN allaqachon mavjud bo'lgan (eski)
+# do'kon egalari to'satdan bloklanib qolmasligi uchun bir martalik
+# "sovg'a" muddati - init_db() ichida faqat subscription_status hali
+# NULL bo'lgan qatorlarga qo'llaniladi (1-bosqich, moslik siyosati).
+SUBSCRIPTION_GRANDFATHER_DAYS = 30
+
+
 async def init_db():
     db_dir = os.path.dirname(config.DB_PATH)
     if db_dir:
@@ -296,6 +306,69 @@ async def init_db():
             )
             """
         )
+
+        # ---------- OBUNA TIZIMI ----------
+        # Har bir do'kon egasi obuna holatiga ega:
+        #   "trial"   - bepul sinov muddatida
+        #   "active"  - to'langan/faol
+        #   "expired" - muddati tugagan (hali bloklash/eslatma logikasi
+        #               keyingi bosqichlarda qo'shiladi, bu yerda faqat ustun)
+        #   "blocked" - bosh admin tomonidan majburan yopilgan
+        # subscription_until - obuna qaysi sanagacha amal qilishi (YYYY-MM-DD).
+        # trial_used - shu ega birinchi (bepul) sinov muddatidan foydalanganmi -
+        # keyinchalik qayta ro'yxatdan o'tib yana trial olishning oldini olish uchun.
+        for column, col_type in [
+            ("subscription_status", "TEXT"),
+            ("subscription_until", "TEXT"),
+            ("trial_used", "INTEGER NOT NULL DEFAULT 0"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE owners ADD COLUMN {column} {col_type}")
+            except Exception:
+                pass
+
+        # MOSLIK: bu funksiya qo'shilishidan OLDIN allaqachon ro'yxatdan o'tgan
+        # do'kon egalarida subscription_status hali NULL (yuqoridagi ALTER TABLE
+        # ularga qiymat bermaydi). Ularni to'satdan bloklab qo'ymaslik uchun bir
+        # martalik SUBSCRIPTION_GRANDFATHER_DAYS kunlik faol obuna beramiz.
+        # Shart faqat subscription_status IS NULL qatorlarga tegadi - shuning
+        # uchun bu UPDATE har init_db() chaqirilganda ishlasa ham, allaqachon
+        # qiymat olgan qatorlarni qayta o'zgartirmaydi (idempotent).
+        grandfather_until = (datetime.now() + timedelta(days=SUBSCRIPTION_GRANDFATHER_DAYS)).strftime("%Y-%m-%d")
+        await db.execute(
+            "UPDATE owners SET subscription_status = 'active', subscription_until = ?, "
+            "trial_used = 1 WHERE subscription_status IS NULL",
+            (grandfather_until,),
+        )
+
+        # Har bir to'lov urinishi (hozircha qo'lda tasdiqlanadigan chek,
+        # keyinchalik Click/Payme orqali avtomatik tasdiqlanadigan to'lovlar ham
+        # shu jadvalga yoziladi) - bosh admin "kutilayotgan to'lovlar"ni shu
+        # yerdan ko'radi; tasdiqlangach owners.subscription_until shunga qarab
+        # uzaytiriladi (keyingi bosqichlarda).
+        #   plan   - tarif nomi ("1oy" / "3oy" / "12oy" / "erkin")
+        #   days   - shu to'lov qancha kunlik obuna berishi (erkin muddatda
+        #            admin qo'lda kiritadigan qiymat shu yerga yoziladi)
+        #   status - "pending" / "approved" / "rejected"
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                plan TEXT,
+                days INTEGER,
+                method TEXT NOT NULL DEFAULT 'qolda',
+                status TEXT NOT NULL DEFAULT 'pending',
+                screenshot_file_id TEXT,
+                comment TEXT,
+                created_at TEXT NOT NULL,
+                decided_by INTEGER,
+                decided_at TEXT
+            )
+            """
+        )
+
         await db.commit()
 
 
@@ -993,11 +1066,16 @@ async def get_top_profit_products(shop_id: int, limit: int = 10, branch_id=None)
 
 async def add_owner(telegram_id: int, full_name: str = None, username: str = None,
                      added_by: int = None):
+    """Yangi do'kon egasi qo'shiladi va SUBSCRIPTION_TRIAL_DAYS kunlik bepul
+    sinov muddati bilan boshlanadi (bosh admin qo'lda qo'shsa ham, o'zi
+    ro'yxatdan o'tsa ham - farqi yo'q, har doim trialdan boshlanadi)."""
+    trial_until = (datetime.now() + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).strftime("%Y-%m-%d")
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (telegram_id, full_name, username, added_by, _now()),
+            "INSERT OR IGNORE INTO owners (telegram_id, full_name, username, added_by, created_at, "
+            "subscription_status, subscription_until, trial_used) "
+            "VALUES (?, ?, ?, ?, ?, 'trial', ?, 1)",
+            (telegram_id, full_name, username, added_by, _now(), trial_until),
         )
         await db.commit()
 
