@@ -77,6 +77,10 @@
       <input id="sklad-search-input" type="text" placeholder="Mahsulot qidirish...">
       <button id="sklad-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
     </div>
+    <!-- YANGI REJA - 2-BOSQICH: mavjud mahsulotlar ro'yxatida yo'q,
+         BUTUNLAY YANGI mahsulotni shu yerdan (bot bilan yozishmasdan)
+         qo'shish uchun tugma. -->
+    <button id="sklad-new-product-btn" type="button" class="secondary-btn">➕ Yangi mahsulot qo'shish</button>
     <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
     <div id="sklad-product-list" class="product-list"></div>
   </div>
@@ -131,6 +135,33 @@
       <div class="modal-actions">
         <button id="sklad-modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
         <button id="sklad-modal-add-btn" class="primary-btn">➕ Skladga qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- YANGI REJA - 2-BOSQICH: SKLAD - butunlay YANGI mahsulot yaratish
+       oynasi (nomi/narxi/miqdori). Barkod maydoni 3-bosqichda shu
+       oynaga qo'shiladi. -->
+  <div id="modal-sklad-new" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi mahsulot</h3>
+
+      <label>Mahsulot nomi</label>
+      <input id="sklad-new-name-input" type="text" placeholder="Masalan: Coca-Cola 0.5L">
+
+      <label>Tannarx (so'mda)</label>
+      <input id="sklad-new-price-input" type="number" inputmode="decimal" placeholder="0">
+
+      <label>Sotish narxi (ixtiyoriy)</label>
+      <input id="sklad-new-sell-price-input" type="number" inputmode="decimal" placeholder="0">
+
+      <label>Boshlang'ich miqdori</label>
+      <input id="sklad-new-quantity-input" type="number" inputmode="decimal" value="1">
+
+      <div class="modal-actions">
+        <button id="sklad-new-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="sklad-new-save-btn" class="primary-btn">✅ Qo'shish</button>
       </div>
     </div>
   </div>
