@@ -19,6 +19,43 @@ class ExtendSubscription(StatesGroup):
     waiting_custom_days = State()
 
 
+class EditPaymentSetting(StatesGroup):
+    waiting_value = State()
+
+
+# 10-BOSQICH: "⚙️ To'lov sozlamalari" bo'limida tahrirlanadigan kalitlar va
+# ularning odam o'qiydigan nomlari. PRICE_SETTING_KEYS - shu kalitlar uchun
+# kiritilgan qiymat albatta musbat butun son bo'lishi tekshiriladi (so'm).
+SETTING_LABELS = {
+    "price_1m": "1 oylik obuna narxi",
+    "price_3m": "3 oylik obuna narxi",
+    "price_12m": "12 oylik obuna narxi",
+    "card_number": "Karta raqami",
+    "card_holder": "Karta egasi (F.I.Sh.)",
+    "click_number": "Click raqami",
+    "payme_number": "Payme raqami",
+}
+PRICE_SETTING_KEYS = {"price_1m", "price_3m", "price_12m"}
+
+
+async def _payment_settings_text() -> str:
+    plans = await db.get_subscription_plans()
+    requisites = await db.get_payment_requisites()
+    price_1m = f"{plans['1m']['price']:,}".replace(",", " ")
+    price_3m = f"{plans['3m']['price']:,}".replace(",", " ")
+    price_12m = f"{plans['12m']['price']:,}".replace(",", " ")
+    return (
+        "⚙️ <b>To'lov sozlamalari</b>\n\n"
+        f"📦 1 oy: {price_1m} so'm\n"
+        f"📦 3 oy: {price_3m} so'm\n"
+        f"📦 12 oy: {price_12m} so'm\n\n"
+        f"💳 Karta: <code>{requisites['card_number']}</code> ({requisites['card_holder']})\n"
+        f"🔵 Click: {requisites['click_number']}\n"
+        f"🟢 Payme: {requisites['payme_number']}\n\n"
+        "O'zgartirish uchun quyidagilardan birini tanlang:"
+    )
+
+
 def _owner_card_text(o: dict, access: dict | None) -> str:
     """9-BOSQICH: ro'yxatdagi va uzaytirish/bloklash amalidan keyin qayta
     chizib bo'lmaydigan (chunki tugmalar o'chib qoladi) kartochka matni -
@@ -408,3 +445,79 @@ async def list_pending_payments(message: Message, state: FSMContext):
             )
         else:
             await message.answer(caption, reply_markup=kb.payment_decision_kb(p["id"]))
+
+
+# ---------- 10-BOSQICH: OBUNA NARXLARI VA TO'LOV REKVIZITLARINI TAHRIRLASH ----------
+# Ilgari SUBSCRIPTION_PRICE_* va PAYMENT_CARD_NUMBER/... faqat .env orqali
+# o'zgartirilar edi (redeploy talab qilardi). Endi bosh admin buni
+# to'g'ridan-to'g'ri bot ichidan, redeploy'siz o'zgartira oladi - qiymatlar
+# "settings" jadvalida saqlanadi (database.get_setting/set_setting).
+
+@router.message(F.text == "⚙️ To'lov sozlamalari")
+async def open_payment_settings(message: Message, state: FSMContext):
+    await state.clear()
+    if not is_admin(message.from_user.id):
+        return
+    await message.answer(
+        await _payment_settings_text(),
+        parse_mode="HTML",
+        reply_markup=kb.payment_settings_kb(),
+    )
+
+
+@router.callback_query(F.data.startswith("editset:"))
+async def edit_setting_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    key = callback.data.split(":", 1)[1]
+    label = SETTING_LABELS.get(key)
+    if not label:
+        await callback.answer()
+        return
+
+    await callback.answer()
+    await state.set_state(EditPaymentSetting.waiting_value)
+    await state.update_data(setting_key=key)
+
+    if key in PRICE_SETTING_KEYS:
+        hint = "faqat son kiriting, masalan: 60000"
+    else:
+        hint = "matn kiriting"
+    await callback.message.answer(f"✏️ Yangi <b>{label}</b> qiymatini kiriting ({hint}).", parse_mode="HTML")
+
+
+@router.message(EditPaymentSetting.waiting_value)
+async def edit_setting_finish(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    key = data.get("setting_key")
+    label = SETTING_LABELS.get(key, key)
+    text = (message.text or "").strip()
+
+    if key in PRICE_SETTING_KEYS:
+        if not text.isdigit() or int(text) <= 0:
+            await message.answer("Iltimos, musbat butun son yuboring (masalan: 60000).")
+            return
+        value = str(int(text))
+        display_value = f"{int(text):,}".replace(",", " ") + " so'm"
+    else:
+        if not text:
+            await message.answer("Iltimos, matn yuboring.")
+            return
+        value = text
+        display_value = text
+
+    await db.set_setting(key, value)
+    await state.clear()
+
+    await message.answer(f"✅ {label} yangilandi: {display_value}")
+    await message.answer(
+        await _payment_settings_text(),
+        parse_mode="HTML",
+        reply_markup=kb.payment_settings_kb(),
+    )
