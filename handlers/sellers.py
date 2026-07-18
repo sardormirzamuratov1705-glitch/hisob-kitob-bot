@@ -5,7 +5,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 import database as db
 import keyboards as kb
-from access_control import is_admin
+from access_control import is_admin, get_branch_id
 
 router = Router()
 
@@ -60,7 +60,7 @@ async def create_seller_invite_link(message: Message):
     if shop_id is None:
         return
 
-    token = await db.create_seller_invite(shop_id, message.from_user.id)
+    token = await db.create_seller_invite(shop_id, message.from_user.id, branch_id=await get_branch_id(shop_id))
     me = await message.bot.get_me()
     link = f"https://t.me/{me.username}?start=seller_{token}"
 
@@ -120,12 +120,19 @@ async def add_seller_finish(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    await db.add_seller(target_id, shop_id, full_name, username, added_by=message.from_user.id)
+    branch_id = await get_branch_id(shop_id)
+    await db.add_seller(target_id, shop_id, full_name, username, added_by=message.from_user.id, branch_id=branch_id)
     await state.clear()
 
     name_part = f" ({full_name})" if full_name else ""
+    branch_label = "Bosh filial"
+    if branch_id:
+        branch = await db.get_branch(shop_id, branch_id)
+        if branch:
+            branch_label = branch["name"]
     await message.answer(
-        f"✅ Sotuvchi qo'shildi{name_part}. ID: {target_id}\n\n"
+        f"✅ Sotuvchi qo'shildi{name_part}. ID: {target_id}\n"
+        f"🏢 Filial: {branch_label}\n\n"
         f"Endi u botga /start bosib kira oladi - lekin faqat savdo, mahsulotlar "
         f"ro'yxatini ko'rish (tannarxsiz) va qarz daftar bilan ishlay oladi. "
         f"Birinchi /start'da undan ismi va telefon raqami so'raladi - shu "
@@ -160,10 +167,73 @@ async def list_sellers(message: Message, state: FSMContext):
         telegram_label = s["full_name"] or (f"@{s['username']}" if s["username"] else str(s["telegram_id"]))
         name_line = f"👤 {s['seller_name']}" if s.get("seller_name") else f"👤 {telegram_label}"
         phone_line = f"\n📞 {s['phone_number']}" if s.get("phone_number") else "\n📞 (hali kiritmagan)"
+
+        branch_label = "Bosh filial"
+        if s.get("branch_id"):
+            branch = await db.get_branch(shop_id, s["branch_id"])
+            if branch:
+                branch_label = branch["name"]
+
         await message.answer(
-            f"{name_line}{phone_line}\nTelegram: {telegram_label}\nID: {s['telegram_id']}",
+            f"{name_line}{phone_line}\n🏢 Filial: {branch_label}\nTelegram: {telegram_label}\nID: {s['telegram_id']}",
             reply_markup=kb.seller_action_kb(s["telegram_id"]),
         )
+
+
+@router.callback_query(F.data.startswith("seller_branch_menu_"))
+async def seller_branch_menu_cb(callback: CallbackQuery):
+    shop_id = callback.from_user.id
+    if not await db.is_owner(shop_id):
+        await callback.answer("Bu bo'lim faqat do'kon egasi uchun.", show_alert=True)
+        return
+
+    seller_telegram_id = int(callback.data.replace("seller_branch_menu_", ""))
+    seller = await db.get_seller(seller_telegram_id)
+    if not seller or seller.get("shop_id") != shop_id:
+        await callback.answer("Sotuvchi topilmadi.", show_alert=True)
+        return
+
+    branches = await db.get_branches(shop_id)
+    await callback.message.answer(
+        "Sotuvchini qaysi filialga o'tkazishni tanlang:",
+        reply_markup=kb.seller_branch_choice_kb(seller_telegram_id, branches, seller.get("branch_id")),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("seller_branch_set_"))
+async def seller_branch_set_cb(callback: CallbackQuery):
+    shop_id = callback.from_user.id
+    if not await db.is_owner(shop_id):
+        await callback.answer("Bu bo'lim faqat do'kon egasi uchun.", show_alert=True)
+        return
+
+    parts = callback.data.split("_")
+    seller_telegram_id = int(parts[-2])
+    branch_val = parts[-1]
+    branch_id = None if branch_val == "0" else int(branch_val)
+
+    # branch_id belgilangan bo'lsa, shu do'konga tegishli ekanini tekshiramiz -
+    # boshqa do'kon egasining filial id'sini taxmin qilib yubormasin.
+    if branch_id is not None:
+        branch = await db.get_branch(shop_id, branch_id)
+        if not branch:
+            await callback.answer("Filial topilmadi.", show_alert=True)
+            return
+        branch_label = branch["name"]
+    else:
+        branch_label = "Bosh filial"
+
+    moved = await db.set_seller_branch(shop_id, seller_telegram_id, branch_id)
+    if not moved:
+        await callback.answer("Sotuvchi topilmadi.", show_alert=True)
+        return
+
+    await callback.answer(f"✅ \"{branch_label}\" filialiga ko'chirildi.")
+    try:
+        await callback.message.edit_text(f"🏢 Sotuvchi endi: {branch_label}")
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.startswith("remove_seller_"))
