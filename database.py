@@ -1407,6 +1407,21 @@ async def set_daily_report_enabled(shop_id: int, enabled: bool):
     await set_setting(f"daily_report_enabled_{shop_id}", "1" if enabled else "0")
 
 
+async def get_suspicious_alert_enabled(shop_id: int) -> bool:
+    """SHUBHALI HOLATLAR - 10-BOSQICH: shu do'kon egasi real vaqtdagi
+    "shubhali holat" ogohlantirishlarini o'zi o'chirib qo'yganmi,
+    tekshiradi. Standart holat - YOQILGAN (daily_report_enabled bilan bir
+    xil pattern)."""
+    value = await get_setting(f"suspicious_alert_enabled_{shop_id}", "1")
+    return value != "0"
+
+
+async def set_suspicious_alert_enabled(shop_id: int, enabled: bool):
+    """SHUBHALI HOLATLAR - 10-BOSQICH: owner "🚨 Shubhali holatlar"
+    bo'limidan o'zi yoqadi/o'chiradi (handlers/reports.py)."""
+    await set_setting(f"suspicious_alert_enabled_{shop_id}", "1" if enabled else "0")
+
+
 # ---------- SHUBHALI HOLATLAR - 8-BOSQICH: DO'KON EGASI SOZLAYDIGAN CHEGARALAR ----------
 # Har bir chegara - shu do'kon uchun alohida "settings" kalitida saqlanadi
 # (masalan "susp_discount_percent_12345"). Hali sozlanmagan bo'lsa -
