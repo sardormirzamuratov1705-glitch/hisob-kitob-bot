@@ -343,10 +343,35 @@ def product_action_kb(product_id: int, allow_manage: bool = True, category_id=No
         builder.button(text="❌ Chegirmani bekor qilish", callback_data=f"prod_discount_cancel_{product_id}")
     else:
         builder.button(text="🏷 Chegirma belgilash", callback_data=f"prod_discount_{product_id}")
+    builder.button(text="✏️ Narxlarni tahrirlash", callback_data=f"prod_edit_{product_id}")
     builder.button(text="🔀 Bo'limni o'zgartirish", callback_data=f"prod_move_{product_id}")
     if category_id is not None:
         builder.button(text="🚫 Bo'limdan chiqarish", callback_data=f"prod_unassign_{product_id}")
     builder.button(text="🗑 O'chirish", callback_data=f"del_product_{product_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def product_edit_field_kb(product_id: int, product: dict) -> InlineKeyboardMarkup:
+    """\"✏️ Narxlarni tahrirlash\" bosilganda ko'rsatiladigan - eski
+    mahsulotning qaysi narx ustunini o'zgartirish tanlanadigan menyu.
+    Har bir tugmada hozirgi qiymat ko'rsatiladi (belgilanmagan bo'lsa -
+    shunday deb yoziladi)."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=f"💰 Tannarx: {product['price']:.0f} so'm",
+        callback_data=f"prod_editfield_{product_id}:price",
+    )
+    sell_price = product.get("sell_price")
+    builder.button(
+        text=f"🏷 Sotuv narxi: {sell_price:.0f} so'm" if sell_price else "🏷 Sotuv narxi: belgilanmagan",
+        callback_data=f"prod_editfield_{product_id}:sell_price",
+    )
+    min_price = product.get("min_price")
+    builder.button(
+        text=f"⬇️ Eng past narx: {min_price:.0f} so'm" if min_price else "⬇️ Eng past narx: belgilanmagan",
+        callback_data=f"prod_editfield_{product_id}:min_price",
+    )
     builder.adjust(1)
     return builder.as_markup()
 
