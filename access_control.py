@@ -2,10 +2,19 @@ import logging
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.state import StatesGroup, State
 
 import config
 import database as db
 import keyboards as kb
+
+
+# 7-BOSQICH: chek skrinshotini kutish holati. Bu yerda (handlers emas,
+# access_control.py'da) e'lon qilingan, chunki OwnerOnlyMiddleware'ga ham,
+# handlers/subscription.py'ga ham kerak - ikkalasi ham shu bitta klassni
+# import qiladi, aylanma import (circular import)ning oldi shunday olinadi.
+class PaymentFlow(StatesGroup):
+    waiting_receipt = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -143,10 +152,11 @@ class OwnerOnlyMiddleware(BaseMiddleware):
     seller sifatida bazada mavjud) odam ham, agar uning (yoki uni biriktirgan
     do'kon egasining) obunasi trial+grace period bilan birga tugagan bo'lsa,
     bundan buyon O'TKAZILMAYDI - handler chaqirilmasdan, o'rniga
-    "⛔ Obunangiz tugagan" ekrani ko'rsatiladi. Yagona istisno - "💳 Obunani
-    uzaytirish" tugmasi va undan keyingi tarif tanlash (extend_subscription,
-    sub_plan:*), aks holda odam obunani uzaytirish oynasiga umuman kira
-    olmay qolardi.
+    "⛔ Obunangiz tugagan" ekrani ko'rsatiladi. Istisnolar - "💳 Obunani
+    uzaytirish" tugmasi, undan keyingi tarif tanlash (extend_subscription,
+    sub_plan:*) va nihoyat chek skrinshotining o'zi (PaymentFlow.waiting_receipt
+    holatida yuborilgan rasm) - aks holda odam obunani uzaytirishning
+    aynan o'zini amalga oshira olmay qolardi.
 
     DIQQAT: bu middleware faqat botga umuman kirish huquqini tekshiradi.
     Sotuvchining aniq QAYSI bo'limlarga (Sklad narx belgilash, Kirim/Chiqim,
@@ -169,6 +179,14 @@ class OwnerOnlyMiddleware(BaseMiddleware):
                 event.data == "extend_subscription" or (event.data or "").startswith("sub_plan:")
             ):
                 return await handler(event, data)
+
+            # Ega chek skrinshotini yuborayotgan bo'lsa (PaymentFlow.waiting_receipt
+            # holatida, rasm bilan) - bloklangan bo'lsa ham o'tkazamiz, aks holda
+            # obunani uzaytirishning aynan o'zi imkonsiz bo'lib qolardi.
+            if isinstance(event, Message) and event.photo:
+                fsm_state = data.get("state")
+                if fsm_state is not None and await fsm_state.get_state() == PaymentFlow.waiting_receipt.state:
+                    return await handler(event, data)
 
             await self._send_blocked_screen(event)
             return
