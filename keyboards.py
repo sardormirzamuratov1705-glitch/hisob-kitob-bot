@@ -320,16 +320,27 @@ def payment_method_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def product_action_kb(product_id: int, allow_manage: bool = True, category_id=None):
+def product_action_kb(product_id: int, allow_manage: bool = True, category_id=None, has_discount: bool = False):
     """allow_manage=False bo'lsa (sotuvchi) - hech qanday tugma qaytarilmaydi
     (None), chunki miqdor FAQAT savdo orqali kamayishi kerak - qo'lda
     o'zgartirish yoki o'chirish faqat do'kon egasiga tegishli.
 
     category_id - mahsulotning hozirgi bo'limi. Agar mahsulot biror bo'limga
-    tegishli bo'lsa, "Bo'limdan chiqarish" tugmasi ham ko'rsatiladi."""
+    tegishli bo'lsa, "Bo'limdan chiqarish" tugmasi ham ko'rsatiladi.
+
+    has_discount - mahsulotda hozir faol chegirma bor-yo'qligi
+    (database.product_discount_info() natijasidan). Bor bo'lsa "bekor
+    qilish" tugmasi, yo'q bo'lsa "belgilash" tugmasi ko'rsatiladi. Chegirma
+    belgilash/bekor qilish FAQAT do'kon egasiga ruxsat etilgan - haqiqiy
+    tekshiruv handlers/products.py'dagi callback handlerda
+    (access_control.is_owner_level) amalga oshiriladi."""
     if not allow_manage:
         return None
     builder = InlineKeyboardBuilder()
+    if has_discount:
+        builder.button(text="❌ Chegirmani bekor qilish", callback_data=f"prod_discount_cancel_{product_id}")
+    else:
+        builder.button(text="🏷 Chegirma belgilash", callback_data=f"prod_discount_{product_id}")
     builder.button(text="🔀 Bo'limni o'zgartirish", callback_data=f"prod_move_{product_id}")
     if category_id is not None:
         builder.button(text="🚫 Bo'limdan chiqarish", callback_data=f"prod_unassign_{product_id}")
@@ -448,8 +459,10 @@ def debt_action_kb(debt_id: int, customer_linked: bool = False) -> InlineKeyboar
     return builder.as_markup()
 
 
-def sale_price_kb(sell_price=None, min_price=None) -> InlineKeyboardMarkup:
+def sale_price_kb(sell_price=None, min_price=None, discount_price=None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    if discount_price:
+        builder.button(text=f"🏷 Chegirma narxi: {discount_price:.0f}", callback_data="sale_price_discount")
     if sell_price:
         builder.button(text=f"💰 Savdo narxi: {sell_price:.0f}", callback_data="sale_price_sell")
     if min_price:
