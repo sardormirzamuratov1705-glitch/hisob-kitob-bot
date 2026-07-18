@@ -224,9 +224,10 @@ def hisobot_menu() -> ReplyKeyboardMarkup:
     builder.button(text="📊 Umumiy hisobot")
     builder.button(text="🏢 Filial bo'yicha hisobot")
     builder.button(text="🔔 Kunlik hisobot")
+    builder.button(text="🚨 Shubhali holatlar")
     builder.button(text="📥 Excel yuklab olish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -239,6 +240,18 @@ def daily_report_settings_kb(enabled: bool) -> InlineKeyboardMarkup:
         builder.button(text="🔕 O'chirish", callback_data="daily_report_toggle:off")
     else:
         builder.button(text="🔔 Yoqish", callback_data="daily_report_toggle:on")
+    return builder.as_markup()
+
+
+def suspicious_alert_settings_kb(enabled: bool) -> InlineKeyboardMarkup:
+    """SHUBHALI HOLATLAR - 10-BOSQICH: "🚨 Shubhali holatlar" bo'limidagi
+    yoqish/o'chirish tugmasi - handlers/reports.py'dagi
+    suspicious_alert_toggle: callback'iga olib boradi."""
+    builder = InlineKeyboardBuilder()
+    if enabled:
+        builder.button(text="🔕 O'chirish", callback_data="suspicious_alert_toggle:off")
+    else:
+        builder.button(text="🚨 Yoqish", callback_data="suspicious_alert_toggle:on")
     return builder.as_markup()
 
 
