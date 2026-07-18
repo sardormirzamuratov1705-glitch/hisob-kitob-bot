@@ -241,7 +241,7 @@ async def restore_db_file(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "✅ Baza muvaffaqiyatli tiklandi (barcha do'konlar). Qaytadan kiritishning hojati yo'q.",
-        reply_markup=kb.hisobot_menu(),
+        reply_markup=kb.main_menu("admin"),
     )
 
 
