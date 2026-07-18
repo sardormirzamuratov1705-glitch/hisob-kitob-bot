@@ -314,9 +314,14 @@ async def sale_quantity_input(message: Message, state: FSMContext):
     hint = ""
     if product.get("sell_price"):
         hint = f" (odatiy savdo narxi: {product['sell_price']:.0f} so'm)"
+    discount = db.product_discount_info(product)
     await message.answer(
         f"Qanchaga sotildi{hint}?",
-        reply_markup=kb.sale_price_kb(product.get("sell_price"), product.get("min_price")),
+        reply_markup=kb.sale_price_kb(
+            product.get("sell_price"),
+            product.get("min_price"),
+            discount["price"] if discount else None,
+        ),
     )
 
 
@@ -406,6 +411,26 @@ async def sale_price_min_cb(callback: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await _record_sale_price(callback.message, product["min_price"], state)
+
+
+@router.callback_query(SaleFlow.price, F.data == "sale_price_discount")
+async def sale_price_discount_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+
+    data = await state.get_data()
+    product = await db.get_product(shop_id, data["current_product_id"])
+    discount = db.product_discount_info(product) if product else None
+    if not discount:
+        await callback.answer("Chegirma muddati tugagan yoki bekor qilingan", show_alert=True)
+        return
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _record_sale_price(callback.message, discount["price"], state)
 
 
 @router.callback_query(SaleFlow.price, F.data == "sale_price_custom")
