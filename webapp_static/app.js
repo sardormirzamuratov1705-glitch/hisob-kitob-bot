@@ -51,6 +51,26 @@ let selectedPaymentMethod = null;
 let currentModalProduct = null;
 let currentSection = "sale"; // 6-BOSQICH: "sale" (Savdo) | "sklad" (Sklad)
 
+// 8-BOSQICH: api_me javobidan to'ldiriladi (init() ichida) - "Sklad"
+// bo'limida "➕ Skladga qo'shish" imkoniyati shu bayroqqa qarab
+// ko'rsatiladi/qulflanadi (do'kon egasi buni sotuvchi uchun o'chirib
+// qo'ygan bo'lishi mumkin - qarang: handlers/sellers.py "🔐 Sklad ruxsati").
+let currentUser = { role: null, canAddStock: true };
+
+async function loadMe() {
+  try {
+    const res = await apiFetch(API.me);
+    if (!res.ok) return;
+    const data = await res.json();
+    currentUser.role = data.role;
+    currentUser.canAddStock = data.can_add_stock !== false;
+  } catch (e) {
+    // Jim o'tkazamiz - bu faqat UI'ni yaxshilash uchun, savdo oqimini
+    // to'xtatib qo'ymasligi kerak (asosiy 401 tekshiruvi baribir
+    // loadProducts()'da bo'ladi).
+  }
+}
+
 const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
@@ -716,13 +736,14 @@ function renderSkladProducts(products) {
     const lowBadge = p.quantity <= 0
       ? '<div class="discount-badge">⚠️ Skladda yo\'q</div>'
       : "";
+    const actionIcon = currentUser.canAddStock ? "➕" : "🔒";
     card.innerHTML = `
       <div>
         <div class="name">${escapeHtml(p.name)}</div>
         <div class="stock">${formatNum(p.quantity)} dona bor</div>
         ${lowBadge}
       </div>
-      <div class="add-icon">➕</div>
+      <div class="add-icon">${actionIcon}</div>
     `;
     card.addEventListener("click", () => openSkladAddModal(p));
     list.appendChild(card);
@@ -732,6 +753,10 @@ function renderSkladProducts(products) {
 let currentSkladProduct = null;
 
 function openSkladAddModal(product) {
+  if (!currentUser.canAddStock) {
+    tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
+    return;
+  }
   currentSkladProduct = product;
   el("sklad-modal-product-name").textContent = product.name;
   el("sklad-modal-product-stock").textContent = `Hozir skladda ${formatNum(product.quantity)} dona bor`;
@@ -787,11 +812,18 @@ function skladErrorText(data) {
     invalid_item: "Mahsulot ma'lumoti noto'g'ri.",
     missing_product: "Mahsulot tanlanmagan.",
     product_not_found: "Mahsulot topilmadi (ehtimol o'chirilgan).",
+    forbidden: "🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan.",
   };
   return map[data.error] || "Skladga qo'shishda xatolik yuz berdi.";
 }
 
-el("sklad-scan-btn").addEventListener("click", () => openScanner("sklad"));
+el("sklad-scan-btn").addEventListener("click", () => {
+  if (!currentUser.canAddStock) {
+    tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
+    return;
+  }
+  openScanner("sklad");
+});
 
 let skladSearchTimeout = null;
 el("sklad-search-input").addEventListener("input", (e) => {
@@ -804,5 +836,6 @@ el("sklad-search-input").addEventListener("input", (e) => {
 
 (async function init() {
   showScreen("loading");
+  await loadMe();
   await loadProducts();
 })();
