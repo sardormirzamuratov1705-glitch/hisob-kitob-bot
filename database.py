@@ -182,7 +182,8 @@ async def init_db():
                 customer_chat_id INTEGER,
                 customer_username TEXT,
                 taken_date TEXT,
-                paid_amount REAL NOT NULL DEFAULT 0
+                paid_amount REAL NOT NULL DEFAULT 0,
+                last_reminder_at TEXT
             )
             """
         )
@@ -206,6 +207,7 @@ async def init_db():
             ("paid_amount", "REAL NOT NULL DEFAULT 0"),
             ("shop_id", "INTEGER"),
             ("branch_id", "INTEGER"),
+            ("last_reminder_at", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE debts ADD COLUMN {column} {col_type}")
@@ -1895,6 +1897,19 @@ async def get_overdue_debts(shop_id: int, days: int = 3):
         overdue.append(d)
     overdue.sort(key=lambda d: d["days_ago"], reverse=True)
     return overdue
+
+
+async def update_debt_reminder_sent(debt_id: int):
+    """QARZ ESLATMASI - 13-BOSQICH: mijozga to'g'ridan-to'g'ri eslatma
+    yuborilgan paytni belgilaydi - shu orqali send_debt_reminders() mijozni
+    HAR KUNI emas, faqat config.DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS
+    kunda bir marta bezovta qiladi (do'kon egasiga esa hamon HAR KUNI
+    to'liq ro'yxat yuboriladi - o'zgarishsiz)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE debts SET last_reminder_at = ? WHERE id = ?", (_now(), debt_id)
+        )
+        await db.commit()
 
 
 async def mark_debt_paid(shop_id: int, debt_id: int):
