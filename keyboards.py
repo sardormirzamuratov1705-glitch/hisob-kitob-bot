@@ -1,7 +1,22 @@
-from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup
+from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 import config
+
+
+def _add_savdo_button(builder: ReplyKeyboardBuilder):
+    """"🛒 Savdo" tugmasi - agar config.WEBAPP_URL sozlangan bo'lsa (ya'ni
+    veb-server ishlab, HTTPS manzil mavjud bo'lsa) Telegram WebApp (Mini App)
+    sifatida ochiladi - tugma bosilganda ESKI matnli savdo oqimi ISHGA
+    TUSHMAYDI, buning o'rniga Telegram ICHIDA veb-sahifa ochiladi.
+
+    Agar WEBAPP_URL hali sozlanmagan bo'lsa (masalan polling+domensiz ishlab
+    chiqish bosqichida) - oddiy matn tugmasi qoladi va handlers/sales.py'dagi
+    ESKI bosqichma-bosqich savdo oqimi ishlayveradi - hech narsa buzilmaydi."""
+    if config.WEBAPP_URL:
+        builder.add(KeyboardButton(text="🛒 Savdo", web_app=WebAppInfo(url=config.WEBAPP_URL)))
+    else:
+        builder.button(text="🛒 Savdo")
 
 
 def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
@@ -22,14 +37,14 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
         builder.button(text="🗄 Zaxira nusxa")
         builder.adjust(1, 1, 1)
     elif role == "seller":
-        builder.button(text="🛒 Savdo")
+        _add_savdo_button(builder)
         builder.button(text="📋 Mahsulotlar ro'yxati")
         builder.button(text="📒 Qarz daftar")
         builder.button(text="➖ Chiqim qo'shish")
         builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
         builder.adjust(1, 1, 1, 1, 1)
     else:
-        builder.button(text="🛒 Savdo")
+        _add_savdo_button(builder)
         builder.button(text="📦 Sklad")
         builder.button(text="💰 Kirim/Chiqim")
         builder.button(text="📒 Qarz daftar")
