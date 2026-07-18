@@ -600,6 +600,21 @@ async def restore_db_file(message: Message, state: FSMContext):
         os.makedirs(db_dir, exist_ok=True)
     shutil.move(tmp_path, config.DB_PATH)
 
+    # Tiklangan fayl eski struktura bilan bo'lishi mumkin (masalan
+    # subscription_status kabi keyinroq qo'shilgan ustunlar yo'q bo'lishi
+    # mumkin) - shuning uchun joylashtirilgach migratsiyalarni qayta
+    # ishga tushiramiz, aks holda keyingi so'rovlar "no column named ..."
+    # xatosi bilan yiqiladi.
+    try:
+        await db.init_db()
+    except Exception:
+        await message.answer(
+            "⚠️ Baza fayli ko'chirildi, lekin migratsiyani qayta ishga tushirishda xato "
+            "yuz berdi. Botni qo'lda qayta ishga tushiring (restart)."
+        )
+        await state.clear()
+        return
+
     await state.clear()
     await message.answer(
         "✅ Baza muvaffaqiyatli tiklandi (barcha do'konlar). Qaytadan kiritishning hojati yo'q.",
