@@ -895,6 +895,109 @@ async def get_branch_comparison(shop_id: int) -> list:
     return result
 
 
+# ---------- OYLIK FOYDA PROGNOZI - 14-BOSQICH ----------
+
+async def get_monthly_profit_history(shop_id: int, months: int = 6, branch_id=None) -> list:
+    """Oxirgi `months` ta OY (joriy oy ham kiradi, hali tugamagan bo'lsa
+    ham) bo'yicha savdo/foyda statistikasini qaytaradi - eng eskisidan
+    boshlab, xronologik tartibda. Ma'lumot bo'lmagan oylar ham 0 qiymat
+    bilan ro'yxatga kiritiladi (grafik/prognoz uzilib qolmasligi uchun).
+
+    branch_id - filial bo'yicha kesim (None=barcha, 0=Bosh filial, <id>=filial).
+
+    Qaytaradi - har bir element:
+        {"month": "YYYY-MM", "sales_count": int, "sales_total": float, "profit": float}
+    """
+    clause, extra = _branch_filter(branch_id, column="t.branch_id")
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            f"""
+            SELECT strftime('%Y-%m', t.created_at) AS month,
+                   COUNT(DISTINCT si.sale_id) AS sales_count,
+                   COALESCE(SUM(si.quantity * si.price), 0) AS sales_total,
+                   COALESCE(SUM((si.price - p.price) * si.quantity), 0) AS profit
+            FROM sale_items si
+            JOIN products p ON p.id = si.product_id
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ?{clause}
+            GROUP BY month
+            """,
+            [shop_id] + extra,
+        )
+        rows = {r[0]: {"sales_count": r[1], "sales_total": r[2], "profit": r[3]} for r in await cursor.fetchall()}
+
+    # Oxirgi `months` ta oyning "YYYY-MM" ro'yxatini (eskidan yangiga) tuzamiz -
+    # kalendar oylarni to'g'ri kamaytirish uchun kun/yilni qo'lda hisoblaymiz
+    # (masalan yanvardan bir oy oldin - o'tgan yilning dekabri).
+    today = datetime.now()
+    month_keys = []
+    y, m = today.year, today.month
+    for _ in range(months):
+        month_keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+    month_keys.reverse()
+
+    history = []
+    for key in month_keys:
+        data = rows.get(key, {"sales_count": 0, "sales_total": 0, "profit": 0})
+        history.append({
+            "month": key,
+            "sales_count": data["sales_count"],
+            "sales_total": data["sales_total"],
+            "profit": data["profit"],
+        })
+    return history
+
+
+async def get_profit_forecast(shop_id: int, lookback_months: int = 3, branch_id=None) -> dict | None:
+    """OYLIK FOYDA PROGNOZI - 14-BOSQICH: oddiy hisoblash - oxirgi
+    `lookback_months` ta TO'LIQ tugagan oyning (joriy, hali tugamagan oy
+    HISOBGA OLINMAYDI - u to'liqsiz bo'lgani uchun o'rtachani pastga
+    tortib yuboradi) o'rtacha foydasini keyingi oy uchun prognoz sifatida
+    qaytaradi.
+
+    Yetarli tarix bo'lmasa (birorta ham to'liq tugagan oy topilmasa) - None
+    qaytaradi (chaqiruvchi tomonda "hali ma'lumot yetarli emas" ko'rsatiladi).
+
+    Qaytaradi:
+        {
+            "forecast_month": "YYYY-MM",       - prognoz qilinayotgan (keyingi) oy
+            "forecast_profit": float,          - prognoz qilingan foyda
+            "based_on_months": int,            - nechta oy asosida hisoblangan
+            "avg_sales_total": float,          - shu oylarning o'rtacha savdo summasi
+        }
+    """
+    # Joriy oydan bitta oldingi oydan boshlab, orqaga qarab lookback_months
+    # ta oyni olamiz (joriy - hali to'liq tugamagan - kirmaydi).
+    history = await get_monthly_profit_history(shop_id, months=lookback_months + 1, branch_id=branch_id)
+    completed_months = history[:-1]  # oxirgisi - joriy (to'liqsiz) oy, tashlab yuboriladi
+
+    # Faqat haqiqatda faoliyat bo'lgan oylarni hisobga olamiz (butunlay bo'sh
+    # do'kon tarixidan chiqib ketgan "0" oylar o'rtachani asossiz pasaytirmasin).
+    active_months = [m for m in completed_months if m["sales_count"] > 0]
+    if not active_months:
+        return None
+
+    avg_profit = sum(m["profit"] for m in active_months) / len(active_months)
+    avg_sales = sum(m["sales_total"] for m in active_months) / len(active_months)
+
+    today = datetime.now()
+    y, m = today.year, today.month + 1
+    if m > 12:
+        m = 1
+        y += 1
+
+    return {
+        "forecast_month": f"{y:04d}-{m:02d}",
+        "forecast_profit": avg_profit,
+        "based_on_months": len(active_months),
+        "avg_sales_total": avg_sales,
+    }
+
+
 async def delete_branch(shop_id: int, branch_id: int) -> bool:
     async with aiosqlite.connect(config.DB_PATH) as db:
         await _ensure_branch_schema(db)
