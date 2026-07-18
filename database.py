@@ -861,6 +861,54 @@ async def add_branch(shop_id: int, name: str, address: str = None):
         return {"id": cursor.lastrowid, "shop_id": shop_id, "name": name, "address": address}
 
 
+async def ensure_default_branch(shop_id: int):
+    """Do'konda hali BIRORTA HAM (nomlangan) filial yo'q bo'lsa - do'kon
+    egasi ro'yxatdan o'tganda kiritgan do'kon nomini ("Bosh filial" degan
+    yashirin/nomsiz guruh o'rniga) BIRINCHI HAQIQIY filial qilib yaratadi
+    va shu paytgacha filialga bog'lanmagan (branch_id IS NULL) barcha
+    savdo/kirim-chiqim/qarz/sotuvchi yozuvlarini shu yangi filialga
+    ko'chiradi - shunda ular endi hisobot va "🏢 Filiallar" ro'yxatida
+    alohida (ismli) filial sifatida ko'rinadi, adminga ham tushunarli
+    bo'ladi. Do'kon egasining joriy filiali ham shu yangi filialga
+    o'rnatiladi (chunki u aynan hozirgi "joriy holat" edi).
+
+    handlers/branches.py -> ikkinchi (va undan keyingi) filial qo'shilganda
+    bu funksiya hech narsa qilmaydi, chunki branches jadvalida allaqachon
+    yozuv bo'ladi."""
+    existing = await get_branches(shop_id)
+    if existing:
+        return None
+
+    owner = await get_owner(shop_id)
+    default_name = ""
+    if owner:
+        default_name = (owner.get("shop_name") or "").strip() or (owner.get("owner_name") or "").strip()
+    if not default_name:
+        default_name = "Bosh filial"
+
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await _ensure_branch_schema(db)
+        cursor = await db.execute(
+            "INSERT INTO branches (shop_id, name, address, created_at) VALUES (?, ?, NULL, ?)",
+            (shop_id, default_name, _now()),
+        )
+        new_branch_id = cursor.lastrowid
+
+        for table in ("transactions", "debts", "sellers"):
+            await db.execute(
+                f"UPDATE {table} SET branch_id = ? WHERE shop_id = ? AND branch_id IS NULL",
+                (new_branch_id, shop_id),
+            )
+        await db.execute(
+            "UPDATE owners SET current_branch_id = ? "
+            "WHERE telegram_id = ? AND current_branch_id IS NULL",
+            (new_branch_id, shop_id),
+        )
+        await db.commit()
+
+    return {"id": new_branch_id, "shop_id": shop_id, "name": default_name}
+
+
 async def find_branch_by_name(shop_id: int, name: str):
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
