@@ -40,6 +40,14 @@ class SetDiscount(StatesGroup):
     days = State()
 
 
+class EditProductField(StatesGroup):
+    """Eski (mavjud) mahsulotning bitta narx ustunini (tannarx/sotuv
+    narxi/eng past narx) qo'lda tahrirlash - miqdorga tegmaydi. FAQAT
+    do'kon egasiga ruxsat etilgan (har bir handlerda is_owner_level
+    tekshiriladi)."""
+    value = State()
+
+
 class ExcelFill(StatesGroup):
     """Skladni Excel fayl orqali to'ldirish - shablon yuborilgach shu
     holatga o'tiladi va navbatdagi hujjat (.xlsx) shu shop_id'ga qarab
@@ -928,6 +936,129 @@ async def product_discount_days_input(message: Message, state: FSMContext):
         f"{days} kunga belgilandi.",
         parse_mode="HTML",
     )
+
+
+# ---------- ESKI MAHSULOT NARXLARINI TAHRIRLASH (FAQAT DO'KON EGASI) ----------
+# Yangi partiya kirim qilish (RestockPurchase) miqdor qo'shadi va tannarxni
+# o'rtacha hisoblaydi - bu esa shundan farqli, faqat mavjud bitta ustunni
+# (tannarx/sotuv narxi/eng past narx) miqdorga tegmasdan to'g'ridan-to'g'ri
+# almashtirish uchun.
+
+EDIT_FIELD_LABELS = {"price": "Tannarx", "sell_price": "Sotuv narxi", "min_price": "Eng past narx"}
+
+
+@router.callback_query(F.data.startswith("prod_edit_"))
+async def product_edit_start_cb(callback: CallbackQuery):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    if not await is_owner_level(callback.from_user.id):
+        await callback.answer("⛔ Bu amal faqat do'kon egasiga ruxsat etilgan.", show_alert=True)
+        return
+    product_id = int(callback.data.split("_")[-1])
+    product = await db.get_product(shop_id, product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(
+        f"<b>{product['name']}</b> - qaysi narxni o'zgartirmoqchisiz?",
+        reply_markup=kb.product_edit_field_kb(product_id, product),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("prod_editfield_"))
+async def product_edit_field_start_cb(callback: CallbackQuery, state: FSMContext):
+    shop_id = await _require_shop_cb(callback)
+    if shop_id is None:
+        return
+    if not await is_owner_level(callback.from_user.id):
+        await callback.answer("⛔ Bu amal faqat do'kon egasiga ruxsat etilgan.", show_alert=True)
+        return
+    rest = callback.data[len("prod_editfield_"):]
+    product_id_str, field = rest.split(":", 1)
+    product_id = int(product_id_str)
+    product = await db.get_product(shop_id, product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+
+    await state.update_data(edit_product_id=product_id, edit_field=field)
+    await state.set_state(EditProductField.value)
+    await callback.answer()
+    await callback.message.answer(
+        f"<b>{product['name']}</b> uchun yangi {EDIT_FIELD_LABELS[field]} qiymatini kiriting (so'mda):",
+        parse_mode="HTML",
+    )
+
+
+@router.message(EditProductField.value)
+async def product_edit_field_value(message: Message, state: FSMContext):
+    shop_id = await get_shop_id(message.from_user.id)
+    if shop_id is None or not await is_owner_level(message.from_user.id):
+        await state.clear()
+        return
+    try:
+        value = float(message.text.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("Iltimos, faqat raqam kiriting. Masalan: 25000")
+        return
+    if value <= 0:
+        await message.answer("Narx 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
+        return
+
+    data = await state.get_data()
+    product = await db.get_product(shop_id, data["edit_product_id"])
+    if not product:
+        await message.answer("❌ Mahsulot topilmadi.")
+        await state.clear()
+        return
+
+    field = data["edit_field"]
+    price = product["price"]
+    sell_price = product.get("sell_price")
+    min_price = product.get("min_price")
+
+    if field == "price":
+        if sell_price and value > sell_price:
+            await message.answer(
+                f"❌ Tannarx sotuv narxidan ({sell_price:.0f} so'm) katta bo'lishi mumkin emas, "
+                f"aks holda zararga sotasiz. Qaytadan kiriting:"
+            )
+            return
+        if min_price and value > min_price:
+            await message.answer(
+                f"❌ Tannarx eng past narxdan ({min_price:.0f} so'm) katta bo'lishi mumkin emas. Qaytadan kiriting:"
+            )
+            return
+    elif field == "sell_price":
+        if value < price:
+            await message.answer(
+                f"❌ Sotuv narxi tannarxdan ({price:.0f} so'm) past bo'lishi mumkin emas, "
+                f"aks holda zararga ketasiz. Qaytadan kiriting:"
+            )
+            return
+        if min_price and value < min_price:
+            await message.answer(
+                f"❌ Sotuv narxi eng past narxdan ({min_price:.0f} so'm) past bo'lishi mumkin emas. Qaytadan kiriting:"
+            )
+            return
+    elif field == "min_price":
+        if value < price:
+            await message.answer(
+                f"❌ Eng past narx tannarxdan ({price:.0f} so'm) past bo'lishi mumkin emas. Qaytadan kiriting:"
+            )
+            return
+        if sell_price and value > sell_price:
+            await message.answer(
+                f"❌ Eng past narx sotuv narxidan ({sell_price:.0f} so'm) katta bo'lishi mumkin emas. Qaytadan kiriting:"
+            )
+            return
+
+    await db.update_product_field(shop_id, product["id"], field, value)
+    await state.clear()
+    await message.answer(f"✅ {EDIT_FIELD_LABELS[field]} {value:.0f} so'mga o'zgartirildi.")
 
 
 # ---------- MAHSULOTNI BO'LIMLAR ORASIDA KO'CHIRISH / BO'LIMDAN CHIQARISH ----------
