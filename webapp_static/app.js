@@ -146,12 +146,35 @@ function formatNum(n) {
 
 // ---------- SAVATGA QO'SHISH OYNASI ----------
 
+// 5-BOSQICH: skanerlash orqali va qo'lda ("+" bosib) qo'shishning ikkalasi
+// ham BIR XIL tekshiruv qoidalaridan foydalanishi uchun umumiy funksiya -
+// narx/miqdor qoidalari ikki joyda (va kelajakda yana biror joyda) bir-biridan
+// chetlashib ketmasligi uchun.
+function cartValidationError(product, qty, price) {
+  if (!qty || qty <= 0) return "Miqdor 0 dan katta bo'lishi kerak.";
+  if (qty > product.quantity) return `Skladda faqat ${formatNum(product.quantity)} dona bor.`;
+  if (!price || price <= 0) return "Narxni kiriting.";
+  if (product.price && price < product.price) {
+    return `Narx tannarxdan (${formatNum(product.price)} so'm) past bo'lishi mumkin emas.`;
+  }
+  if (product.min_price && price < product.min_price && !product.discount_price) {
+    return `Narx eng past narxdan (${formatNum(product.min_price)} so'm) past bo'lishi mumkin emas.`;
+  }
+  return null;
+}
+
 function openAddModal(product) {
   currentModalProduct = product;
   el("modal-product-name").textContent = product.name;
   el("modal-product-stock").textContent = `Skladda ${formatNum(product.quantity)} dona bor`;
-  el("modal-qty-input").value = 1;
-  el("modal-price-input").value = product.sell_price || product.price || "";
+
+  // Mahsulot savatda ALLAQACHON bor bo'lsa (masalan avval skanerlab
+  // qo'shilgan bo'lsa) - shu yozuvning joriy qty/narxini ko'rsatamiz,
+  // aks holda har safar "1 dona / standart narx"ga qaytarib
+  // tashlagan bo'lardik.
+  const existing = cart.find((c) => c.id === product.id);
+  el("modal-qty-input").value = existing ? existing.qty : 1;
+  el("modal-price-input").value = existing ? existing.price : (product.sell_price || product.price || "");
 
   const hints = el("modal-price-hints");
   hints.innerHTML = "";
@@ -187,24 +210,9 @@ el("modal-add-btn").addEventListener("click", () => {
   const price = parseFloat(el("modal-price-input").value);
   const product = currentModalProduct;
 
-  if (!qty || qty <= 0) {
-    tg.showAlert("Miqdor 0 dan katta bo'lishi kerak.");
-    return;
-  }
-  if (qty > product.quantity) {
-    tg.showAlert(`Skladda faqat ${formatNum(product.quantity)} dona bor.`);
-    return;
-  }
-  if (!price || price <= 0) {
-    tg.showAlert("Narxni kiriting.");
-    return;
-  }
-  if (product.price && price < product.price) {
-    tg.showAlert(`Narx tannarxdan (${formatNum(product.price)} so'm) past bo'lishi mumkin emas.`);
-    return;
-  }
-  if (product.min_price && price < product.min_price && !product.discount_price) {
-    tg.showAlert(`Narx eng past narxdan (${formatNum(product.min_price)} so'm) past bo'lishi mumkin emas.`);
+  const err = cartValidationError(product, qty, price);
+  if (err) {
+    tg.showAlert(err);
     return;
   }
 
@@ -454,8 +462,20 @@ const BARCODE_FORMATS = window.Html5QrcodeSupportedFormats
 let html5QrCode = null;
 let scanHandled = false;
 
-function setScannerStatus(text) {
-  el("scanner-status").textContent = text;
+function setScannerStatus(text, type) {
+  const box = el("scanner-status");
+  box.textContent = text;
+  box.classList.remove("scanner-status-success", "scanner-status-error");
+  if (type === "success") box.classList.add("scanner-status-success");
+  if (type === "error") box.classList.add("scanner-status-error");
+}
+
+function resetScannerStatusSoon(delay = 1600) {
+  setTimeout(() => {
+    if (!el("modal-scanner").classList.contains("hidden")) {
+      setScannerStatus("Kamerani barkodga to'g'irlang...");
+    }
+  }, delay);
 }
 
 async function openScanner() {
@@ -464,7 +484,7 @@ async function openScanner() {
   el("modal-scanner").classList.remove("hidden");
 
   if (!window.Html5Qrcode) {
-    setScannerStatus("Skaner kutubxonasi yuklanmadi. Internetni tekshiring.");
+    setScannerStatus("Skaner kutubxonasi yuklanmadi. Internetni tekshiring.", "error");
     return;
   }
 
@@ -480,7 +500,7 @@ async function openScanner() {
       () => {} // har bir kadrda "topilmadi" - bu normal holat, e'tiborsiz qoldiramiz
     );
   } catch (err) {
-    setScannerStatus("Kameraga ruxsat berilmadi. Telegram sozlamalaridan ruxsat bering.");
+    setScannerStatus("Kameraga ruxsat berilmadi. Telegram sozlamalaridan ruxsat bering.", "error");
   }
 }
 
@@ -502,37 +522,72 @@ async function closeScanner() {
   await stopScanner();
 }
 
+// 5-BOSQICH: skanerlangan mahsulotni savatga ulash.
+//
+// MUHIM DIZAYN QARORI: har bir skanerlashdan keyin modal YOPILMAYDI va
+// kamera to'XTATILMAYDI - do'konda ketma-ket bir nechta tovar
+// skanerlanganda foydalanuvchi har safar "Yopish -> qayta skaner tugmasi ->
+// ochish" bosishga majbur bo'lmasligi kerak (bu haqiqiy savdo
+// tezligiga to'sqinlik qilardi). Buning o'rniga: skanerlandi -> darhol
+// savatga (standart narxda) qo'shiladi -> qisqa "✅ ..." tasdiq matni
+// ko'rsatiladi -> ~1.2 soniyadan keyin skaner o'zi davom etadi. Savdoni
+// tugatish uchun foydalanuvchi "✕" (scanner-close-btn) bosadi.
 async function onBarcodeDecoded(decodedText) {
   if (scanHandled) return; // bitta kadrda bir necha marta chaqirilishining oldini olamiz
   scanHandled = true;
   tg.HapticFeedback.impactOccurred("light");
   setScannerStatus("Qidirilmoqda...");
-  await stopScanner();
-  el("modal-scanner").classList.add("hidden");
-  await lookupProductByBarcode(decodedText);
-}
 
-async function lookupProductByBarcode(code) {
   try {
-    const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(code)}`);
+    const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(decodedText)}`);
     const data = await res.json();
     if (!res.ok) {
-      if (data.error === "not_found") {
-        tg.showAlert(`Bu barkod bo'yicha mahsulot topilmadi:\n${code}`);
-      } else {
-        tg.showAlert("Barkod bo'yicha qidirishda xatolik yuz berdi.");
-      }
+      const msg = data.error === "not_found"
+        ? `Bu barkod bo'yicha mahsulot topilmadi: ${decodedText}`
+        : "Barkod bo'yicha qidirishda xatolik yuz berdi.";
+      setScannerStatus(`❌ ${msg}`, "error");
+      resetScannerStatusSoon();
       return;
     }
-    const product = data.product;
-    if (!product.quantity || product.quantity <= 0) {
-      tg.showAlert(`"${product.name}" skladda tugagan (0 dona).`);
-      return;
-    }
-    openAddModal(product);
+    addScannedProductToCart(data.product);
   } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
+    setScannerStatus(`❌ ${e.message || "Xatolik yuz berdi."}`, "error");
+    resetScannerStatusSoon();
+  } finally {
+    // Bir xil barkod (masalan qo'l bilan ushlab turilgan) darhol yana
+    // o'qib ketmasligi uchun qisqa "sovish" vaqti beriladi.
+    setTimeout(() => { scanHandled = false; }, 1200);
   }
+}
+
+// Skanerlangan mahsulotni savatga qo'shadi: agar savatda ALLAQACHON
+// bo'lsa - miqdorini 1taga oshiradi (narxi o'zgarmaydi, chunki bir xil
+// tovar bir xil chekda odatda bir xil narxda sotiladi); yo'q bo'lsa -
+// standart narxda (savdo narxi, bo'lmasa tannarx) 1 dona qo'shadi.
+// Ikkala holatda ham modal-add oynasidagi BILAN BIR XIL
+// cartValidationError() orqali tekshiriladi.
+function addScannedProductToCart(product) {
+  const existing = cart.find((c) => c.id === product.id);
+  const qty = existing ? existing.qty + 1 : 1;
+  const price = existing ? existing.price : (product.sell_price || product.price || 0);
+
+  const err = cartValidationError(product, qty, price);
+  if (err) {
+    setScannerStatus(`❌ ${err}`, "error");
+    resetScannerStatusSoon();
+    return;
+  }
+
+  if (existing) {
+    existing.qty = qty;
+  } else {
+    cart.push({ id: product.id, name: product.name, qty, price, stock: product.quantity });
+  }
+
+  renderCartBar();
+  tg.HapticFeedback.notificationOccurred("success");
+  setScannerStatus(`✅ ${product.name} — ${formatNum(qty)} dona savatda`, "success");
+  resetScannerStatusSoon();
 }
 
 el("scan-btn").addEventListener("click", openScanner);
