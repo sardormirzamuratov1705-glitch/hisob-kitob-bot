@@ -2186,8 +2186,20 @@ async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, 
             "created_at, due_date, taken_date, performed_by, branch_id) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
             (shop_id, customer_name, phone, amount, description, _now(), due_date, taken_date, performed_by, branch_id),
         )
+        debt_id = cursor.lastrowid
+
+        # Qarzga berilgan summa/mahsulot shop kassasidan/skladidan CHIQIB
+        # ketgan hisoblanadi - shuning uchun kirim-chiqim hisobotida CHIQIM
+        # sifatida ham yoziladi (qarz to'langanda esa add_debt_payment
+        # tomonidan KIRIM sifatida qaytariladi - shu ikkisi birga to'g'ri
+        # naqd oqimini ko'rsatadi).
+        await db.execute(
+            "INSERT INTO transactions (shop_id, type, amount, description, created_at, "
+            "payment_method, performed_by, branch_id) VALUES (?, 'expense', ?, ?, ?, NULL, ?, ?)",
+            (shop_id, amount, f"Qarzga berildi: {customer_name}", _now(), performed_by, branch_id),
+        )
         await db.commit()
-        return cursor.lastrowid
+        return debt_id
 
 
 async def get_debt(shop_id: int, debt_id: int):
@@ -2323,6 +2335,8 @@ async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_
     current_paid = debt.get("paid_amount") or 0
     new_paid = current_paid + amount
     total = debt["amount"]
+    branch_id = debt.get("branch_id")
+    tx_description = f"Qarz to'lovi: {debt['customer_name']}"
 
     async with aiosqlite.connect(config.DB_PATH) as db:
         if payment_method == "aralash":
@@ -2332,17 +2346,32 @@ async def add_debt_payment(shop_id: int, debt_id: int, amount: float, performed_
                     "VALUES (?, ?, ?, ?, ?)",
                     (debt_id, cash_amount, _now(), performed_by, "naqd"),
                 )
+                await db.execute(
+                    "INSERT INTO transactions (shop_id, type, amount, description, created_at, "
+                    "payment_method, performed_by, branch_id) VALUES (?, 'income', ?, ?, ?, 'naqd', ?, ?)",
+                    (shop_id, cash_amount, tx_description, _now(), performed_by, branch_id),
+                )
             if card_amount:
                 await db.execute(
                     "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by, payment_method) "
                     "VALUES (?, ?, ?, ?, ?)",
                     (debt_id, card_amount, _now(), performed_by, "plastik"),
                 )
+                await db.execute(
+                    "INSERT INTO transactions (shop_id, type, amount, description, created_at, "
+                    "payment_method, performed_by, branch_id) VALUES (?, 'income', ?, ?, ?, 'plastik', ?, ?)",
+                    (shop_id, card_amount, tx_description, _now(), performed_by, branch_id),
+                )
         else:
             await db.execute(
                 "INSERT INTO debt_payments (debt_id, amount, paid_at, performed_by, payment_method) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (debt_id, amount, _now(), performed_by, payment_method),
+            )
+            await db.execute(
+                "INSERT INTO transactions (shop_id, type, amount, description, created_at, "
+                "payment_method, performed_by, branch_id) VALUES (?, 'income', ?, ?, ?, ?, ?, ?)",
+                (shop_id, amount, tx_description, _now(), payment_method, performed_by, branch_id),
             )
         if new_paid >= total:
             await db.execute(
