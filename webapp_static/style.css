@@ -41,10 +41,28 @@ body {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.app-header-title {
-  font-size: 18px;
+/* 6-BOSQICH: "Savdo"/"Sklad" tab-almashtirgich (avvalgi statik sarlavha o'rniga) */
+
+.section-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.section-tab {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: -0.2px;
+  transition: all 0.15s;
+}
+
+.section-tab.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 2px 8px rgba(91, 141, 239, 0.3);
 }
 
 .header-cart-badge {
@@ -463,6 +481,7 @@ input:focus {
 }
 
 .muted { color: var(--hint); font-size: 13px; margin-top: -6px; }
+.sklad-hint { margin: 0 2px 12px; }
 
 /* ---------- SAVAT FLOATING BAR ---------- */
 
