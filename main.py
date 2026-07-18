@@ -1,247 +1,287 @@
-import asyncio
-import html
 import logging
-import traceback
-from datetime import datetime, timedelta
 
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.types import ErrorEvent
+from aiogram import BaseMiddleware
+from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.state import StatesGroup, State
 
 import config
 import database as db
-import alerts
-import access_control
-from access_control import OwnerOnlyMiddleware
-from fsm_storage import SQLiteStorage
-from handlers import start, products, sales, transactions, debts, reports, users, sellers, branches, subscription
-import webapp
+import keyboards as kb
 
 
-async def notify_admins_error(bot: Bot, context: str, exc: Exception):
-    """1-BOSQICH: istalgan joyda (update ichida ham, fon tsikllarida ham)
-    yuz bergan xato haqida ADMIN_IDS'dagi barcha adminlarga Telegram orqali
-    xabar yuboradi. Adminga xabar yuborishning o'zi xato bersa - bu botning
-    asosiy ishlashiga ta'sir qilmaydi, faqat logga yoziladi."""
-    if not config.ADMIN_IDS:
-        return
-    text = (
-        "‼️ <b>Botda kutilmagan xato yuz berdi</b>\n\n"
-        f"<b>Joy:</b> {html.escape(context)}\n"
-        f"<b>Xato:</b> <code>{html.escape(str(exc))}</code>"
-    )
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, text)
-        except Exception as notify_error:
-            logging.warning(f"Adminga ({admin_id}) xato haqida xabar yuborib bo'lmadi: {notify_error}")
+# 7-BOSQICH: chek skrinshotini kutish holati. Bu yerda (handlers emas,
+# access_control.py'da) e'lon qilingan, chunki OwnerOnlyMiddleware'ga ham,
+# handlers/subscription.py'ga ham kerak - ikkalasi ham shu bitta klassni
+# import qiladi, aylanma import (circular import)ning oldi shunday olinadi.
+class PaymentFlow(StatesGroup):
+    waiting_receipt = State()
 
 
-async def _debt_reminder_loop(bot: Bot):
-    """Har 24 soatda bir marta ishga tushadi - har bir do'kon egasiga FAQAT
-    o'ZINING muddati o'tgan qarzlari haqida xabar yuboradi
-    (alerts.send_debt_reminders do'konlar bo'yicha alohida-alohida ishlaydi).
-    Bot tez-tez qayta ishga tushsa (masalan har redeployda) ham, bugun
-    allaqachon yuborilgan bo'lsa qaytadan yubormaydi - buning uchun oxirgi
-    yuborilgan SANA settings jadvalida saqlanadi."""
-    while True:
-        today = config.now().strftime("%Y-%m-%d")
-        last_sent = await db.get_setting("debt_reminder_last_sent", "")
-        if last_sent != today:
-            try:
-                await alerts.send_debt_reminders(bot)
-                await db.set_setting("debt_reminder_last_sent", today)
-            except Exception as e:
-                logging.warning(f"Qarz eslatmasi tsiklida xato: {e}")
-                await notify_admins_error(bot, "Qarz eslatmasi tsikli", e)
-        await asyncio.sleep(24 * 60 * 60)
+# Botdan turib (redeploy'siz) qo'shilgan qo'shimcha bosh adminlar - config.ADMIN_IDS
+# (.env) ga qo'shimcha ravishda shu xotiradagi to'plamda saqlanadi. is_admin() ko'p
+# joyda SINXRON chaqirilgani uchun (39+ joyda) har safar bazaga murojaat qilish
+# o'rniga, bot ishga tushganda load_extra_admins() bilan bir marta yuklanadi va
+# yangi admin qo'shilganda register_extra_admin() bilan darhol yangilanadi.
+_extra_admin_ids: set[int] = set()
 
 
-async def _subscription_reminder_loop(bot: Bot):
-    """8-BOSQICH: Har 24 soatda bir marta ishga tushadi - har bir do'kon
-    egasiga o'zining obuna muddati tugashiga 7/3/0 kun qolganda avtomatik
-    eslatma yuboradi (alerts.send_subscription_reminders). Bot tez-tez qayta
-    ishga tushsa (masalan har redeployda) ham, bugun allaqachon yuborilgan
-    bo'lsa qaytadan yubormaydi (debt reminder loop bilan bir xil mantiq)."""
-    while True:
-        today = config.now().strftime("%Y-%m-%d")
-        last_sent = await db.get_setting("subscription_reminder_last_sent", "")
-        if last_sent != today:
-            try:
-                await alerts.send_subscription_reminders(bot)
-                await db.set_setting("subscription_reminder_last_sent", today)
-            except Exception as e:
-                logging.warning(f"Obuna eslatmasi tsiklida xato: {e}")
-                await notify_admins_error(bot, "Obuna eslatmasi tsikli", e)
-        await asyncio.sleep(24 * 60 * 60)
+async def load_extra_admins():
+    """Bot ishga tushganda (main.py -> on_startup) chaqiriladi - bazadagi
+    botdan qo'shilgan adminlarni xotiraga yuklaydi."""
+    global _extra_admin_ids
+    _extra_admin_ids = set(await db.get_admin_ids())
 
 
-async def _daily_report_loop(bot: Bot):
-    """6-BOSQICH: yuqoridagi ikkita sikldan farqli - bular "bot ishga
-    tushgandan 24 soat keyin" ishlaydi, lekin kunlik hisobot ANIQ bir vaqtda
-    (config.DAILY_REPORT_HOUR:DAILY_REPORT_MINUTE, masalan har kuni 21:00)
-    yuborilishi kerak, shuning uchun har safar "keyingi shu vaqt"gacha
-    qancha qolganini hisoblab, aynan shuncha kutadi (drift yig'ilib
-    qolmasligi uchun har iteratsiyada qaytadan hisoblanadi)."""
-    while True:
-        now = config.now()
-        target = now.replace(
-            hour=config.DAILY_REPORT_HOUR, minute=config.DAILY_REPORT_MINUTE,
-            second=0, microsecond=0,
-        )
-        if target <= now:
-            target += timedelta(days=1)
-        await asyncio.sleep((target - now).total_seconds())
-        try:
-            await alerts.send_daily_reports_to_all(bot)
-        except Exception as e:
-            logging.warning(f"Kunlik hisobot tsiklida xato: {e}")
-            await notify_admins_error(bot, "Kunlik hisobot tsikli", e)
+def register_extra_admin(telegram_id: int):
+    """Yangi admin botdan turib qo'shilganda (handlers/users.py) darhol
+    xotiraga qo'shiladi - botni qayta ishga tushirish shart emas."""
+    _extra_admin_ids.add(telegram_id)
 
 
-def _make_error_handler(bot: Bot):
-    """1-BOSQICH: hech qaysi handler ushlamagan (kutilmagan) xatoni ushlaydi.
-    Avvalgidek serverning logiga yozadi, LEKIN endi qo'shimcha ravishda
-    ADMIN_IDS'dagi har bir adminga ham Telegram xabar ko'rinishida yuboradi -
-    shunda bot "jimgina" ishlamay qolsa ham, admin buni darhol biladi.
-    Adminga xabar yuborishning o'zi xato bersa (masalan admin botni
-    bloklagan) - bu botning ishlashiga umuman ta'sir qilmaydi, faqat logga
-    yoziladi."""
+def is_admin(user_id: int) -> bool:
+    """Bosh admin - .env dagi config.ADMIN_IDS (bootstrap) YOKI botdan turib
+    qo'shilgan qo'shimcha adminlar (_extra_admin_ids, database.admins jadvali).
+    Faqat shular yangi do'kon egalarini bazaga qo'sha/o'chira oladi
+    ("Foydalanuvchilar" bo'limi faqat shularga ko'rinadi). Bosh adminning
+    o'zining alohida do'koni (Sklad/Savdo/Qarz/Hisobot) yo'q - u faqat
+    do'kon egalarini boshqaradi."""
+    return user_id in config.ADMIN_IDS or user_id in _extra_admin_ids
 
-    async def on_error(event: ErrorEvent):
-        logging.exception("Kutilmagan xato:", exc_info=event.exception)
 
-        if not config.ADMIN_IDS:
+async def is_authorized(user_id: int) -> bool:
+    """Botga umuman kirish huquqi bor-yo'qligini tekshiradi: bosh admin,
+    bosh admin tomonidan bazaga do'kon egasi sifatida qo'shilgan foydalanuvchi,
+    YOKI biror do'kon egasi tomonidan o'sha do'konga sotuvchi sifatida
+    qo'shilgan foydalanuvchi."""
+    if is_admin(user_id):
+        return True
+    if await db.is_owner(user_id):
+        return True
+    return await db.is_seller(user_id)
+
+
+async def get_role(user_id: int):
+    """Foydalanuvchining rolini qaytaradi: "admin" | "owner" | "seller" | None.
+
+    Tekshirish tartibi muhim: bir kishi ham admin, ham owner/seller bo'la
+    olmaydi (add_owner/add_seller bunday holatlarni allaqachon oldini oladi),
+    lekin xavfsizlik uchun admin birinchi tekshiriladi."""
+    if is_admin(user_id):
+        return "admin"
+    if await db.is_owner(user_id):
+        return "owner"
+    if await db.is_seller(user_id):
+        return "seller"
+    return None
+
+
+async def is_owner_level(user_id: int) -> bool:
+    """True - faqat HAQIQIY do'kon egasi uchun (bosh admin ham, sotuvchi ham
+    emas). Narx belgilash, qo'lda miqdor o'zgartirish, kirim/chiqim, hisobot,
+    sotuvchi boshqarish kabi "faqat egaga" tegishli amallar shuni ishlatadi."""
+    return await db.is_owner(user_id)
+
+
+async def get_shop_id(user_id: int):
+    """Foydalanuvchining do'koni (shop_id):
+    - do'kon egasi uchun - har doim o'zining telegram_id'siga teng
+      (1 egа = 1 mustaqil do'kon);
+    - sotuvchi uchun - u qaysi do'konga biriktirilgan bo'lsa, o'sha do'kon
+      egasining telegram_id'si (sellers jadvalidan olinadi);
+    - bosh admin uchun - None (uning o'z do'koni yo'q).
+
+    Sklad/Savdo/Qarz/Hisobot bo'limlaridagi har bir handler ishlatishdan oldin
+    shop_id None emasligini tekshirishi kerak (u holat faqat bosh admin
+    adashib shu bo'limga kirmoqchi bo'lganda yuz beradi - normal holatda
+    bunday tugmalar bosh adminga ko'rsatilmaydi).
+    """
+    if await db.is_owner(user_id):
+        return user_id
+    seller_shop_id = await db.get_seller_shop_id(user_id)
+    if seller_shop_id:
+        return seller_shop_id
+    return None
+
+
+async def get_branch_id(user_id: int):
+    """Foydalanuvchining joriy filiali (branch_id):
+    - do'kon egasi uchun - o'zi tanlab qo'ygan joriy filial
+      (owners.current_branch_id). Hali birorta filial tanlamagan bo'lsa -
+      None, ya'ni "Bosh filial" (filialga bo'linmagan umumiy holat).
+    - sotuvchi uchun - doimiy biriktirilgan filiali (sellers.branch_id).
+      Sotuvchi buni o'zi almashtira olmaydi - faqat do'kon egasi
+      "📋 Sotuvchilar ro'yxati" orqali boshqa filialga ko'chira oladi.
+    - bosh admin uchun - None (uning o'z do'koni/filiali yo'q).
+
+    Savdo/Kirim-Chiqim/Qarz yozuvlarini kiritishdan oldin har bir handler
+    shuni chaqirib, yozuvga shu branch_id'ni biriktirishi kerak.
+    """
+    owner = await db.get_owner(user_id)
+    if owner:
+        return owner.get("current_branch_id")
+    seller = await db.get_seller(user_id)
+    if seller:
+        return seller.get("branch_id")
+    return None
+
+
+def subscription_status_emoji(access: dict | None) -> str:
+    """9-BOSQICH: admin panelidagi "📋 Do'kon egalari ro'yxati"da har bir
+    ega qatoriga chiqariladigan holat belgisi. access -
+    check_subscription_access()/db.get_owner_subscription_access() natijasi.
+
+    ⛔ - kirish taqiqlangan (majburiy bloklangan yoki muddat+muhlat tugagan)
+    ⏳ - kirish hali bor, lekin diqqat talab qiladi (muhlat davrida YOKI
+         muddat tugashiga 7 kun yoki kamroq qolgan)
+    ✅ - hammasi joyida (muddatga hali ancha bor)
+    """
+    if not access or not access.get("allowed"):
+        if access and access.get("status") == "pending_trial":
+            return "🕓"
+        return "⛔"
+    if access.get("in_grace"):
+        return "⏳"
+    days_left = access.get("days_left")
+    if days_left is not None and days_left <= 7:
+        return "⏳"
+    return "✅"
+
+
+async def check_subscription_access(user_id: int) -> dict:
+    """4-BOSQICH: "hozir botga kirish mumkinmi" degan YAGONA tekshiruv.
+
+    - Bosh admin: obunasi yo'q, har doim ruxsat.
+    - Do'kon egasi: o'zining subscription holati.
+    - Sotuvchi: mustaqil obunaga ega emas - ULANGAN do'kon egasining
+      subscription holatiga qaraydi (ega bloklansa, sotuvchisi ham
+      bloklanadi).
+    - Botda umuman ro'yxati yo'q odam: allowed=False, status="unknown".
+
+    DIQQAT: 5-bosqichdan boshlab bu funksiya OwnerOnlyMiddleware ichida
+    haqiqiy bloklash uchun ham ishlatiladi. Shuningdek admin panelida holat
+    belgisini (✅/⏳/⛔) ko'rsatish uchun ham qayta ishlatiladi.
+    """
+    if is_admin(user_id):
+        return {"allowed": True, "status": "admin", "days_left": None, "in_grace": False}
+
+    shop_id = await get_shop_id(user_id)
+    if shop_id is None:
+        return {"allowed": False, "status": "unknown", "days_left": None, "in_grace": False}
+
+    access = await db.get_owner_subscription_access(shop_id)
+    if access is None:
+        return {"allowed": False, "status": "unknown", "days_left": None, "in_grace": False}
+    return access
+
+
+class OwnerOnlyMiddleware(BaseMiddleware):
+    """Botning barcha funksiyalari (Sklad, Kirim/Chiqim, Qarz daftar, Hisobot va h.k.)
+    faqat bosh admin (config.ADMIN_IDS), bazaga qo'shilgan do'kon egalari va
+    ularning sotuvchilariga ochiq.
+
+    Ikkita istisno:
+    1) /start buyrug'i - bu mijozlarga qarz eslatmasi uchun yuborilgan
+       shaxsiy link (t.me/bot?start=debt_<id>) orqali botni ochish imkonini
+       beradi, shuningdek notanish odamga "landing" oynasini ko'rsatadi.
+       handlers/start.py o'zi ruxsatsiz holatlarda faqat shu ekranlarni
+       beradi va hech qanday maxfiy menyu ko'rsatmaydi - shuning uchun
+       /start ni oddiy o'tkazib yuborish xavfsiz.
+    2) "self_register" callback tugmasi - landing oynasidagi "Ro'yxatdan
+       o'tish" tugmasi notanish odam uchun ham ishlashi kerak.
+
+    Boshqa BARCHA xabar/tugma bosish (matn, callback) begona foydalanuvchidan
+    kelsa - hech narsa qilinmasdan e'tiborsiz qoldiriladi.
+
+    5-BOSQICH - OBUNA BLOKLASH: is_authorized=True bo'lgan (ya'ni admin/owner/
+    seller sifatida bazada mavjud) odam ham, agar uning (yoki uni biriktirgan
+    do'kon egasining) obunasi trial+grace period bilan birga tugagan bo'lsa,
+    bundan buyon O'TKAZILMAYDI - handler chaqirilmasdan, o'rniga
+    "⛔ Obunangiz tugagan" ekrani ko'rsatiladi. Istisnolar - "💳 Obunani
+    uzaytirish" tugmasi, undan keyingi tarif tanlash (extend_subscription,
+    sub_plan:*) va nihoyat chek skrinshotining o'zi (PaymentFlow.waiting_receipt
+    holatida yuborilgan rasm) - aks holda odam obunani uzaytirishning
+    aynan o'zini amalga oshira olmay qolardi.
+
+    DIQQAT: bu middleware faqat botga umuman kirish huquqini tekshiradi.
+    Sotuvchining aniq QAYSI bo'limlarga (Sklad narx belgilash, Kirim/Chiqim,
+    Hisobot va h.k.) kira olmasligi har bir handler ichida alohida
+    tekshiriladi (is_owner_level orqali) - chunki sotuvchi ham "authorized",
+    faqat cheklangan huquqlar bilan.
+    """
+
+    async def __call__(self, handler, event, data):
+        user = event.from_user
+        if user and await is_authorized(user.id):
+            access = await check_subscription_access(user.id)
+            if access["allowed"]:
+                return await handler(event, data)
+
+            # Obunani uzaytirish tugmasi va undan keyingi tarif tanlash
+            # bloklangan holatda ham ishlashi kerak (keyingi bosqichlarda
+            # shu yerga to'lov/chek qabul qilish oynasi ulanadi).
+            if isinstance(event, CallbackQuery) and (
+                event.data == "extend_subscription" or (event.data or "").startswith("sub_plan:")
+            ):
+                return await handler(event, data)
+
+            # Ega chek skrinshotini yuborayotgan bo'lsa (PaymentFlow.waiting_receipt
+            # holatida, rasm bilan) - bloklangan bo'lsa ham o'tkazamiz, aks holda
+            # obunani uzaytirishning aynan o'zi imkonsiz bo'lib qolardi.
+            if isinstance(event, Message) and event.photo:
+                fsm_state = data.get("state")
+                if fsm_state is not None and await fsm_state.get_state() == PaymentFlow.waiting_receipt.state:
+                    return await handler(event, data)
+
+            if access.get("status") == "pending_trial":
+                # O'ZI ro'yxatdan o'tgan, lekin bosh admin hali sinov muddatini
+                # tasdiqlamagan - "obuna tugagan" ekrani emas, "so'rov ko'rib
+                # chiqilmoqda" ekrani ko'rsatiladi (to'lov/uzaytirish tugmasi
+                # bu yerda mantiqsiz - hali hech qanday obuna boshlanmagan).
+                await self._send_pending_trial_screen(event)
+                return
+
+            await self._send_blocked_screen(event)
             return
 
-        tb_text = "".join(traceback.format_exception(
-            type(event.exception), event.exception, event.exception.__traceback__,
-        ))
-        update_text = ""
+        if isinstance(event, Message) and event.text and event.text.startswith("/start"):
+            return await handler(event, data)
+
+        # "Landing" oynasidagi "📝 Ro'yxatdan o'tish" tugmasi - hali botga
+        # umuman notanish (is_authorized=False) odam ham buni bosa olishi
+        # kerak, aks holda tugma jim (hech narsa qilmay) qolib ketadi.
+        if isinstance(event, CallbackQuery) and event.data == "self_register":
+            return await handler(event, data)
+
+        if user:
+            logging.info(f"OwnerOnlyMiddleware: ruxsatsiz urinish - user_id={user.id}")
+        return
+
+    @staticmethod
+    async def _send_blocked_screen(event):
+        text = "⛔ Obunangiz tugagan.\n\nDavom etish uchun obunani uzaytiring:"
+        markup = kb.blocked_menu()
         try:
-            if event.update:
-                update_text = f"\n\n<b>Update:</b>\n<code>{html.escape(event.update.model_dump_json(exclude_none=True))[:500]}</code>"
-        except Exception:
-            pass
+            if isinstance(event, CallbackQuery):
+                await event.answer()
+                await event.message.answer(text, reply_markup=markup)
+            elif isinstance(event, Message):
+                await event.answer(text, reply_markup=markup)
+        except Exception as e:
+            logging.warning(f"Bloklash ekranini yuborib bo'lmadi: {e}")
 
+    @staticmethod
+    async def _send_pending_trial_screen(event):
         text = (
-            "‼️ <b>Botda kutilmagan xato yuz berdi</b>\n\n"
-            f"<b>Xato:</b> <code>{html.escape(str(event.exception))}</code>"
-            f"{update_text}\n\n"
-            f"<b>Traceback (oxiri):</b>\n<code>{html.escape(tb_text[-2000:])}</code>"
+            "⏳ Ro'yxatdan o'tish so'rovingiz bosh adminga yuborilgan va "
+            "hozircha ko'rib chiqilmoqda.\n\n"
+            "Bosh admin sinov muddatini tasdiqlashi bilan sizga xabar beriladi - "
+            "iltimos, biroz kuting."
         )
-        if len(text) > 4000:
-            text = text[:4000] + "\n…"
-
-        for admin_id in config.ADMIN_IDS:
-            try:
-                await bot.send_message(admin_id, text)
-            except Exception as notify_error:
-                logging.warning(f"Adminga ({admin_id}) xato haqida xabar yuborib bo'lmadi: {notify_error}")
-
-    return on_error
-
-
-async def on_startup(bot: Bot):
-    await db.init_db()
-    await access_control.load_extra_admins()
-    asyncio.create_task(_debt_reminder_loop(bot))
-    asyncio.create_task(_subscription_reminder_loop(bot))
-    asyncio.create_task(_daily_report_loop(bot))
-    if config.WEBHOOK_HOST:
-        await bot.set_webhook(config.WEBHOOK_URL, drop_pending_updates=True)
-        logging.info(f"Webhook o'rnatildi: {config.WEBHOOK_URL}")
-    else:
-        await bot.delete_webhook(drop_pending_updates=True)
-        logging.info("Polling rejimida ishga tushdi (WEBHOOK_HOST sozlanmagan).")
-
-
-async def on_shutdown(bot: Bot):
-    if config.WEBHOOK_HOST:
-        await bot.delete_webhook()
-
-
-async def _run_polling_and_webserver(dp: Dispatcher, bot: Bot, app):
-    """POLLING rejimida ham (WEBHOOK_HOST sozlanmagan bo'lsa) veb-server
-    (WebApp statik fayllari + API) PARALLEL ishga tushishi kerak - aks holda
-    "🛒 Savdo" WebApp tugmasi ochiladigan HTTPS manzil umuman ishlamay qoladi.
-    Shuning uchun ikkalasi ham (bot polling VA aiohttp server) bitta asyncio
-    tsiklida, bir-biriga xalal bermay, parallel ishlaydi."""
-    from aiohttp import web as aiohttp_web
-
-    runner = aiohttp_web.AppRunner(app)
-    await runner.setup()
-    site = aiohttp_web.TCPSite(runner, host="0.0.0.0", port=config.PORT)
-    await site.start()
-    logging.info(f"Veb-server (WebApp/API) {config.PORT}-portda ishga tushdi.")
-
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await runner.cleanup()
-
-
-def main():
-    logging.basicConfig(level=logging.INFO)
-
-    if not config.BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN topilmadi! Railway -> Settings -> Variables bo'limini tekshiring.")
-
-    bot = Bot(
-        token=config.BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dp = Dispatcher(storage=SQLiteStorage(config.DB_PATH))
-
-    dp.errors.register(_make_error_handler(bot))
-
-    # MUHIM: botning barcha funksiyalari faqat bosh admin (ADMIN_IDS) va
-    # bazaga qo'shilgan do'kon egalari uchun ochiq (access_control.is_authorized).
-    # Bu yo'q bo'lsa, botni Telegram'da topgan yoki qarz eslatma linkini bosgan
-    # HAR QANDAY odam Sklad/Kirim-Chiqim/Qarz daftar/Hisobot bo'limlariga kirib,
-    # barcha ma'lumotlarni ko'rishi mumkin edi.
-    dp.message.outer_middleware(OwnerOnlyMiddleware())
-    dp.callback_query.outer_middleware(OwnerOnlyMiddleware())
-
-    dp.include_router(start.router)
-    dp.include_router(products.router)
-    dp.include_router(sales.router)
-    dp.include_router(transactions.router)
-    dp.include_router(debts.router)
-    dp.include_router(reports.router)
-    dp.include_router(users.router)
-    dp.include_router(sellers.router)
-    dp.include_router(branches.router)
-    dp.include_router(subscription.router)
-
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-
-    # ---------- VEB-SERVER (WEB APP - 1-BOSQICH) ----------
-    # WebApp statik fayllari (webapp_static/) va API (webapp.py) shu bitta
-    # aiohttp ilovasida joylashadi - webhook rejimida bo'lsa, Telegram
-    # webhook route'i ham AYNAN SHU ilovaga qo'shiladi (bitta port, bitta server).
-    app = webapp.create_web_app(bot)
-
-    if config.WEBHOOK_HOST:
-        # ---------- WEBHOOK REJIMI ----------
-        # Telegram xabarlarni o'zi bizga "itarib" beradi (push qiladi),
-        # shuning uchun "Conflict: terminated by other getUpdates" xatosi
-        # umuman bo'lmaydi - ikkita nusxa polling qilib to'qnashish xavfi yo'q.
-        from aiohttp import web
-        from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-
-        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=config.WEBHOOK_PATH)
-        setup_application(app, dp, bot=bot)
-        web.run_app(app, host="0.0.0.0", port=config.PORT)
-    else:
-        # ---------- POLLING REJIMI (eski, zaxira) ----------
-        # Endi bot polling qilayotganda ham veb-server (WebApp/API) PARALLEL
-        # ishlaydi - shuning uchun oddiy asyncio.run(dp.start_polling(bot))
-        # o'rniga ikkalasini birga ishga tushiradigan funksiya chaqiriladi.
-        asyncio.run(_run_polling_and_webserver(dp, bot, app))
-
-
-if __name__ == "__main__":
-    main()
+        try:
+            if isinstance(event, CallbackQuery):
+                await event.answer()
+                await event.message.answer(text)
+            elif isinstance(event, Message):
+                await event.answer(text)
+        except Exception as e:
+            logging.warning(f"Kutish ekranini yuborib bo'lmadi: {e}")
