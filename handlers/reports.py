@@ -433,6 +433,29 @@ async def suspicious_alert_toggle(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.message(F.text == "🗂 Audit jurnali")
+async def audit_journal(message: Message):
+    """Kim, qachon nima qilgani (kirim/chiqim, savdo bekor qilish, mahsulot
+    o'chirish va h.k.) - eng oxirgi 30 ta yozuv, yangisidan boshlab."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    rows = await db.get_audit_log(shop_id, limit=30)
+    if not rows:
+        await message.answer("Audit jurnalida hali yozuv yo'q.")
+        return
+
+    lines = ["🗂 <b>Audit jurnali</b> (oxirgi 30 ta amal)\n"]
+    for r in rows:
+        date = r["created_at"][:16]
+        lines.append(f"🕒 {date} — <b>{r['actor_name']}</b>: {r['action']}")
+        if r.get("details"):
+            lines.append(f"   {r['details']}")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @router.message(F.text == "📥 Excel yuklab olish")
 async def export_excel(message: Message):
     shop_id = await _require_shop(message)
