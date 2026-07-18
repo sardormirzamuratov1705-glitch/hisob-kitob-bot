@@ -82,6 +82,28 @@ async def is_owner_level(user_id: int) -> bool:
     return await db.is_owner(user_id)
 
 
+async def can_add_stock(user_id: int) -> bool:
+    """8-BOSQICH: Mini App "📦 Sklad" bo'limida (yoki shunga mos boshqa joyda)
+    tovar miqdori QO'SHISHga ruxsat bor-yo'qligini tekshiradi.
+
+    - Do'kon egasi - har doim True (o'z skladi, hech kim taqiqlay olmaydi).
+    - Sotuvchi - do'kon egasi owners.sellers_can_add_stock orqali
+      yoqib/o'chirib qo'yishi mumkin (standart - yoqilgan, qarang:
+      db.get_sellers_can_add_stock). Ega o'chirib qo'ysa, sotuvchi Sklad
+      bo'limini faqat KO'RISH uchun ochib turadi (bu funksiya faqat
+      QO'SHISH amaliga tegishli).
+    - Bosh admin - False (uning o'z do'koni/skladi yo'q).
+    """
+    if is_admin(user_id):
+        return False
+    if await db.is_owner(user_id):
+        return True
+    shop_id = await db.get_seller_shop_id(user_id)
+    if not shop_id:
+        return False
+    return await db.get_sellers_can_add_stock(shop_id)
+
+
 async def get_shop_id(user_id: int):
     """Foydalanuvchining do'koni (shop_id):
     - do'kon egasi uchun - har doim o'zining telegram_id'siga teng
