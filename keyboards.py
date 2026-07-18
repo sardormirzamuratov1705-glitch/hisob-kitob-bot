@@ -58,15 +58,32 @@ def payment_decision_kb(payment_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def subscription_plans_menu() -> InlineKeyboardMarkup:
-    """"💳 Obuna" bo'limida ko'rsatiladigan tarif tanlash tugmalari -
-    config.SUBSCRIPTION_PLANS asosida avtomatik quriladi. Tanlangach
-    handlers/subscription.py'dagi sub_plan:<key> callback'i ishlaydi."""
+def subscription_plans_menu(plans: dict) -> InlineKeyboardMarkup:
+    """"💳 Obuna" bo'limida ko'rsatiladigan tarif tanlash tugmalari.
+    plans - db.get_subscription_plans() natijasi (10-bosqichdan boshlab
+    narxlar admin tomonidan o'zgartirilgan bo'lishi mumkin, shuning uchun
+    config.SUBSCRIPTION_PLANS emas, shu tayyor dict qabul qilinadi).
+    Tanlangach handlers/subscription.py'dagi sub_plan:<key> callback'i ishlaydi."""
     builder = InlineKeyboardBuilder()
-    for key, plan in config.SUBSCRIPTION_PLANS.items():
+    for key, plan in plans.items():
         note = f" ({plan['discount_note']})" if plan.get("discount_note") else ""
         text = f"{plan['label']}{note} — {plan['price']:,} so'm".replace(",", " ")
         builder.button(text=text, callback_data=f"sub_plan:{key}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def payment_settings_kb() -> InlineKeyboardMarkup:
+    """10-BOSQICH: "⚙️ To'lov sozlamalari" bo'limidagi tahrirlash tugmalari -
+    har biri handlers/users.py'dagi editset:<key> callback'iga olib boradi."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ 1 oylik narx", callback_data="editset:price_1m")
+    builder.button(text="✏️ 3 oylik narx", callback_data="editset:price_3m")
+    builder.button(text="✏️ 12 oylik narx", callback_data="editset:price_12m")
+    builder.button(text="✏️ Karta raqami", callback_data="editset:card_number")
+    builder.button(text="✏️ Karta egasi (F.I.Sh.)", callback_data="editset:card_holder")
+    builder.button(text="✏️ Click raqami", callback_data="editset:click_number")
+    builder.button(text="✏️ Payme raqami", callback_data="editset:payme_number")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -87,8 +104,9 @@ def users_menu() -> ReplyKeyboardMarkup:
     builder.button(text="🔗 Bir martalik link")
     builder.button(text="📋 Do'kon egalari ro'yxati")
     builder.button(text="💳 Kutilayotgan to'lovlar")
+    builder.button(text="⚙️ To'lov sozlamalari")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
