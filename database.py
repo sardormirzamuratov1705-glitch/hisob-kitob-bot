@@ -257,6 +257,21 @@ async def init_db():
                 await db.execute(f"ALTER TABLE sellers ADD COLUMN {col} TEXT")
             except Exception:
                 pass
+        # Filiallar - har bir do'kon egasi o'zining bir nechta jismoniy
+        # filialini (do'kon nuqtasini) qo'sha oladi. Hozircha faqat
+        # tashkiliy/ma'lumot uchun - mahsulot/savdo filialga majburiy
+        # bog'lanmaydi, egasi keyinchalik xohlagancha ishlata oladi.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS branches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                address TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         await db.commit()
 
 
@@ -528,6 +543,92 @@ async def delete_category(shop_id: int, category_id: int) -> bool:
         )
         cursor = await db.execute(
             "DELETE FROM categories WHERE id = ? AND shop_id = ?", (category_id, shop_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+# ---------- FILIALLAR ----------
+# Do'kon egasi o'zining bir nechta jismoniy filialini (do'kon nuqtasini)
+# qo'sha oladi. Har bir filial faqat shu do'konga (shop_id) tegishli -
+# boshqa do'kon egasi bu filiallarni ko'rmaydi/boshqara olmaydi.
+
+async def _ensure_branch_schema(db):
+    """Himoya chorasi: agar biror sababdan init_db() hali filiallar
+    sxemasini yaratmagan bo'lsa (masalan eski jarayon hali qayta ishga
+    tushmagan bo'lsa), har bir filial bilan ishlaydigan funksiya
+    chaqirilganda sxema shu yerda ham xavfsiz tarzda yaratiladi."""
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            address TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    await db.commit()
+
+
+async def add_branch(shop_id: int, name: str, address: str = None):
+    """Bir xil nomli filial (katta-kichik harf/bo'sh joydan qat'i nazar)
+    ikki marta yaratilmasligi uchun avval mavjudligini tekshiradi."""
+    name = name.strip()
+    existing = await find_branch_by_name(shop_id, name)
+    if existing:
+        return existing
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await _ensure_branch_schema(db)
+        cursor = await db.execute(
+            "INSERT INTO branches (shop_id, name, address, created_at) VALUES (?, ?, ?, ?)",
+            (shop_id, name, address, _now()),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "shop_id": shop_id, "name": name, "address": address}
+
+
+async def find_branch_by_name(shop_id: int, name: str):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await _ensure_branch_schema(db)
+        cursor = await db.execute(
+            "SELECT * FROM branches WHERE shop_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            (shop_id, name),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def get_branch(shop_id: int, branch_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await _ensure_branch_schema(db)
+        cursor = await db.execute(
+            "SELECT * FROM branches WHERE id = ? AND shop_id = ?", (branch_id, shop_id)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def get_branches(shop_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await _ensure_branch_schema(db)
+        cursor = await db.execute(
+            "SELECT * FROM branches WHERE shop_id = ? ORDER BY name COLLATE NOCASE ASC",
+            (shop_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def delete_branch(shop_id: int, branch_id: int) -> bool:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await _ensure_branch_schema(db)
+        cursor = await db.execute(
+            "DELETE FROM branches WHERE id = ? AND shop_id = ?", (branch_id, shop_id)
         )
         await db.commit()
         return cursor.rowcount > 0
