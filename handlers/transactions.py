@@ -5,7 +5,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 import database as db
 import keyboards as kb
-from access_control import get_shop_id
+from access_control import get_shop_id, get_branch_id
 
 router = Router()
 
@@ -76,7 +76,8 @@ async def add_transaction_description(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
-    await db.add_transaction(shop_id, data["type"], data["amount"], message.text.strip())
+    branch_id = await get_branch_id(message.from_user.id)
+    await db.add_transaction(shop_id, data["type"], data["amount"], message.text.strip(), branch_id=branch_id)
     await state.clear()
 
     label = "Kirim" if data["type"] == "income" else "Chiqim"
