@@ -483,6 +483,17 @@ input:focus {
 .muted { color: var(--hint); font-size: 13px; margin-top: -6px; }
 .sklad-hint { margin: 0 2px 12px; }
 
+/* YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi barkod maydoni +
+   skanerlash tugmasi - .search-box bilan bir xil g'oya, faqat qidiruv
+   ikonkasisiz (chap tarafda joy bo'sh qoladi). */
+.barcode-input-box {
+  position: relative;
+}
+
+.barcode-input-box input {
+  padding-right: 46px;
+}
+
 /* ---------- SAVAT FLOATING BAR ---------- */
 
 .cart-bar {
