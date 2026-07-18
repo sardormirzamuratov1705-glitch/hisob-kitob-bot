@@ -236,6 +236,56 @@ async def seller_branch_set_cb(callback: CallbackQuery):
         pass
 
 
+# ---------- 8-BOSQICH: MINI APP "SKLAD" BO'LIMI UCHUN RUXSAT ----------
+# Do'kon egasi shu orqali sotuvchilariga Mini App'dagi "📦 Sklad" bo'limi
+# orqali tovar miqdori qo'shishga ruxsat berish/bermaslikni belgilaydi.
+# Standart holat - ruxsat berilgan (eski xatti-harakat bilan mos).
+
+@router.message(F.text == "🔐 Sklad ruxsati")
+async def sklad_permission_menu(message: Message):
+    shop_id = await _require_owner(message)
+    if shop_id is None:
+        return
+
+    allowed = await db.get_sellers_can_add_stock(shop_id)
+    status = "🔓 Sotuvchiga ruxsat berilgan" if allowed else "🚫 Faqat egaga (sotuvchiga taqiqlangan)"
+    await message.answer(
+        "🔐 <b>Sklad ruxsati</b>\n\n"
+        "Mini App'dagi \"📦 Sklad\" bo'limi orqali sotuvchi tovar miqdorini "
+        "qo'sha oladimi-yo'qmi, shuni belgilaydi (do'kon egasi bunga har doim "
+        "ruxsatli).\n\n"
+        f"Hozirgi holat: <b>{status}</b>",
+        parse_mode="HTML",
+        reply_markup=kb.sklad_permission_kb(allowed),
+    )
+
+
+@router.callback_query(F.data.in_({"sklad_perm_on", "sklad_perm_off"}))
+async def sklad_permission_set_cb(callback: CallbackQuery):
+    shop_id = callback.from_user.id
+    if not await db.is_owner(shop_id):
+        await callback.answer("Bu bo'lim faqat do'kon egasi uchun.", show_alert=True)
+        return
+
+    allowed = callback.data == "sklad_perm_on"
+    await db.set_sellers_can_add_stock(shop_id, allowed)
+
+    status = "🔓 Sotuvchiga ruxsat berilgan" if allowed else "🚫 Faqat egaga (sotuvchiga taqiqlangan)"
+    try:
+        await callback.message.edit_text(
+            "🔐 <b>Sklad ruxsati</b>\n\n"
+            "Mini App'dagi \"📦 Sklad\" bo'limi orqali sotuvchi tovar miqdorini "
+            "qo'sha oladimi-yo'qmi, shuni belgilaydi (do'kon egasi bunga har doim "
+            "ruxsatli).\n\n"
+            f"Hozirgi holat: <b>{status}</b>",
+            parse_mode="HTML",
+            reply_markup=kb.sklad_permission_kb(allowed),
+        )
+    except Exception:
+        pass
+    await callback.answer("✅ Saqlandi.")
+
+
 @router.callback_query(F.data.startswith("remove_seller_"))
 async def remove_seller_cb(callback: CallbackQuery):
     if not await db.is_owner(callback.from_user.id):
