@@ -157,6 +157,39 @@ async def branch_comparison_report(message: Message):
     await message.answer(_format_branch_comparison(rows), parse_mode="HTML")
 
 
+def _format_seller_comparison(rows: list) -> str:
+    if not rows:
+        return (
+            "🆚 <b>Sotuvchilar solishtiruvi</b>\n\n"
+            "Hozircha solishtirish uchun yetarli ma'lumot yo'q."
+        )
+
+    medals = ["🥇", "🥈", "🥉"]
+    blocks = ["🆚 <b>Sotuvchilar solishtiruvi</b> (foyda bo'yicha)"]
+    for i, r in enumerate(rows):
+        rank = medals[i] if i < len(medals) else f"{i + 1}."
+        blocks.append(
+            f"{rank} <b>{r['name']}</b>\n"
+            f"   🛒 Savdo: {r['sales_count']} ta chek\n"
+            f"   💰 Foyda: {r['profit']:.0f} so'm\n"
+            f"   💵 Kirim: {r['income']:.0f} so'm  |  💸 Chiqim: {r['expense']:.0f} so'm\n"
+            f"   📈 Balans: {r['balance']:.0f} so'm"
+        )
+    return "\n\n".join(blocks)
+
+
+@router.message(F.text == "🆚 Sotuvchilar solishtiruvi")
+async def seller_comparison_report(message: Message):
+    """Har bir sotuvchi (va do'kon egasining o'zi) qilgan savdo/foyda/
+    kirim-chiqimni bitta xabarda, foyda bo'yicha kamayish tartibida solishtiradi."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    rows = await db.get_seller_comparison(shop_id)
+    await message.answer(_format_seller_comparison(rows), parse_mode="HTML")
+
+
 _UZ_MONTHS = {
     "01": "Yanvar", "02": "Fevral", "03": "Mart", "04": "Aprel", "05": "May", "06": "Iyun",
     "07": "Iyul", "08": "Avgust", "09": "Sentabr", "10": "Oktabr", "11": "Noyabr", "12": "Dekabr",
