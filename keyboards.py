@@ -327,6 +327,12 @@ def skip_photo_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def skip_barcode_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Barkodsiz davom etish", callback_data="skip_barcode")
+    return builder.as_markup()
+
+
 def skip_due_date_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Sanasiz davom etish", callback_data="skip_due_date")
@@ -400,6 +406,11 @@ def product_edit_field_kb(product_id: int, product: dict) -> InlineKeyboardMarku
     builder.button(
         text=f"⬇️ Eng past narx: {min_price:.0f} so'm" if min_price else "⬇️ Eng past narx: belgilanmagan",
         callback_data=f"prod_editfield_{product_id}:min_price",
+    )
+    barcode = product.get("barcode")
+    builder.button(
+        text=f"🏷 Barkod: {barcode}" if barcode else "🏷 Barkod: belgilanmagan",
+        callback_data=f"prod_editfield_{product_id}:barcode",
     )
     builder.adjust(1)
     return builder.as_markup()
