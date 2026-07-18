@@ -303,6 +303,21 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _branch_filter(branch_id, column: str = "branch_id"):
+    """Hisobotlarni filial bo'yicha filtrlash uchun umumiy yordamchi.
+
+    branch_id=None  -> filtr yo'q (barcha filiallar - "Umumiy hisobot").
+    branch_id=0     -> faqat branch_id IS NULL bo'lgan yozuvlar ("Bosh filial" -
+                        filial tizimi qo'shilishidan oldingi eski yozuvlar ham shu yerga tushadi).
+    branch_id=<int> -> faqat shu filialga tegishli yozuvlar.
+    """
+    if branch_id is None:
+        return "", []
+    if branch_id == 0:
+        return f" AND {column} IS NULL", []
+    return f" AND {column} = ?", [branch_id]
+
+
 async def _ensure_category_schema(db):
     """Himoya chorasi: agar biror sababdan init_db() yangi bo'lim sxemasini
     hali yaratmagan bo'lsa (masalan eski jarayon hali qayta ishga tushmagan bo'lsa),
@@ -794,19 +809,22 @@ async def add_transaction(shop_id: int, type_: str, amount: float, description: 
         return cursor.lastrowid
 
 
-async def get_payment_method_totals(shop_id: int, type_: str = "income"):
-    """Naqd va plastik bo'yicha jami summalarni qaytaradi (masalan savdo hisobotida)."""
+async def get_payment_method_totals(shop_id: int, type_: str = "income", branch_id=None):
+    """Naqd va plastik bo'yicha jami summalarni qaytaradi (masalan savdo hisobotida).
+
+    branch_id - filial bo'yicha hisobot uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
+    clause, extra = _branch_filter(branch_id)
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions "
-            "WHERE shop_id=? AND type=? AND payment_method='naqd'",
-            (shop_id, type_),
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions "
+            f"WHERE shop_id=? AND type=? AND payment_method='naqd'{clause}",
+            [shop_id, type_] + extra,
         )
         naqd = (await cursor.fetchone())[0]
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions "
-            "WHERE shop_id=? AND type=? AND payment_method='plastik'",
-            (shop_id, type_),
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions "
+            f"WHERE shop_id=? AND type=? AND payment_method='plastik'{clause}",
+            [shop_id, type_] + extra,
         )
         plastik = (await cursor.fetchone())[0]
         return {"naqd": naqd, "plastik": plastik}
@@ -823,17 +841,19 @@ async def get_transactions(shop_id: int, limit: int = 1000):
         return [dict(row) for row in rows]
 
 
-async def get_totals(shop_id: int):
+async def get_totals(shop_id: int, branch_id=None):
+    """branch_id - filial bo'yicha hisobot uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
+    clause, extra = _branch_filter(branch_id)
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE shop_id = ? AND type = 'income'",
-            (shop_id,),
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE shop_id = ? AND type = 'income'{clause}",
+            [shop_id] + extra,
         )
         income = (await cursor.fetchone())[0]
 
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE shop_id = ? AND type = 'expense'",
-            (shop_id,),
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE shop_id = ? AND type = 'expense'{clause}",
+            [shop_id] + extra,
         )
         expense = (await cursor.fetchone())[0]
 
@@ -922,41 +942,50 @@ async def search_sales(shop_id: int, query: str, limit: int = 30):
 
 # ---------- FOYDALANUVCHILAR (DO'KON EGALARI) ----------
 
-async def get_top_selling_products(shop_id: int, limit: int = 10):
+async def get_top_selling_products(shop_id: int, limit: int = 10, branch_id=None):
+    """branch_id - filial bo'yicha kesim uchun (None=barcha, 0=Bosh filial, <id>=shu filial).
+
+    sale_items'da branch_id yo'q, shuning uchun har bir savdo chekining
+    filialini bog'liq transactions yozuvidan (t.branch_id) olamiz."""
+    clause, extra = _branch_filter(branch_id, column="t.branch_id")
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """
+            f"""
             SELECT p.name AS name, SUM(si.quantity) AS total_qty,
                    SUM(si.quantity * si.price) AS total_sum
             FROM sale_items si
             JOIN products p ON p.id = si.product_id
-            WHERE si.shop_id = ?
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ?{clause}
             GROUP BY si.product_id
             ORDER BY total_qty DESC
             LIMIT ?
             """,
-            (shop_id, limit),
+            [shop_id] + extra + [limit],
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
 
-async def get_top_profit_products(shop_id: int, limit: int = 10):
+async def get_top_profit_products(shop_id: int, limit: int = 10, branch_id=None):
+    """branch_id - filial bo'yicha kesim uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
+    clause, extra = _branch_filter(branch_id, column="t.branch_id")
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """
+            f"""
             SELECT p.name AS name,
                    SUM((si.price - p.price) * si.quantity) AS total_profit
             FROM sale_items si
             JOIN products p ON p.id = si.product_id
-            WHERE si.shop_id = ?
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ?{clause}
             GROUP BY si.product_id
             ORDER BY total_profit DESC
             LIMIT ?
             """,
-            (shop_id, limit),
+            [shop_id] + extra + [limit],
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
@@ -1123,12 +1152,14 @@ async def get_debts(shop_id: int, only_unpaid: bool = True):
         return [dict(row) for row in rows]
 
 
-async def get_total_debt(shop_id: int):
+async def get_total_debt(shop_id: int, branch_id=None):
+    """branch_id - filial bo'yicha hisobot uchun (None=barcha, 0=Bosh filial, <id>=shu filial)."""
+    clause, extra = _branch_filter(branch_id)
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             "SELECT COALESCE(SUM(amount - paid_amount), 0) FROM debts "
-            "WHERE shop_id = ? AND is_paid = 0",
-            (shop_id,),
+            f"WHERE shop_id = ? AND is_paid = 0{clause}",
+            [shop_id] + extra,
         )
         return (await cursor.fetchone())[0]
 
