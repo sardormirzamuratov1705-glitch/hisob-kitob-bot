@@ -51,6 +51,24 @@ WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else ""
 PORT = int(os.getenv("PORT", "8080"))
 
+# ---------- WEB APP (SAVDO) - 1-BOSQICH: INFRATUZILMA ----------
+# Telegram "Mini App" (WebApp) - "🛒 Savdo" tugmasini bosganda Telegram
+# ICHIDA ochiladigan veb-sahifa (aiohttp orqali shu botning o'zi xizmat
+# qiladi). Bunga Telegramning o'zi ANIQ HTTPS manzil talab qiladi -
+# shuning uchun WEBAPP_URL faqat WEBHOOK_HOST (yoki .env orqali alohida)
+# sozlangandagina ishlaydi. Agar sozlanmagan bo'lsa (masalan hali polling
+# rejimida, domensiz ishlab chiqilayotganda) - "🛒 Savdo" tugmasi ESKI
+# (matn asosidagi, bosqichma-bosqich so'raydigan) usulda ishlayveradi -
+# hech narsa buzilmaydi.
+#
+# .env orqali alohida domen berish mumkin (masalan WEBHOOK_HOST'dan farqli
+# bo'lsa), aks holda avtomatik WEBHOOK_HOST asosida quriladi:
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").rstrip("/") or (
+    f"{WEBHOOK_HOST}/webapp" if WEBHOOK_HOST else ""
+)
+# Statik fayllar (index.html, app.js, style.css) shu papkada saqlanadi.
+WEBAPP_STATIC_DIR = os.getenv("WEBAPP_STATIC_DIR", "webapp_static")
+
 # ---------- OBUNA TARIFLARI VA TO'LOV REKVIZITLARI (6-BOSQICH) ----------
 # DIQQAT: quyidagi narxlar va rekvizitlar VAQTINCHALIK QIYMATLAR - haqiqiy
 # ishga tushirishdan oldin .env orqali (yoki shu yerda to'g'ridan-to'g'ri)
