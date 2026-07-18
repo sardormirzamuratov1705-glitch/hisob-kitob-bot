@@ -14,6 +14,7 @@ import database as db
 import alerts
 import access_control
 from access_control import OwnerOnlyMiddleware
+from fsm_storage import SQLiteStorage
 from handlers import start, products, sales, transactions, debts, reports, users, sellers, branches, subscription
 
 
@@ -157,7 +158,7 @@ def main():
         token=config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher()
+    dp = Dispatcher(storage=SQLiteStorage(config.DB_PATH))
 
     dp.errors.register(_make_error_handler(bot))
 
