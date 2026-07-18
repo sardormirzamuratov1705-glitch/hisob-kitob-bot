@@ -1,6 +1,8 @@
 from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
+import config
+
 
 def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
     """role: "admin" | "owner" | "seller".
@@ -32,7 +34,8 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
         builder.button(text="📊 Hisobot")
         builder.button(text="🧑‍💼 Sotuvchilar")
         builder.button(text="🏢 Filiallar")
-        builder.adjust(2, 2, 2)
+        builder.button(text="💳 Obuna")
+        builder.adjust(2, 2, 2, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -42,6 +45,19 @@ def landing_menu() -> InlineKeyboardMarkup:
     boshlash uchun. Handler: handlers/start.py -> self_register callback."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Ro'yxatdan o'tish", callback_data="self_register")
+    return builder.as_markup()
+
+
+def subscription_plans_menu() -> InlineKeyboardMarkup:
+    """"💳 Obuna" bo'limida ko'rsatiladigan tarif tanlash tugmalari -
+    config.SUBSCRIPTION_PLANS asosida avtomatik quriladi. Tanlangach
+    handlers/subscription.py'dagi sub_plan:<key> callback'i ishlaydi."""
+    builder = InlineKeyboardBuilder()
+    for key, plan in config.SUBSCRIPTION_PLANS.items():
+        note = f" ({plan['discount_note']})" if plan.get("discount_note") else ""
+        text = f"{plan['label']}{note} — {plan['price']:,} so'm".replace(",", " ")
+        builder.button(text=text, callback_data=f"sub_plan:{key}")
+    builder.adjust(1)
     return builder.as_markup()
 
 
