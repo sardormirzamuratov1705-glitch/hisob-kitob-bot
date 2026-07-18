@@ -18,8 +18,9 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     if role == "admin":
         builder.button(text="👥 Foydalanuvchilar")
+        builder.button(text="📢 E'lon yuborish")
         builder.button(text="🗄 Zaxira nusxa")
-        builder.adjust(1, 1)
+        builder.adjust(1, 1, 1)
     elif role == "seller":
         builder.button(text="🛒 Savdo")
         builder.button(text="📋 Mahsulotlar ro'yxati")
