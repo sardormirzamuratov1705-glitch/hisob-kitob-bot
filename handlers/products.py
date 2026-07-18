@@ -831,7 +831,7 @@ async def delete_product_cb(callback: CallbackQuery):
         )
         return
 
-    await db.delete_product(shop_id, product_id)
+    await db.delete_product(shop_id, product_id, performed_by=callback.from_user.id, product_name=product.get("name"))
 
     # Kanaldagi rasm postini ham o'chiramiz.
     if product and product.get("channel_message_id") and config.CHANNEL_ID:
