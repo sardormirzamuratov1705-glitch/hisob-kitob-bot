@@ -101,6 +101,15 @@ DEBT_OVERDUE_DAYS_DEFAULT = int(os.getenv("DEBT_OVERDUE_DAYS_DEFAULT", "3"))
 # ketaveradi (o'zi bilishi kerak, mijoz esa kamroq bezovta bo'lsin).
 DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS = int(os.getenv("DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS", "3"))
 
+# ---------- AI BUYURTMA TAVSIYASI - 16-BOSQICH ----------
+# Mahsulot yetkazib berish odatda necha KUN vaqt oladi (standart qiymat -
+# har bir do'kon egasi "🤖 AI buyurtma tavsiyasi" bo'limidan o'ziga moslab
+# o'zgartira oladi, database.get_restock_lead_time_days/set_restock_lead_time_days).
+# Joriy qoldiq shu necha kunlik sotishga YETMAYDIGAN bo'lsa - "hozir
+# buyurtma bering" deb tavsiya beriladi (aks holda tovar yetib kelguncha
+# sklad tugab qolishi mumkin).
+RESTOCK_LEAD_TIME_DAYS_DEFAULT = int(os.getenv("RESTOCK_LEAD_TIME_DAYS_DEFAULT", "7"))
+
 # Tariflar ro'yxati - handlers/subscription.py shu yerdan o'qiydi (tugmalar,
 # narx ko'rsatish va tanlangan tarifga qarab subscription_until'ni necha
 # kunga uzaytirish kerakligini aniqlash uchun). "days" - 7-bosqichda
