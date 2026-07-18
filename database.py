@@ -498,6 +498,30 @@ async def init_db():
             """
         )
 
+        # FSM HOLATINI SAQLASH (bot redeploy/qayta ishga tushganda ham
+        # forma to'ldirayotgan foydalanuvchi to'xtagan joyidan davom etishi
+        # uchun) - avvalgi MemoryStorage (RAM) o'rniga shu jadval ishlatiladi
+        # (qarang: fsm_storage.py). thread_id/business_connection_id NULL
+        # bo'lishi mumkin bo'lgani uchun (SQLite'da NULL PRIMARY KEY'da
+        # muammo tug'diradi - ON CONFLICT ishlamay qoladi), ular 0/'' bilan
+        # almashtirib saqlanadi (fsm_storage.py._key_tuple).
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fsm_storage (
+                bot_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                thread_id INTEGER NOT NULL DEFAULT 0,
+                business_connection_id TEXT NOT NULL DEFAULT '',
+                destiny TEXT NOT NULL DEFAULT 'default',
+                state TEXT,
+                data TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (bot_id, chat_id, user_id, thread_id, business_connection_id, destiny)
+            )
+            """
+        )
+
         await db.commit()
 
 
