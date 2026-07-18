@@ -73,6 +73,7 @@ async def init_db():
         for column, col_type in [
             ("payment_method", "TEXT"),
             ("shop_id", "INTEGER"),
+            ("branch_id", "INTEGER"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE transactions ADD COLUMN {column} {col_type}")
@@ -131,6 +132,7 @@ async def init_db():
             ("taken_date", "TEXT"),
             ("paid_amount", "REAL NOT NULL DEFAULT 0"),
             ("shop_id", "INTEGER"),
+            ("branch_id", "INTEGER"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE debts ADD COLUMN {column} {col_type}")
@@ -248,6 +250,13 @@ async def init_db():
                 await db.execute(f"ALTER TABLE owners ADD COLUMN {col} TEXT")
             except Exception:
                 pass
+        # Do'kon egasi hozir qaysi filialda "turibdi" - savdo/kirim-chiqim/qarz
+        # yozuvlari shu filialga yoziladi. NULL = hali filial tanlanmagan
+        # (yoki umuman filial qo'shilmagan) - "Bosh filial" sifatida ishlaydi.
+        try:
+            await db.execute("ALTER TABLE owners ADD COLUMN current_branch_id INTEGER")
+        except Exception:
+            pass
 
         # Sotuvchining o'zi kiritgan ismi va telefon raqami - do'kon egasi
         # bir nechta sotuvchini boshqarganda ularni Telegram ID/username
@@ -257,6 +266,21 @@ async def init_db():
                 await db.execute(f"ALTER TABLE sellers ADD COLUMN {col} TEXT")
             except Exception:
                 pass
+        # Sotuvchi doimiy ravishda bitta filialga qarab turadi - do'kon egasi
+        # sotuvchi qo'shgan paytda o'zining joriy filiali avtomatik yoziladi,
+        # keyinchalik egasi buni qo'lda boshqa filialga ko'chirishi mumkin.
+        # Sotuvchining o'zi filial almashtira olmaydi. NULL = "Bosh filial".
+        try:
+            await db.execute("ALTER TABLE sellers ADD COLUMN branch_id INTEGER")
+        except Exception:
+            pass
+        # Taklif linki yaratilgan paytda egasining joriy filiali shu yerga
+        # yoziladi - link ishlatilib sotuvchi qo'shilganda shu qiymat
+        # sellers.branch_id'ga ko'chadi (handlers/start.py).
+        try:
+            await db.execute("ALTER TABLE seller_invites ADD COLUMN branch_id INTEGER")
+        except Exception:
+            pass
         # Filiallar - har bir do'kon egasi o'zining bir nechta jismoniy
         # filialini (do'kon nuqtasini) qo'sha oladi. Hozircha faqat
         # tashkiliy/ma'lumot uchun - mahsulot/savdo filialga majburiy
