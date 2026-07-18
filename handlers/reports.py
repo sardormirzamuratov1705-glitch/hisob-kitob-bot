@@ -213,6 +213,83 @@ async def monthly_forecast_report(message: Message):
     await message.answer("\n\n".join(blocks), parse_mode="HTML")
 
 
+def _trend_direction(change_percent) -> str:
+    """TREND TAHLILI - 15-BOSQICH: o'zgarish foiziga qarab yo'nalish
+    belgisini qaytaradi. ±5% ichidagi o'zgarish "deyarli o'zgarishsiz"
+    (➡️) deb hisoblanadi - kichik tebranishlarni trend sifatida
+    ko'rsatmaslik uchun."""
+    if change_percent is None:
+        return "▪️"
+    if change_percent > 5:
+        return "📈"
+    if change_percent < -5:
+        return "📉"
+    return "➡️"
+
+
+def _compute_trend(series: list) -> list:
+    """[{"label": ..., "value": ...}, ...] ketma-ketligidagi har bir davr
+    uchun OLDINGI davrga nisbatan o'zgarish foizini hisoblab qo'shadi.
+    Birinchi davr uchun solishtiradigan narsa yo'q - change_percent None."""
+    result = []
+    prev_value = None
+    for item in series:
+        value = item["value"]
+        change_percent = None
+        if prev_value is not None and prev_value != 0:
+            change_percent = (value - prev_value) / prev_value * 100
+        result.append({**item, "change_percent": change_percent})
+        prev_value = value
+    return result
+
+
+def _format_trend_series(title: str, trend: list) -> str:
+    lines = [title]
+    for t in trend:
+        arrow = _trend_direction(t["change_percent"])
+        change_text = f" ({t['change_percent']:+.0f}%)" if t["change_percent"] is not None else ""
+        lines.append(f"{arrow} {t['label']}: {t['value']:.0f} so'm{change_text}")
+    return "\n".join(lines)
+
+
+@router.message(F.text == "📉 Trend tahlili")
+async def trend_analysis_report(message: Message):
+    """TREND TAHLILI - 15-BOSQICH: foydaning OY va HAFTA kesimida qanday
+    o'zgarib borayotganini (o'sish 📈 / pasayish 📉 / deyarli o'zgarishsiz ➡️,
+    har birida oldingi davrga nisbatan foiz bilan) ko'rsatadi. 14-bosqichdagi
+    "oddiy prognoz"dan farqi - bu yerda kelajak taxmin qilinmaydi, faqat
+    O'TGAN davrlar orasidagi dinamika ko'rsatiladi."""
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    monthly = await db.get_monthly_profit_history(shop_id, months=6)
+    weekly = await db.get_weekly_profit_history(shop_id, weeks=8)
+
+    if not any(h["sales_count"] for h in monthly):
+        await message.answer("Hozircha savdo tarixi yo'q, trend tahlili uchun ma'lumot yetarli emas.")
+        return
+
+    monthly_series = [{"label": _format_month_uz(h["month"]), "value": h["profit"]} for h in monthly]
+    weekly_series = [
+        {
+            "label": (
+                f"{datetime.strptime(h['week_start'], '%Y-%m-%d').strftime('%d.%m')}–"
+                f"{datetime.strptime(h['week_end'], '%Y-%m-%d').strftime('%d.%m')}"
+            ),
+            "value": h["profit"],
+        }
+        for h in weekly
+    ]
+
+    text = (
+        _format_trend_series("📅 <b>Oylik foyda trendi</b> (so'nggi 6 oy)", _compute_trend(monthly_series))
+        + "\n\n"
+        + _format_trend_series("🗓 <b>Haftalik foyda trendi</b> (so'nggi 8 hafta)", _compute_trend(weekly_series))
+    )
+    await message.answer(text, parse_mode="HTML")
+
+
 def _format_top_products(top_selling, top_profit, scope_name: str = ""):
     lines = []
     if scope_name:
