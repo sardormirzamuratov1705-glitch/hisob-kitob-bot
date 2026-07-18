@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
+import config
 import database as db
 import keyboards as kb
 import alerts
@@ -78,7 +79,7 @@ def _parse_due_date(text: str):
     if text == "-":
         return None
     if text.isdigit():
-        due = datetime.now() + timedelta(days=int(text))
+        due = config.now() + timedelta(days=int(text))
         return due.strftime("%Y-%m-%d")
     due = datetime.strptime(text, "%d.%m.%Y")
     return due.strftime("%Y-%m-%d")
@@ -123,7 +124,7 @@ async def add_debt_amount(message: Message, state: FSMContext):
 
 @router.callback_query(AddDebt.taken_date, F.data == "taken_today")
 async def add_debt_taken_today(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(taken_date=datetime.now().strftime("%Y-%m-%d"))
+    await state.update_data(taken_date=config.now().strftime("%Y-%m-%d"))
     await state.set_state(AddDebt.due_date)
     await callback.answer()
     await callback.message.answer(
@@ -250,7 +251,7 @@ async def list_debts(message: Message):
     for d in debts:
         try:
             created_dt = datetime.strptime(d["created_at"], "%Y-%m-%d %H:%M:%S")
-            days_ago = (datetime.now() - created_dt).days
+            days_ago = (config.now() - created_dt).days
         except (TypeError, ValueError):
             days_ago = None
 
@@ -266,7 +267,7 @@ async def list_debts(message: Message):
         if due_date_str:
             try:
                 due_dt = datetime.strptime(due_date_str, "%Y-%m-%d")
-                days_left = (due_dt.date() - datetime.now().date()).days
+                days_left = (due_dt.date() - config.now().date()).days
                 due_fmt = due_dt.strftime("%d.%m.%Y")
                 if days_left < 0:
                     due_line = f"❗️ Qaytarish sanasi: {due_fmt} ({-days_left} kun kechikdi)\n"
