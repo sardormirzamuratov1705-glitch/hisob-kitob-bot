@@ -28,6 +28,7 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
         builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
         builder.adjust(1, 1, 1, 1, 1)
     else:
+        builder.button(text="🛒 Savdo")
         builder.button(text="📦 Sklad")
         builder.button(text="💰 Kirim/Chiqim")
         builder.button(text="📒 Qarz daftar")
@@ -35,7 +36,7 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
         builder.button(text="🧑‍💼 Sotuvchilar")
         builder.button(text="🏢 Filiallar")
         builder.button(text="💳 Obuna")
-        builder.adjust(2, 2, 2, 1)
+        builder.adjust(1, 2, 2, 2, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -199,13 +200,12 @@ def sklad_menu() -> ReplyKeyboardMarkup:
 
 def kirim_chiqim_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.button(text="🛒 Savdo")
     builder.button(text="➕ Kirim qo'shish")
     builder.button(text="➖ Chiqim qo'shish")
     builder.button(text="📈 Bugungi holat")
     builder.button(text="🔎 Savdolarni qidirish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 2, 1, 1, 1)
+    builder.adjust(2, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
