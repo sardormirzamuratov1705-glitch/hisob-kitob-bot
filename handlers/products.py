@@ -815,6 +815,21 @@ async def delete_product_cb(callback: CallbackQuery):
         return
     product_id = int(callback.data.split("_")[-1])
     product = await db.get_product(shop_id, product_id)
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+
+    # Qoldig'i hali qolgan mahsulotni butunlay o'chirib tashlash xavfli -
+    # tasodifan yoki xato bosib qoldiqni yo'qotib qo'yish oldini olish uchun,
+    # faqat qoldiq 0 (yoki kamroq) bo'lgandagina o'chirishga ruxsat beramiz.
+    if (product.get("quantity") or 0) > 0:
+        await callback.answer(
+            f"❌ Bu mahsulotdan hali {product['quantity']:.0f} dona bor. "
+            f"Avval qoldig'ini 0 ga tushiring (sotib yoki miqdorini o'zgartirib), "
+            f"keyin o'chirish mumkin bo'ladi.",
+            show_alert=True,
+        )
+        return
 
     await db.delete_product(shop_id, product_id)
 
