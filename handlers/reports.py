@@ -4,7 +4,7 @@ from datetime import datetime
 
 import aiosqlite
 from aiogram import Router, F
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from openpyxl import Workbook
@@ -56,16 +56,67 @@ async def general_report(message: Message):
     await message.answer(text, parse_mode="HTML")
 
 
-@router.message(F.text == "🏆 Top mahsulotlar")
-async def top_products_report(message: Message):
+@router.message(F.text == "🏢 Filial bo'yicha hisobot")
+async def branch_report_start(message: Message):
     shop_id = await _require_shop(message)
     if shop_id is None:
         return
 
-    top_selling = await db.get_top_selling_products(shop_id, limit=10)
-    top_profit = await db.get_top_profit_products(shop_id, limit=10)
+    branches = await db.get_branches(shop_id)
+    if not branches:
+        await message.answer(
+            "Hozircha filial qo'shilmagan, shuning uchun filial bo'yicha "
+            "hisobot mavjud emas. Avval \"🏢 Filiallar\" bo'limidan filial qo'shing."
+        )
+        return
 
-    lines = ["🏆 <b>Top 10 - eng ko'p sotilgan</b>\n"]
+    await message.answer(
+        "Qaysi filial bo'yicha hisobot ko'rmoqchisiz?",
+        reply_markup=kb.report_branch_kb(branches, prefix="rep_branch"),
+    )
+
+
+@router.callback_query(F.data.startswith("rep_branch_"))
+async def branch_report_show(callback: CallbackQuery):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
+        return
+
+    raw = callback.data[len("rep_branch_"):]
+    branch_id = int(raw)  # bu yerda "all" bo'lmaydi - kb.report_branch_kb "0" yoki filial id beradi
+
+    branch_name = "🏠 Bosh filial"
+    if branch_id:
+        branch = await db.get_branch(shop_id, branch_id)
+        if not branch:
+            await callback.answer("Filial topilmadi.", show_alert=True)
+            return
+        branch_name = f"🏢 {branch['name']}"
+
+    income, expense = await db.get_totals(shop_id, branch_id=branch_id)
+    balance = income - expense
+    total_debt = await db.get_total_debt(shop_id, branch_id=branch_id)
+    payment_totals = await db.get_payment_method_totals(shop_id, "income", branch_id=branch_id)
+
+    text = (
+        f"{branch_name} — <b>hisobot</b>\n\n"
+        f"💰 Kirim: {income:.0f} so'm\n"
+        f"   💵 Naqd: {payment_totals['naqd']:.0f} so'm\n"
+        f"   💳 Plastik: {payment_totals['plastik']:.0f} so'm\n"
+        f"💸 Chiqim: {expense:.0f} so'm\n"
+        f"📈 Balans: <b>{balance:.0f} so'm</b>\n\n"
+        f"📒 Qarzdorlik: {total_debt:.0f} so'm"
+    )
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+
+def _format_top_products(top_selling, top_profit, scope_name: str = ""):
+    lines = []
+    if scope_name:
+        lines.append(f"{scope_name}\n")
+    lines.append("🏆 <b>Top 10 - eng ko'p sotilgan</b>\n")
     if top_selling:
         for i, r in enumerate(top_selling, 1):
             lines.append(f"{i}. {r['name']} — {r['total_qty']:.0f} dona ({r['total_sum']:.0f} so'm)")
@@ -79,7 +130,58 @@ async def top_products_report(message: Message):
     else:
         lines.append("Ma'lumot yo'q.")
 
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    return "\n".join(lines)
+
+
+async def _send_top_products(target: Message, shop_id: int, branch_id, scope_name: str = ""):
+    top_selling = await db.get_top_selling_products(shop_id, limit=10, branch_id=branch_id)
+    top_profit = await db.get_top_profit_products(shop_id, limit=10, branch_id=branch_id)
+    await target.answer(_format_top_products(top_selling, top_profit, scope_name), parse_mode="HTML")
+
+
+@router.message(F.text == "🏆 Top mahsulotlar")
+async def top_products_report(message: Message):
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+
+    branches = await db.get_branches(shop_id)
+    if not branches:
+        # Filial umuman yo'q bo'lsa, kesim tanlashning ma'nosi yo'q -
+        # to'g'ridan-to'g'ri umumiy natijani ko'rsatamiz.
+        await _send_top_products(message, shop_id, branch_id=None)
+        return
+
+    await message.answer(
+        "Qaysi kesimda top mahsulotlarni ko'rmoqchisiz?",
+        reply_markup=kb.report_branch_kb(branches, prefix="rep_top", include_all=True),
+    )
+
+
+@router.callback_query(F.data.startswith("rep_top_"))
+async def top_products_show(callback: CallbackQuery):
+    shop_id = await get_shop_id(callback.from_user.id)
+    if shop_id is None:
+        await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
+        return
+
+    raw = callback.data[len("rep_top_"):]
+    if raw == "all":
+        branch_id = None
+        scope_name = "🌐 Umumiy (barcha filiallar)"
+    else:
+        branch_id = int(raw)
+        if branch_id:
+            branch = await db.get_branch(shop_id, branch_id)
+            if not branch:
+                await callback.answer("Filial topilmadi.", show_alert=True)
+                return
+            scope_name = f"🏢 {branch['name']}"
+        else:
+            scope_name = "🏠 Bosh filial"
+
+    await _send_top_products(callback.message, shop_id, branch_id, scope_name)
+    await callback.answer()
 
 
 @router.message(F.text == "📥 Excel yuklab olish")
