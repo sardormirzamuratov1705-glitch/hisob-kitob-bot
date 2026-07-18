@@ -285,7 +285,7 @@ async def api_sklad_add_quantity(request: web.Request):
     if not product:
         return web.json_response({"error": "product_not_found"}, status=400)
 
-    result = await db.add_stock_quantity(shop_id, product["id"], qty)
+    result = await db.add_stock_quantity(shop_id, product["id"], qty, performed_by=auth["telegram_id"])
     if not result:
         return web.json_response({"error": "product_not_found"}, status=400)
 
