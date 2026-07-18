@@ -87,9 +87,9 @@ async def add_transaction_description(message: Message, state: FSMContext):
     )
     await state.clear()
 
-    # SHUBHALI HOLATLAR - 9-BOSQICH: faqat "chiqim" uchun tekshiramiz
-    # (5-qoida - katta chiqim - kirimga tegishli emas). Hozircha faqat
-    # logga yoziladi - Telegram orqali darhol xabar 10-bosqichda qo'shiladi.
+    # SHUBHALI HOLATLAR - 9/10-BOSQICH: faqat "chiqim" uchun tekshiramiz
+    # (5-qoida - katta chiqim - kirimga tegishli emas). Topilsa - logga
+    # yoziladi VA do'kon egasiga darhol Telegram ogohlantirishi yuboriladi.
     if data["type"] == "expense":
         suspicious_flags = await alerts.evaluate_expense_suspicions(
             shop_id, data["amount"], performed_by=performed_by
@@ -98,6 +98,7 @@ async def add_transaction_description(message: Message, state: FSMContext):
             logging.warning(
                 f"[SHUBHALI - CHIQIM] shop={shop_id}: " + " | ".join(suspicious_flags)
             )
+            await alerts.send_suspicious_alert(message.bot, shop_id, suspicious_flags, "chiqim")
 
     label = "Kirim" if data["type"] == "income" else "Chiqim"
     is_owner = await db.is_owner(message.from_user.id)
