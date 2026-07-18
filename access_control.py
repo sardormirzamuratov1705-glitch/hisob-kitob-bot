@@ -17,13 +17,35 @@ class PaymentFlow(StatesGroup):
     waiting_receipt = State()
 
 
+# Botdan turib (redeploy'siz) qo'shilgan qo'shimcha bosh adminlar - config.ADMIN_IDS
+# (.env) ga qo'shimcha ravishda shu xotiradagi to'plamda saqlanadi. is_admin() ko'p
+# joyda SINXRON chaqirilgani uchun (39+ joyda) har safar bazaga murojaat qilish
+# o'rniga, bot ishga tushganda load_extra_admins() bilan bir marta yuklanadi va
+# yangi admin qo'shilganda register_extra_admin() bilan darhol yangilanadi.
+_extra_admin_ids: set[int] = set()
+
+
+async def load_extra_admins():
+    """Bot ishga tushganda (main.py -> on_startup) chaqiriladi - bazadagi
+    botdan qo'shilgan adminlarni xotiraga yuklaydi."""
+    global _extra_admin_ids
+    _extra_admin_ids = set(await db.get_admin_ids())
+
+
+def register_extra_admin(telegram_id: int):
+    """Yangi admin botdan turib qo'shilganda (handlers/users.py) darhol
+    xotiraga qo'shiladi - botni qayta ishga tushirish shart emas."""
+    _extra_admin_ids.add(telegram_id)
+
+
 def is_admin(user_id: int) -> bool:
-    """Bosh admin - faqat .env dagi config.ADMIN_IDS ro'yxatidagilar.
+    """Bosh admin - .env dagi config.ADMIN_IDS (bootstrap) YOKI botdan turib
+    qo'shilgan qo'shimcha adminlar (_extra_admin_ids, database.admins jadvali).
     Faqat shular yangi do'kon egalarini bazaga qo'sha/o'chira oladi
     ("Foydalanuvchilar" bo'limi faqat shularga ko'rinadi). Bosh adminning
     o'zining alohida do'koni (Sklad/Savdo/Qarz/Hisobot) yo'q - u faqat
     do'kon egalarini boshqaradi."""
-    return user_id in config.ADMIN_IDS
+    return user_id in config.ADMIN_IDS or user_id in _extra_admin_ids
 
 
 async def is_authorized(user_id: int) -> bool:
