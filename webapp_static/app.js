@@ -42,16 +42,19 @@ const API = {
   productByBarcode: "/api/webapp/products/by-barcode",
   crossSell: "/api/webapp/cross_sell",
   sale: "/api/webapp/sale",
+  skladProducts: "/api/webapp/sklad/products",
+  skladAddQuantity: "/api/webapp/sklad/add-quantity",
 };
 
 let cart = []; // [{id, name, qty, price, stock}]
 let selectedPaymentMethod = null;
 let currentModalProduct = null;
+let currentSection = "sale"; // 6-BOSQICH: "sale" (Savdo) | "sklad" (Sklad)
 
 const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
-  ["loading", "error", "products", "cart"].forEach((s) => {
+  ["loading", "error", "products", "cart", "sklad"].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
   });
 }
@@ -245,7 +248,9 @@ function renderCartBar() {
 
   const total = cart.reduce((sum, c) => sum + c.qty * c.price, 0);
   badge.textContent = String(cart.length);
-  badge.classList.remove("hidden");
+  // 6-BOSQICH: savat "Sklad" bo'limida chalkashtirmasligi uchun faqat
+  // "Savdo" bo'limida ko'rsatiladi (savat o'zi saqlanib qoladi).
+  badge.classList.toggle("hidden", currentSection !== "sale");
 
   if (!bar) {
     bar = document.createElement("div");
@@ -255,8 +260,9 @@ function renderCartBar() {
     document.body.appendChild(bar);
   }
   bar.innerHTML = `<span>🛒 Savat: ${cart.length} tur</span><span>${formatNum(total)} so'm</span>`;
+  bar.classList.toggle("hidden", currentSection !== "sale");
 
-  loadCrossSell();
+  if (currentSection === "sale") loadCrossSell();
 }
 
 // ---------- 3-BOSQICH: CROSS-SELL TAKLIFI ----------
@@ -461,6 +467,7 @@ const BARCODE_FORMATS = window.Html5QrcodeSupportedFormats
 
 let html5QrCode = null;
 let scanHandled = false;
+let scannerMode = "sale"; // 7-BOSQICH: "sale" (Savdo, uzluksiz savatga qo'shish) | "sklad" (bitta-bittalab, miqdor kiritish oynasi)
 
 function setScannerStatus(text, type) {
   const box = el("scanner-status");
@@ -473,14 +480,21 @@ function setScannerStatus(text, type) {
 function resetScannerStatusSoon(delay = 1600) {
   setTimeout(() => {
     if (!el("modal-scanner").classList.contains("hidden")) {
-      setScannerStatus("Kamerani barkodga to'g'irlang...");
+      setScannerStatus(defaultScannerStatusText());
     }
   }, delay);
 }
 
-async function openScanner() {
+function defaultScannerStatusText() {
+  return scannerMode === "sklad"
+    ? "Skladga qo'shish uchun barkodni skanerlang..."
+    : "Kamerani barkodga to'g'rilang...";
+}
+
+async function openScanner(mode = "sale") {
+  scannerMode = mode;
   scanHandled = false;
-  setScannerStatus("Kamerani barkodga to'g'rilang...");
+  setScannerStatus(defaultScannerStatusText());
   el("modal-scanner").classList.remove("hidden");
 
   if (!window.Html5Qrcode) {
@@ -522,22 +536,41 @@ async function closeScanner() {
   await stopScanner();
 }
 
-// 5-BOSQICH: skanerlangan mahsulotni savatga ulash.
-//
-// MUHIM DIZAYN QARORI: har bir skanerlashdan keyin modal YOPILMAYDI va
-// kamera to'XTATILMAYDI - do'konda ketma-ket bir nechta tovar
-// skanerlanganda foydalanuvchi har safar "Yopish -> qayta skaner tugmasi ->
-// ochish" bosishga majbur bo'lmasligi kerak (bu haqiqiy savdo
-// tezligiga to'sqinlik qilardi). Buning o'rniga: skanerlandi -> darhol
-// savatga (standart narxda) qo'shiladi -> qisqa "✅ ..." tasdiq matni
-// ko'rsatiladi -> ~1.2 soniyadan keyin skaner o'zi davom etadi. Savdoni
-// tugatish uchun foydalanuvchi "✕" (scanner-close-btn) bosadi.
+// 5/7-BOSQICH: skanerlangan barkodni rejimga qarab ikki xil oqimga
+// yo'naltiradi:
+//  - "sale" (Savdo): uzluksiz - darhol savatga qo'shiladi, kamera davom
+//    ishlaydi (pastdagi izohga qarang).
+//  - "sklad" (Sklad): BITTA-BITTALAB - kamera to'xtatiladi, modal
+//    yopiladi va "nechta dona keldi?" oynasi ochiladi, chunki bu yerda
+//    foydalanuvchi albatta sonni QO'LDA kiritishi kerak (standart
+//    miqdor degan narsa yo'q).
 async function onBarcodeDecoded(decodedText) {
   if (scanHandled) return; // bitta kadrda bir necha marta chaqirilishining oldini olamiz
   scanHandled = true;
   tg.HapticFeedback.impactOccurred("light");
-  setScannerStatus("Qidirilmoqda...");
 
+  if (scannerMode === "sklad") {
+    setScannerStatus("Qidirilmoqda...");
+    await stopScanner();
+    el("modal-scanner").classList.add("hidden");
+    await handleSkladBarcodeScan(decodedText);
+    scanHandled = false;
+    return;
+  }
+
+  await handleSaleBarcodeScan(decodedText);
+}
+
+// MUHIM DIZAYN QARORI (Savdo rejimi): har bir skanerlashdan keyin modal
+// YOPILMAYDI va kamera to'XTATILMAYDI - do'konda ketma-ket bir nechta
+// tovar skanerlanganda foydalanuvchi har safar "Yopish -> qayta skaner
+// tugmasi -> ochish" bosishga majbur bo'lmasligi kerak (bu haqiqiy savdo
+// tezligiga to'sqinlik qilardi). Buning o'rniga: skanerlandi -> darhol
+// savatga (standart narxda) qo'shiladi -> qisqa "✅ ..." tasdiq matni
+// ko'rsatiladi -> ~1.2 soniyadan keyin skaner o'zi davom etadi. Savdoni
+// tugatish uchun foydalanuvchi "✕" (scanner-close-btn) bosadi.
+async function handleSaleBarcodeScan(decodedText) {
+  setScannerStatus("Qidirilmoqda...");
   try {
     const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(decodedText)}`);
     const data = await res.json();
@@ -557,6 +590,26 @@ async function onBarcodeDecoded(decodedText) {
     // Bir xil barkod (masalan qo'l bilan ushlab turilgan) darhol yana
     // o'qib ketmasligi uchun qisqa "sovish" vaqti beriladi.
     setTimeout(() => { scanHandled = false; }, 1200);
+  }
+}
+
+// Sklad rejimi: mahsulotni barkod bo'yicha topadi (0 qolgan bo'lsa ham -
+// api_product_by_barcode quantity bo'yicha filtrlamaydi) va topilsa
+// miqdor kiritish oynasini ochadi.
+async function handleSkladBarcodeScan(decodedText) {
+  try {
+    const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(decodedText)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error === "not_found"
+        ? `Bu barkod bo'yicha mahsulot topilmadi:\n${decodedText}`
+        : "Barkod bo'yicha qidirishda xatolik yuz berdi.";
+      tg.showAlert(msg);
+      return;
+    }
+    openSkladAddModal(data.product);
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
   }
 }
 
@@ -590,7 +643,7 @@ function addScannedProductToCart(product) {
   resetScannerStatusSoon();
 }
 
-el("scan-btn").addEventListener("click", openScanner);
+el("scan-btn").addEventListener("click", () => openScanner("sale"));
 el("scanner-close-btn").addEventListener("click", closeScanner);
 
 // Ilova fonga o'tsa (masalan foydalanuvchi Telegramdan chiqib ketsa) -
@@ -606,6 +659,145 @@ el("search-input").addEventListener("input", (e) => {
   clearTimeout(searchTimeout);
   const q = e.target.value;
   searchTimeout = setTimeout(() => loadProducts(q), 300);
+});
+
+// ---------- 6/7-BOSQICH: "SKLAD" BO'LIMI ----------
+// "Savdo" bo'limidan mustaqil ekran: mahsulotni skanerlab yoki qidirib
+// topib, kelgan tovar sonini kiritish orqali skladni to'ldirish.
+
+function switchSection(section) {
+  if (section === currentSection) return;
+  currentSection = section;
+
+  document.querySelectorAll(".section-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.section === section);
+  });
+
+  if (section === "sklad") {
+    showScreen("sklad");
+    loadSkladProducts(el("sklad-search-input").value.trim());
+  } else {
+    showScreen("products");
+  }
+
+  // Savat (agar bo'sh bo'lmasa) faqat "Savdo" bo'limida ko'rinishi kerak.
+  renderCartBar();
+}
+
+el("tab-sale").addEventListener("click", () => switchSection("sale"));
+el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
+
+async function loadSkladProducts(query = "") {
+  try {
+    const res = await apiFetch(`${API.skladProducts}?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error("Mahsulotlarni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderSkladProducts(data.products || []);
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+function renderSkladProducts(products) {
+  const list = el("sklad-product-list");
+  list.innerHTML = "";
+
+  if (products.length === 0) {
+    list.innerHTML = '<p class="muted">Hech narsa topilmadi.</p>';
+  }
+
+  products.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "product-card";
+    // api_products'dan farqli (u yerda "0 dona" oddiy holat emas, chunki
+    // faqat sotiladigan mahsulotlar chiqadi) - Sklad ro'yxatida 0/manfiy
+    // qolgan mahsulotni AJRATIB ko'rsatamiz, chunki aynan shularga tovar
+    // kiritish kerak bo'ladi.
+    const lowBadge = p.quantity <= 0
+      ? '<div class="discount-badge">⚠️ Skladda yo\'q</div>'
+      : "";
+    card.innerHTML = `
+      <div>
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="stock">${formatNum(p.quantity)} dona bor</div>
+        ${lowBadge}
+      </div>
+      <div class="add-icon">➕</div>
+    `;
+    card.addEventListener("click", () => openSkladAddModal(p));
+    list.appendChild(card);
+  });
+}
+
+let currentSkladProduct = null;
+
+function openSkladAddModal(product) {
+  currentSkladProduct = product;
+  el("sklad-modal-product-name").textContent = product.name;
+  el("sklad-modal-product-stock").textContent = `Hozir skladda ${formatNum(product.quantity)} dona bor`;
+  el("sklad-modal-qty-input").value = 1;
+  el("modal-sklad-add").classList.remove("hidden");
+}
+
+el("sklad-modal-cancel-btn").addEventListener("click", () => {
+  el("modal-sklad-add").classList.add("hidden");
+  currentSkladProduct = null;
+});
+
+el("sklad-modal-add-btn").addEventListener("click", async () => {
+  if (!currentSkladProduct) return;
+  const qty = parseFloat(el("sklad-modal-qty-input").value);
+  if (!qty || qty <= 0) {
+    tg.showAlert("Miqdor 0 dan katta bo'lishi kerak.");
+    return;
+  }
+
+  const btn = el("sklad-modal-add-btn");
+  const productId = currentSkladProduct.id;
+  btn.disabled = true;
+  btn.textContent = "Yuborilmoqda...";
+
+  try {
+    const res = await apiFetch(API.skladAddQuantity, {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, qty }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(skladErrorText(data));
+      return;
+    }
+
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-sklad-add").classList.add("hidden");
+    currentSkladProduct = null;
+    tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.`);
+    loadSkladProducts(el("sklad-search-input").value.trim());
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "➕ Skladga qo'shish";
+  }
+});
+
+function skladErrorText(data) {
+  const map = {
+    invalid_quantity: "Miqdor noto'g'ri.",
+    invalid_item: "Mahsulot ma'lumoti noto'g'ri.",
+    missing_product: "Mahsulot tanlanmagan.",
+    product_not_found: "Mahsulot topilmadi (ehtimol o'chirilgan).",
+  };
+  return map[data.error] || "Skladga qo'shishda xatolik yuz berdi.";
+}
+
+el("sklad-scan-btn").addEventListener("click", () => openScanner("sklad"));
+
+let skladSearchTimeout = null;
+el("sklad-search-input").addEventListener("input", (e) => {
+  clearTimeout(skladSearchTimeout);
+  const q = e.target.value;
+  skladSearchTimeout = setTimeout(() => loadSkladProducts(q.trim()), 300);
 });
 
 // ---------- BOSHLASH ----------
