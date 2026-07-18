@@ -41,11 +41,14 @@ async def _send_landing(message: Message):
 @router.callback_query(F.data == "self_register")
 async def self_register_start(callback: CallbackQuery, state: FSMContext):
     """Landing oynasidagi "📝 Ro'yxatdan o'tish" tugmasi. Notanish odam
-    darhol (hech qanday tasdiqlashsiz) yangi, mustaqil do'kon egasi sifatida
-    yaratiladi va SUBSCRIPTION_TRIAL_DAYS kunlik bepul sinov muddati
-    avtomatik boshlanadi (db.add_owner ichida). Shundan so'ng ism/do'kon
-    nomi/telefon so'raladigan qisqa so'rovnoma (_start_owner_onboarding)
-    davom etadi - xuddi bosh admin tomonidan qo'shilgan egadagi kabi."""
+    "pending_trial" holatida (hali sinov muddati BOSHLANMAGAN holda) yangi,
+    mustaqil do'kon egasi sifatida yaratiladi (db.add_owner_pending) va
+    so'rov bosh adminga yuboriladi - u tasdiqlab, necha kunlik bepul sinov
+    muddati berishni o'zi belgilaydi ("✅ Tasdiqlash" tugmasi orqali,
+    handlers/subscription.py'dagi approve_trial:/reject_trial: callback'lari).
+    Ism/do'kon nomi/telefon so'raladigan qisqa so'rovnoma (_start_owner_onboarding)
+    tasdiqlangandan KEYIN, ega keyingi safar /start bossa avtomatik boshlanadi
+    (cmd_start/cmd_start_deep_link'dagi "owner_name yo'q" tekshiruvi orqali)."""
     await callback.answer()
     user_id = callback.from_user.id
 
@@ -59,31 +62,32 @@ async def self_register_start(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Siz allaqachon bir do'konga sotuvchi sifatida ulangansiz.")
         return
 
-    # added_by=None - bosh admin tomonidan emas, o'zi ro'yxatdan o'tgani
+    # added_by=NULL - bosh admin tomonidan emas, o'zi ro'yxatdan o'tgani
     # bildiradi (admin bo'limidagi "Do'kon egalari ro'yxati"da farqlash uchun).
-    await db.add_owner(
+    await db.add_owner_pending(
         user_id,
         callback.from_user.full_name,
         callback.from_user.username,
-        added_by=None,
     )
 
     for admin_id in config.ADMIN_IDS:
         try:
             await callback.message.bot.send_message(
                 admin_id,
-                f"🆕 Yangi do'kon egasi o'zi ro'yxatdan o'tdi: "
-                f"{callback.from_user.full_name} (ID: {user_id}).\n"
-                f"🎁 {db.SUBSCRIPTION_TRIAL_DAYS} kunlik bepul sinov muddati avtomatik boshlandi.",
+                f"🆕 Yangi do'kon egasi o'zi ro'yxatdan o'tishga so'rov yubordi: "
+                f"{callback.from_user.full_name} (ID: {user_id}).\n\n"
+                "Sinov muddatini tasdiqlaysizmi? Tasdiqlasangiz, necha kunlik "
+                "bo'lishini o'zingiz kiritasiz.",
+                reply_markup=kb.trial_decision_kb(user_id),
             )
         except Exception as e:
             logging.warning(f"Adminga ({admin_id}) xabar yuborib bo'lmadi: {e}")
 
     await callback.message.answer(
-        "✅ Tabriklaymiz! Siz do'kon egasi sifatida ro'yxatdan o'tdingiz.\n"
-        f"🎁 Sizga {db.SUBSCRIPTION_TRIAL_DAYS} kunlik bepul sinov muddati taqdim etildi."
+        "✅ So'rovingiz qabul qilindi va bosh adminga yuborildi.\n"
+        "⏳ Bosh admin sizga bepul sinov muddati berishni tasdiqlashi bilan, "
+        "shu yerda xabar olasiz - biroz kuting."
     )
-    await _start_owner_onboarding(callback.message, state)
 
 
 # ---------- DO'KON EGASI UCHUN QISQA SO'ROVNOMA ----------
