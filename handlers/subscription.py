@@ -1,10 +1,13 @@
+import logging
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 import config
+import database as db
 import keyboards as kb
-from access_control import is_admin, is_owner_level
+from access_control import is_admin, is_owner_level, PaymentFlow
 
 router = Router()
 
@@ -81,8 +84,9 @@ async def choose_subscription_plan(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("❌ Bu tarif topilmadi. Qaytadan urinib ko'ring: /start")
         return
 
-    # 7-bosqichda chek skrinshotini qabul qiladigan handler shu yerdan
-    # tanlangan tarifni state orqali oladi (state.get_data()["subscription_plan"]).
+    # 7-bosqich: chek skrinshotini kutamiz. Tanlangan tarif state orqali
+    # keyingi qadamga (receipt_received handler) o'tkaziladi.
+    await state.set_state(PaymentFlow.waiting_receipt)
     await state.update_data(subscription_plan=plan_key)
 
     price_text = f"{plan['price']:,}".replace(",", " ")
@@ -97,3 +101,131 @@ async def choose_subscription_plan(callback: CallbackQuery, state: FSMContext):
         "avtomatik uzaytiriladi."
     )
     await callback.message.answer(text)
+
+
+# ---------- 7-BOSQICH: CHEKNI QABUL QILISH VA ADMINGA YUBORISH ----------
+
+@router.message(PaymentFlow.waiting_receipt, F.photo)
+async def receipt_received(message: Message, state: FSMContext):
+    data = await state.get_data()
+    plan_key = data.get("subscription_plan")
+    plan = config.SUBSCRIPTION_PLANS.get(plan_key)
+    await state.clear()
+
+    if not plan:
+        await message.answer("❌ Tarif topilmadi, iltimos qaytadan boshlang: /start")
+        return
+
+    screenshot_file_id = message.photo[-1].file_id
+    payment_id = await db.create_payment(
+        owner_id=message.from_user.id,
+        amount=plan["price"],
+        plan=plan_key,
+        days=plan["days"],
+        screenshot_file_id=screenshot_file_id,
+    )
+
+    owner = await db.get_owner(message.from_user.id)
+    owner_label = (owner or {}).get("shop_name") or (owner or {}).get("owner_name") \
+        or message.from_user.full_name or str(message.from_user.id)
+    price_text = f"{plan['price']:,}".replace(",", " ")
+    admin_caption = (
+        f"💳 <b>Yangi to'lov (#{payment_id})</b>\n\n"
+        f"🏪 {owner_label} (ID: {message.from_user.id})\n"
+        f"📦 Tarif: {plan['label']} — {price_text} so'm ({plan['days']} kun)\n\n"
+        "Chekni tekshirib, tasdiqlang yoki rad eting:"
+    )
+    sent_to_any_admin = False
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await message.bot.send_photo(
+                admin_id,
+                photo=screenshot_file_id,
+                caption=admin_caption,
+                reply_markup=kb.payment_decision_kb(payment_id),
+            )
+            sent_to_any_admin = True
+        except Exception as e:
+            logging.warning(f"Adminga ({admin_id}) chek yuborib bo'lmadi: {e}")
+
+    if sent_to_any_admin:
+        await message.answer(
+            "✅ Chekingiz qabul qilindi va bosh adminga yuborildi.\n"
+            "Tasdiqlangach obunangiz avtomatik uzaytiriladi - biroz kuting."
+        )
+    else:
+        await message.answer(
+            "⚠️ Chekingiz saqlandi, lekin adminga xabar yuborishda muammo bo'ldi. "
+            "Iltimos, keyinroq qayta urinib ko'ring."
+        )
+
+
+@router.message(PaymentFlow.waiting_receipt)
+async def receipt_wrong_type(message: Message):
+    await message.answer("📷 Iltimos, to'lov chekini RASM (skrinshot) ko'rinishida yuboring.")
+
+
+@router.callback_query(F.data.startswith("pay_approve:"))
+async def approve_payment_cb(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    payment_id = int(callback.data.split(":", 1)[1])
+    result = await db.approve_payment(payment_id, decided_by=callback.from_user.id)
+    if not result:
+        await callback.answer("Bu to'lov allaqachon hal qilingan.", show_alert=True)
+        return
+
+    await callback.answer("✅ Tasdiqlandi")
+    if callback.message.caption:
+        try:
+            await callback.message.edit_caption(
+                caption=callback.message.caption + "\n\n✅ TASDIQLANDI",
+                reply_markup=None,
+            )
+        except Exception:
+            pass
+
+    plan = config.SUBSCRIPTION_PLANS.get(result.get("plan"), {})
+    plan_label = plan.get("label", result.get("plan") or "")
+    try:
+        await callback.message.bot.send_message(
+            result["owner_id"],
+            f"✅ To'lovingiz tasdiqlandi! Tarif: {plan_label}.\n"
+            f"📅 Obunangiz {result['new_subscription_until']} sanagacha uzaytirildi. Rahmat!",
+        )
+    except Exception as e:
+        logging.warning(f"Egaga ({result['owner_id']}) tasdiq xabarini yuborib bo'lmadi: {e}")
+
+
+@router.callback_query(F.data.startswith("pay_reject:"))
+async def reject_payment_cb(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    payment_id = int(callback.data.split(":", 1)[1])
+    result = await db.reject_payment(payment_id, decided_by=callback.from_user.id)
+    if not result:
+        await callback.answer("Bu to'lov allaqachon hal qilingan.", show_alert=True)
+        return
+
+    await callback.answer("❌ Rad etildi")
+    if callback.message.caption:
+        try:
+            await callback.message.edit_caption(
+                caption=callback.message.caption + "\n\n❌ RAD ETILDI",
+                reply_markup=None,
+            )
+        except Exception:
+            pass
+
+    try:
+        await callback.message.bot.send_message(
+            result["owner_id"],
+            "❌ Yuborgan chekingiz rad etildi (noto'g'ri yoki noaniq bo'lishi mumkin). "
+            "Iltimos, to'lovni tekshirib, chekni qaytadan yuboring: \"💳 Obuna\" bo'limidan.",
+        )
+    except Exception as e:
+        logging.warning(f"Egaga ({result['owner_id']}) rad etish xabarini yuborib bo'lmadi: {e}")
