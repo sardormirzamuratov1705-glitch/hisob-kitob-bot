@@ -66,6 +66,14 @@ PORT = int(os.getenv("PORT", "8080"))
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").rstrip("/") or (
     f"{WEBHOOK_HOST}/webapp" if WEBHOOK_HOST else ""
 )
+if WEBAPP_URL:
+    # KESH MUAMMOSI (2-QATLAM): Cache-Control headerlari ba'zi Telegram
+    # Desktop versiyalarida e'tiborga olinmay, sahifaning o'zi (index.html)
+    # baribir keshda qolib ketishi mumkin edi. Shuning uchun manzilga har
+    # bot ishga tushganda (= har deploy/restartda) o'zgaradigan ?v=...
+    # parametri qo'shiladi - Telegram buni "yangi URL" deb qabul qiladi va
+    # eski keshlangan sahifani emas, serverdan yangisini so'raydi.
+    WEBAPP_URL = f"{WEBAPP_URL}?v={int(datetime.now(_timezone.utc).timestamp())}"
 # Statik fayllar (index.html, app.js, style.css) shu papkada saqlanadi.
 WEBAPP_STATIC_DIR = os.getenv("WEBAPP_STATIC_DIR", "webapp_static")
 
