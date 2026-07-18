@@ -783,12 +783,12 @@ async def delete_manual_restock_item(shop_id: int, item_id: int):
 # ---------- KIRIM / CHIQIM (TRANSAKSIYALAR) ----------
 
 async def add_transaction(shop_id: int, type_: str, amount: float, description: str,
-                           payment_method: str = None, performed_by: int = None):
+                           payment_method: str = None, performed_by: int = None, branch_id=None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             "INSERT INTO transactions (shop_id, type, amount, description, created_at, payment_method, "
-            "performed_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (shop_id, type_, amount, description, _now(), payment_method, performed_by),
+            "performed_by, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (shop_id, type_, amount, description, _now(), payment_method, performed_by, branch_id),
         )
         await db.commit()
         return cursor.lastrowid
@@ -1062,14 +1062,14 @@ async def use_owner_invite(token: str, used_by: int) -> bool:
 # ---------- QARZDORLAR ----------
 
 async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, description: str,
-                    due_date: str = None, taken_date: str = None, performed_by: int = None):
+                    due_date: str = None, taken_date: str = None, performed_by: int = None, branch_id=None):
     if not taken_date:
         taken_date = _now()[:10]  # ustoz/sotuvchi belgilamasa - bugungi sana
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             "INSERT INTO debts (shop_id, customer_name, phone, amount, description, is_paid, "
-            "created_at, due_date, taken_date, performed_by) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
-            (shop_id, customer_name, phone, amount, description, _now(), due_date, taken_date, performed_by),
+            "created_at, due_date, taken_date, performed_by, branch_id) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+            (shop_id, customer_name, phone, amount, description, _now(), due_date, taken_date, performed_by, branch_id),
         )
         await db.commit()
         return cursor.lastrowid
