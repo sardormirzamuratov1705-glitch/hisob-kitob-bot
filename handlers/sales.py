@@ -10,6 +10,7 @@ import database as db
 import keyboards as kb
 import alerts
 from access_control import get_shop_id, get_branch_id, get_role
+from dedupe import user_lock, DuplicateAction
 
 router = Router()
 
@@ -548,6 +549,17 @@ async def _finalize_sale(message: Message, state: FSMContext):
     # chat.id orqali shop_id aniqlanadi (from_user bot bo'lib qolgan bo'lardi).
     # xuddi shu sababdan "amalni bajargan" sifatida ham chat.id ishlatiladi
     # (shaxsiy chatda chat.id == shu odamning telegram_id'si).
+    try:
+        async with user_lock(message.chat.id):
+            await _finalize_sale_locked(message, state)
+    except DuplicateAction:
+        # Foydalanuvchi to'lov tugmasini/yozuvni ikki marta tez yuborgan -
+        # birinchisi hali yakunlanmagan, ikkinchisini shunchaki e'tiborsiz
+        # qoldiramiz (savdo ikki marta yozilib qolmasligi uchun).
+        pass
+
+
+async def _finalize_sale_locked(message: Message, state: FSMContext):
     shop_id = await get_shop_id(message.chat.id)
     if shop_id is None:
         await state.clear()
