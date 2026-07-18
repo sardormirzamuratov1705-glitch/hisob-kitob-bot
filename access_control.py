@@ -93,6 +93,34 @@ async def get_branch_id(user_id: int):
     return None
 
 
+async def check_subscription_access(user_id: int) -> dict:
+    """4-BOSQICH: "hozir botga kirish mumkinmi" degan YAGONA tekshiruv.
+
+    - Bosh admin: obunasi yo'q, har doim ruxsat.
+    - Do'kon egasi: o'zining subscription holati.
+    - Sotuvchi: mustaqil obunaga ega emas - ULANGAN do'kon egasining
+      subscription holatiga qaraydi (ega bloklansa, sotuvchisi ham
+      bloklanadi).
+    - Botda umuman ro'yxati yo'q odam: allowed=False, status="unknown".
+
+    DIQQAT: bu funksiya hali hech qanday joyda haqiqiy bloklash uchun
+    ishlatilmaydi (middleware'ga ulash - 5-bosqich). Hozircha faqat
+    natijani hisoblab qaytaradi, masalan admin panelida holat belgisini
+    (✅/⏳/⛔) ko'rsatish yoki keyingi bosqichlarda tekshirish uchun.
+    """
+    if is_admin(user_id):
+        return {"allowed": True, "status": "admin", "days_left": None, "in_grace": False}
+
+    shop_id = await get_shop_id(user_id)
+    if shop_id is None:
+        return {"allowed": False, "status": "unknown", "days_left": None, "in_grace": False}
+
+    access = await db.get_owner_subscription_access(shop_id)
+    if access is None:
+        return {"allowed": False, "status": "unknown", "days_left": None, "in_grace": False}
+    return access
+
+
 class OwnerOnlyMiddleware(BaseMiddleware):
     """Botning barcha funksiyalari (Sklad, Kirim/Chiqim, Qarz daftar, Hisobot va h.k.)
     faqat bosh admin (config.ADMIN_IDS), bazaga qo'shilgan do'kon egalari va
