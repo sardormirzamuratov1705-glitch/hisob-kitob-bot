@@ -500,6 +500,13 @@ async def export_excel(message: Message):
     debts = await db.get_debts(shop_id, only_unpaid=False)
     branches = await db.get_branches(shop_id)
     branch_names = {b["id"]: b["name"] for b in branches}
+    # 9-BOSQICH: Telegramdagi "🗂 Audit jurnali" faqat oxirgi 30 ta yozuvni
+    # ko'rsatadi (xabar juda uzun bo'lib ketmasligi uchun) - Excel eksportda
+    # esa cheklov yo'q (bu yerda uzunlik muammo emas), shuning uchun ancha
+    # ko'proq (oxirgi 2000 ta) yozuv olinadi - shu jumladan barkod
+    # o'zgarishlari va Mini App/Excel orqali skladga tovar qo'shilgan
+    # holatlar ham shu yerda to'liq ko'rinadi.
+    audit_rows = await db.get_audit_log(shop_id, limit=2000)
 
     def branch_label(branch_id):
         if not branch_id:
@@ -560,8 +567,19 @@ async def export_excel(message: Message):
             taken_date, due_date, d["created_at"][:10]
         ])
 
+    # ---- Audit jurnali ----
+    ws4 = wb.create_sheet("Audit jurnali")
+    ws4.append(["ID", "Sana", "Kim", "Amal", "Tafsilot"])
+    for cell in ws4[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    for r in audit_rows:
+        ws4.append([
+            r["id"], r["created_at"][:16], r["actor_name"], r["action"], r.get("details") or "",
+        ])
+
     # Ustun kengligini avtomoslashtirish
-    for ws in (ws1, ws2, ws3):
+    for ws in (ws1, ws2, ws3, ws4):
         for column_cells in ws.columns:
             length = max(len(str(cell.value or "")) for cell in column_cells)
             ws.column_dimensions[column_cells[0].column_letter].width = length + 3
