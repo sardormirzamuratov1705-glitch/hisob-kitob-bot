@@ -1,6 +1,7 @@
 import logging
 
 import database as db
+import keyboards as kb
 
 
 async def notify_stock_change(bot, shop_id: int, product: dict, old_quantity: float, new_quantity: float,
@@ -116,3 +117,60 @@ async def send_debt_reminders(bot, days_threshold: int = 3):
             await bot.send_message(shop_id, text, parse_mode="HTML")
         except Exception as e:
             logging.warning(f"Qarz eslatmasini yuborib bo'lmadi (shop {shop_id}): {e}")
+
+
+# ---------- 8-BOSQICH: OBUNA MUDDATI ESLATMALARI ----------
+# Muddat tugashiga necha kun qolganda eslatma yuborilishi kerak. 0 - aynan
+# tugaydigan kunning o'zi (subscription_until = bugun, ya'ni ertadan
+# boshlab muhlat/bloklash boshlanadi).
+SUBSCRIPTION_REMINDER_DAYS = (7, 3, 0)
+
+
+def build_subscription_reminder_text(access: dict) -> str:
+    """Do'kon egasiga yuboriladigan obuna muddati eslatmasi matni.
+    access - db.get_owner_subscription_access() natijasi (days_left shu
+    yerda SUBSCRIPTION_REMINDER_DAYS'dan biriga teng bo'lishi kerak)."""
+    days_left = access["days_left"]
+    if days_left == 0:
+        return (
+            "⏰ <b>Obunangiz bugun tugaydi!</b>\n\n"
+            "Botdan uzluksiz foydalanishni davom ettirish uchun bugun uzaytiring. "
+            f"Aks holda ertadan boshlab {db.SUBSCRIPTION_GRACE_DAYS} kunlik muhlat "
+            "davomida hali kirish imkoni bo'ladi, so'ng bot vaqtincha bloklanadi."
+        )
+    return (
+        f"⏰ <b>Obunangiz tugashiga {days_left} kun qoldi.</b>\n\n"
+        "Botdan uzilishsiz foydalanishni davom ettirish uchun oldindan uzaytirib qo'yishingiz mumkin."
+    )
+
+
+async def send_subscription_reminders(bot):
+    """Har kuni bir marta chaqiriladi (main.py'dagi fon vazifadan, xuddi
+    send_debt_reminders kabi). Har bir do'kon egasi uchun ALOHIDA ko'rib
+    chiqiladi va obuna muddati tugashiga 7 kun, 3 kun qolganda hamda aynan
+    tugaydigan kunning o'zida (0 kun qolganda) avtomatik eslatma yuboradi.
+
+    Faqat hali FAOL (trial/active) holatdagi egalarga yuboriladi - obunasi
+    allaqachon o'tib ketgan (expired/blocked) egalar buning o'rniga har safar
+    botga kirishga uringanda access_control.py'dagi bloklash ekranini ko'radi,
+    shuning uchun ularga bu yerdan qayta eslatma yuborilmaydi.
+
+    Bosh admin (config.ADMIN_IDS) o'z do'koniga ega emas, shuning uchun bu
+    xabarlarni olmaydi."""
+    owner_ids = await db.get_owner_ids()
+    for owner_id in owner_ids:
+        access = await db.get_owner_subscription_access(owner_id)
+        if not access or not access["allowed"] or access["status"] not in ("trial", "active"):
+            continue
+        if access["days_left"] not in SUBSCRIPTION_REMINDER_DAYS:
+            continue
+
+        try:
+            await bot.send_message(
+                owner_id,
+                build_subscription_reminder_text(access),
+                parse_mode="HTML",
+                reply_markup=kb.blocked_menu(),
+            )
+        except Exception as e:
+            logging.warning(f"Obuna eslatmasini yuborib bo'lmadi (owner {owner_id}): {e}")
