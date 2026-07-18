@@ -2039,6 +2039,16 @@ async def get_owner(telegram_id: int):
         return dict(row) if row else None
 
 
+async def get_all_sellers():
+    """Umumiy xabar (broadcast) uchun - BARCHA do'konlardagi barcha
+    sotuvchilarning ro'yxati (shop_id'dan qat'i nazar)."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM sellers")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 async def set_owner_profile(telegram_id: int, owner_name: str, shop_name: str, phone_number: str = None):
     """Do'kon egasi o'zi haqida va do'koni haqida kiritgan ma'lumotlarni saqlaydi
     (birinchi /start bosganda so'raladigan qisqa so'rovnoma - bosh admin uchun
