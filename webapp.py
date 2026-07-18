@@ -84,18 +84,34 @@ def _verify_init_data(init_data: str, bot_token: str) -> dict | None:
 async def _authenticate(request: web.Request):
     """So'rov headeridagi (X-Telegram-Init-Data) initData'ni tekshirib,
     shu foydalanuvchining shop_id/branch_id/role/telegram_id'sini qaytaradi.
-    Muvaffaqiyatsiz bo'lsa - None (chaqiruvchi 401 qaytarishi kerak)."""
+    Muvaffaqiyatsiz bo'lsa - None (chaqiruvchi 401 qaytarishi kerak).
+
+    DIQQAT: har bir rad etish sababi logga yoziladi (faqat telegram_id/status,
+    initData'ning o'zi emas) - aks holda "401" xabarining nima uchun
+    chiqayotganini production'da aniqlash imkonsiz bo'lib qolardi."""
     init_data = request.headers.get("X-Telegram-Init-Data", "")
+    if not init_data:
+        logger.warning("WebApp 401: X-Telegram-Init-Data header bo'sh yoki umuman yo'q "
+                        "(WebApp Telegram ICHIDA emas, oddiy brauzerda ochilgan bo'lishi mumkin).")
+        return None
+
     parsed = _verify_init_data(init_data, config.BOT_TOKEN)
     if not parsed or not parsed.get("user"):
+        logger.warning("WebApp 401: initData imzosi (HMAC) tasdiqlanmadi yoki 24 soatdan eski - "
+                        "BOT_TOKEN noto'g'ri/mos kelmayotgan bo'lishi ham mumkin.")
         return None
 
     telegram_id = parsed["user"].get("id")
     if not telegram_id:
+        logger.warning("WebApp 401: initData ichidagi 'user' obyektida 'id' topilmadi.")
         return None
 
     shop_id = await access_control.get_shop_id(telegram_id)
     if shop_id is None:
+        logger.warning(
+            f"WebApp 401: telegram_id={telegram_id} bazada na do'kon egasi, na sotuvchi "
+            f"sifatida topildi (shop_id yo'q)."
+        )
         return None
 
     # Faqat HAQIQIY do'kon egasi va sotuvchi savdo qila oladi (bosh admin emas) -
@@ -104,6 +120,10 @@ async def _authenticate(request: web.Request):
     branch_id = await access_control.get_branch_id(telegram_id)
     access = await access_control.check_subscription_access(telegram_id)
     if not access.get("allowed"):
+        logger.warning(
+            f"WebApp 401: telegram_id={telegram_id} (shop_id={shop_id}) obunasi ruxsat "
+            f"bermayapti - status={access.get('status')}."
+        )
         return None
 
     return {
