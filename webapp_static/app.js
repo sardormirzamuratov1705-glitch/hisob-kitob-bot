@@ -172,12 +172,19 @@ el("modal-add-btn").addEventListener("click", () => {
 // ---------- SAVAT PANELI (mahsulotlar ekrani ostida) ----------
 
 function renderCartBar() {
+  const badge = el("header-cart-badge");
   let bar = el("cart-bar");
+
   if (cart.length === 0) {
     if (bar) bar.remove();
+    badge.classList.add("hidden");
     return;
   }
+
   const total = cart.reduce((sum, c) => sum + c.qty * c.price, 0);
+  badge.textContent = String(cart.length);
+  badge.classList.remove("hidden");
+
   if (!bar) {
     bar = document.createElement("div");
     bar.id = "cart-bar";
@@ -185,7 +192,7 @@ function renderCartBar() {
     bar.addEventListener("click", openCartScreen);
     document.body.appendChild(bar);
   }
-  bar.textContent = `🛒 Savat: ${cart.length} tur — ${formatNum(total)} so'm`;
+  bar.innerHTML = `<span>🛒 Savat: ${cart.length} tur</span><span>${formatNum(total)} so'm</span>`;
 }
 
 function openCartScreen() {
