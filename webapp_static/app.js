@@ -8,6 +8,18 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+// ZAXIRA (FALLBACK): ba'zi Telegram Desktop versiyalarida WebApp haqiqiy
+// "web_app" tugmasi orqali ochilsa ham (URL fragmentida #tgWebAppData=...
+// bo'ladi), Telegram.WebApp.initData bo'sh qolib ketadi - bu Telegramning
+// o'zidagi nosozlik. Shu holatda initData'ni to'g'ridan-to'g'ri URL
+// fragmentidan o'qib olamiz.
+function getInitData() {
+  if (tg.initData) return tg.initData;
+  const match = location.hash.match(/tgWebAppData=([^&]+)/);
+  if (match) return decodeURIComponent(match[1]);
+  return "";
+}
+
 const API = {
   me: "/api/webapp/me",
   products: "/api/webapp/products",
@@ -33,8 +45,9 @@ function showError(message) {
 }
 
 async function apiFetch(url, options = {}) {
+  const initData = getInitData();
   const headers = Object.assign({}, options.headers || {}, {
-    "X-Telegram-Init-Data": tg.initData || "",
+    "X-Telegram-Init-Data": initData,
   });
   if (options.body) headers["Content-Type"] = "application/json";
   const res = await fetch(url, Object.assign({}, options, { headers }));
@@ -46,7 +59,7 @@ async function apiFetch(url, options = {}) {
     const debug = [
       `platform=${tg.platform || "yo'q"}`,
       `version=${tg.version || "yo'q"}`,
-      `initDataLen=${(tg.initData || "").length}`,
+      `initDataLen=${initData.length}`,
       `hasHash=${location.hash ? "ha" : "yo'q"}`,
     ].join(", ");
     throw new Error(`Ruxsat yo'q. Botni qaytadan oching.\n[debug: ${debug}]`);
