@@ -48,6 +48,16 @@ def landing_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def payment_decision_kb(payment_id: int) -> InlineKeyboardMarkup:
+    """Bosh adminga chek skrinshoti bilan birga yuboriladigan tugmalar -
+    handlers/subscription.py'dagi pay_approve:/pay_reject: callback'lari."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Tasdiqlash", callback_data=f"pay_approve:{payment_id}")
+    builder.button(text="❌ Rad etish", callback_data=f"pay_reject:{payment_id}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def subscription_plans_menu() -> InlineKeyboardMarkup:
     """"💳 Obuna" bo'limida ko'rsatiladigan tarif tanlash tugmalari -
     config.SUBSCRIPTION_PLANS asosida avtomatik quriladi. Tanlangach
