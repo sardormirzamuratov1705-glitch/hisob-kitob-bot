@@ -187,7 +187,12 @@ async def api_product_by_barcode(request: web.Request):
     "mahsulot skladda tugagan"ni FARQLAB ko'rsatish kerak - buning uchun
     javobdagi "quantity" maydonidan foydalaniladi. Haqiqiy sklad
     tekshiruvi (savatga necha dona qo'shsa bo'ladi) baribir
-    api_sale_submit'da yakuniy marta amalga oshiriladi."""
+    api_sale_submit'da yakuniy marta amalga oshiriladi.
+
+    ESLATMA: bu endpoint "Sklad" bo'limi (6-bosqich) uchun ham qayta
+    ishlatiladi - u yerda ham 0 qolgan mahsulotni topa olish MUHIM
+    (aynan shunday mahsulotlarga tovar kiritiladi), shuning uchun
+    quantity>0 filtri bu yerda ham, u yerda ham qo'llanilmaydi."""
     auth = await _authenticate(request)
     if not auth:
         return web.json_response({"error": "unauthorized"}, status=401)
@@ -201,6 +206,88 @@ async def api_product_by_barcode(request: web.Request):
         return web.json_response({"error": "not_found"}, status=404)
 
     return web.json_response({"product": _product_payload(product)})
+
+
+async def api_sklad_products(request: web.Request):
+    """SKLAD - MINI APP - 6-BOSQICH: "Sklad" bo'limidagi qidiruv uchun
+    mahsulotlar ro'yxati.
+
+    DIQQAT: bu api_products'DAN FARQLI - u yerda faqat quantity>0 (SOTISH
+    mumkin bo'lgan) mahsulotlar qaytariladi, bu yerda esa BARCHASI
+    (shu jumladan 0 yoki hatto manfiy qolganlari ham) - chunki "Sklad"
+    bo'limining aynan vazifasi TUGAGAN/kamayib qolgan mahsulotlarga
+    tovar kiritish."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    query = request.query.get("q", "").strip().lower()
+    products = await db.get_all_products(auth["shop_id"])
+    if query:
+        products = [p for p in products if query in p["name"].lower()]
+    payload = [_product_payload(p) for p in products]
+    return web.json_response({"products": payload})
+
+
+async def api_sklad_add_quantity(request: web.Request):
+    """SKLAD - MINI APP - 6-BOSQICH: mahsulotga tez miqdor qo'shadi
+    (narx so'ramaydi - shu bilan restock/xarid oqimidan farq qiladi,
+    qarang: db.add_stock_quantity() izohi).
+
+    Body (JSON): {"product_id": .. } YOKI {"barcode": ".."} (ikkalasidan
+    KAMIDA bittasi kerak - front-end skanerlagan bo'lsa barcode, ro'yxatdan
+    qidirib tanlagan bo'lsa product_id yuboradi), va {"qty": son (musbat)}.
+
+    RUXSAT: hozircha (8-bosqichgacha) do'kon egasi VA sotuvchining
+    ikkalasi ham sklad miqdorini oshira oladi - xuddi _authenticate()
+    savdo uchun ruxsat berganidek. 8-bosqichda bu alohida
+    (o'chirib-yoqiladigan) sozlamaga aylantiriladi."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    try:
+        qty = float(body.get("qty"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_quantity"}, status=400)
+    if qty <= 0:
+        return web.json_response({"error": "invalid_quantity"}, status=400)
+
+    shop_id = auth["shop_id"]
+    product = None
+
+    raw_product_id = body.get("product_id")
+    if raw_product_id is not None:
+        try:
+            product_id = int(raw_product_id)
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid_item"}, status=400)
+        product = await db.get_product(shop_id, product_id)
+    else:
+        barcode = (body.get("barcode") or "").strip()
+        if not barcode:
+            return web.json_response({"error": "missing_product"}, status=400)
+        product = await db.find_product_by_barcode(shop_id, barcode)
+
+    if not product:
+        return web.json_response({"error": "product_not_found"}, status=400)
+
+    result = await db.add_stock_quantity(shop_id, product["id"], qty)
+    if not result:
+        return web.json_response({"error": "product_not_found"}, status=400)
+
+    return web.json_response({
+        "ok": True,
+        "product_id": product["id"],
+        "name": result["name"],
+        "old_quantity": result["old_quantity"],
+        "new_quantity": result["new_quantity"],
+    })
 
 
 async def api_cross_sell(request: web.Request):
@@ -386,6 +473,8 @@ def create_web_app(bot) -> web.Application:
     app.router.add_get("/api/webapp/products/by-barcode", api_product_by_barcode)
     app.router.add_get("/api/webapp/cross_sell", api_cross_sell)
     app.router.add_post("/api/webapp/sale", api_sale_submit)
+    app.router.add_get("/api/webapp/sklad/products", api_sklad_products)
+    app.router.add_post("/api/webapp/sklad/add-quantity", api_sklad_add_quantity)
 
     # MUHIM: har bir statik fayl uchun ANIQ route (yuqoridagi izohga qarang -
     # add_static() o'rniga, 403 Forbidden xatosining oldini olish uchun).
