@@ -9,7 +9,7 @@ import config
 import database as db
 import alerts
 from access_control import OwnerOnlyMiddleware
-from handlers import start, products, sales, transactions, debts, reports, users, sellers
+from handlers import start, products, sales, transactions, debts, reports, users, sellers, branches
 
 
 async def _debt_reminder_loop(bot: Bot):
@@ -68,6 +68,7 @@ def main():
     dp.include_router(reports.router)
     dp.include_router(users.router)
     dp.include_router(sellers.router)
+    dp.include_router(branches.router)
 
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
