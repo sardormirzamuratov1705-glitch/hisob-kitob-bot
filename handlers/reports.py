@@ -514,14 +514,14 @@ async def export_excel(message: Message):
     # ---- Sklad ----
     ws1 = wb.active
     ws1.title = "Sklad"
-    ws1.append(["ID", "Nomi", "Narxi", "Miqdori", "Jami qiymat", "Qo'shilgan sana"])
+    ws1.append(["ID", "Nomi", "Narxi", "Miqdori", "Jami qiymat", "Barkod", "Qo'shilgan sana"])
     for cell in ws1[1]:
         cell.font = header_font
         cell.fill = header_fill
     for p in products:
         ws1.append([
             p["id"], p["name"], p["price"], p["quantity"],
-            p["price"] * p["quantity"], p["created_at"][:10]
+            p["price"] * p["quantity"], p.get("barcode") or "", p["created_at"][:10]
         ])
 
     # ---- Kirim/Chiqim ----
