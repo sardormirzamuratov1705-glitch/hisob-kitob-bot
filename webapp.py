@@ -170,7 +170,37 @@ def _product_payload(p: dict) -> dict:
         "min_price": p.get("min_price"),
         "discount_price": discount["price"] if discount else None,
         "discount_days_left": discount["days_left"] if discount else None,
+        "barcode": p.get("barcode"),
     }
+
+
+async def api_product_by_barcode(request: web.Request):
+    """BARKOD - MINI APP SAVDO - 3-BOSQICH: kamera bilan o'qilgan barkod
+    bo'yicha bitta mahsulotni topib qaytaradi (front-end shu javob asosida
+    mahsulotni to'g'ridan-to'g'ri savatga qo'shadi - qo'lda qidirmasdan).
+
+    Query param: code=<barkod matni>.
+
+    DIQQAT: bu yerda mahsulot miqdori (quantity) tekshirilmaydi - 0 (yoki
+    hatto manfiy) bo'lsa ham mahsulot o'zi topilgan bo'lsa qaytariladi,
+    chunki front-end tarafda foydalanuvchiga "mahsulot topilmadi" bilan
+    "mahsulot skladda tugagan"ni FARQLAB ko'rsatish kerak - buning uchun
+    javobdagi "quantity" maydonidan foydalaniladi. Haqiqiy sklad
+    tekshiruvi (savatga necha dona qo'shsa bo'ladi) baribir
+    api_sale_submit'da yakuniy marta amalga oshiriladi."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    barcode = request.query.get("code", "").strip()
+    if not barcode:
+        return web.json_response({"error": "missing_barcode"}, status=400)
+
+    product = await db.find_product_by_barcode(auth["shop_id"], barcode)
+    if not product:
+        return web.json_response({"error": "not_found"}, status=404)
+
+    return web.json_response({"product": _product_payload(product)})
 
 
 async def api_cross_sell(request: web.Request):
@@ -353,6 +383,7 @@ def create_web_app(bot) -> web.Application:
 
     app.router.add_get("/api/webapp/me", api_me)
     app.router.add_get("/api/webapp/products", api_products)
+    app.router.add_get("/api/webapp/products/by-barcode", api_product_by_barcode)
     app.router.add_get("/api/webapp/cross_sell", api_cross_sell)
     app.router.add_post("/api/webapp/sale", api_sale_submit)
 
