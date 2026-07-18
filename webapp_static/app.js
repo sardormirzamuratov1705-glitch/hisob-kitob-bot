@@ -20,6 +20,22 @@ function getInitData() {
   return "";
 }
 
+// AVTOMATIK QAYTA YUKLASH: Telegram ba'zan (hujjatlashtirilmagan sababga
+// ko'ra) birinchi ochilishda tgWebAppData'ni umuman yubormay qoladi -
+// bu Telegramning o'zidagi tasodifiy holat, kodga bog'liq emas. Ko'p
+// hollarda sahifani (Mini App ichida, Telegramdan chiqmasdan) bir marta
+// qayta yuklash muammoni hal qiladi. sessionStorage bilan faqat BITTA
+// marta qayta yuklanishini ta'minlaymiz (cheksiz aylanib qolmasligi uchun).
+(function ensureInitDataOrReload() {
+  if (!getInitData()) {
+    if (sessionStorage.getItem("edaftar_reloaded")) return;
+    sessionStorage.setItem("edaftar_reloaded", "1");
+    location.reload();
+    return;
+  }
+  sessionStorage.removeItem("edaftar_reloaded");
+})();
+
 const API = {
   me: "/api/webapp/me",
   products: "/api/webapp/products",
