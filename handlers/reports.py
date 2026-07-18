@@ -193,6 +193,13 @@ async def export_excel(message: Message):
     products = await db.get_all_products(shop_id)
     transactions = await db.get_transactions(shop_id, limit=1000)
     debts = await db.get_debts(shop_id, only_unpaid=False)
+    branches = await db.get_branches(shop_id)
+    branch_names = {b["id"]: b["name"] for b in branches}
+
+    def branch_label(branch_id):
+        if not branch_id:
+            return "Bosh filial"
+        return branch_names.get(branch_id, "Bosh filial")
 
     wb = Workbook()
 
@@ -214,7 +221,7 @@ async def export_excel(message: Message):
 
     # ---- Kirim/Chiqim ----
     ws2 = wb.create_sheet("Kirim-Chiqim")
-    ws2.append(["ID", "Turi", "Summasi", "To'lov turi", "Izoh", "Sana"])
+    ws2.append(["ID", "Turi", "Summasi", "To'lov turi", "Izoh", "Filial", "Sana"])
     for cell in ws2[1]:
         cell.font = header_font
         cell.fill = header_fill
@@ -222,13 +229,16 @@ async def export_excel(message: Message):
         label = "Kirim" if t["type"] == "income" else "Chiqim"
         method_map = {"naqd": "Naqd", "plastik": "Plastik"}
         method_label = method_map.get(t.get("payment_method"), "")
-        ws2.append([t["id"], label, t["amount"], method_label, t["description"], t["created_at"][:16]])
+        ws2.append([
+            t["id"], label, t["amount"], method_label, t["description"],
+            branch_label(t.get("branch_id")), t["created_at"][:16]
+        ])
 
     # ---- Qarz daftar ----
     ws3 = wb.create_sheet("Qarz daftar")
     ws3.append([
         "ID", "Mijoz", "Telefon", "Qarz summasi", "To'langan", "Qolgan",
-        "Izoh", "Holati", "Olingan sanasi", "Qaytarish sanasi", "Kiritilgan sana"
+        "Izoh", "Holati", "Filial", "Olingan sanasi", "Qaytarish sanasi", "Kiritilgan sana"
     ])
     for cell in ws3[1]:
         cell.font = header_font
@@ -241,7 +251,8 @@ async def export_excel(message: Message):
         due_date = d.get("due_date") or ""
         ws3.append([
             d["id"], d["customer_name"], d["phone"], d["amount"], paid_amount, remaining,
-            d["description"], status, taken_date, due_date, d["created_at"][:10]
+            d["description"], status, branch_label(d.get("branch_id")),
+            taken_date, due_date, d["created_at"][:10]
         ])
 
     # Ustun kengligini avtomoslashtirish
