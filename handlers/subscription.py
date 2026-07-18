@@ -3,6 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
 import config
 import database as db
@@ -10,6 +11,18 @@ import keyboards as kb
 from access_control import is_admin, is_owner_level, PaymentFlow
 
 router = Router()
+
+
+# ---------- O'ZI RO'YXATDAN O'TGANLAR UCHUN: SINOV MUDDATINI TASDIQLASH ----------
+# handlers/start.py'dagi self_register_start endi trialni avtomatik
+# boshlamaydi - yangi ega "pending_trial" holatida qoladi va shu yerdagi
+# approve_trial:/reject_trial: callback'lari orqali bosh admin uni ko'rib
+# chiqadi. "✅ Tasdiqlash" bosilganda admin necha kunlik sinov muddati
+# berishni matn ko'rinishida (erkin son) kiritadi - shu holat FSM orqali
+# kuzatiladi (bir vaqtning o'zida bir nechta so'rov kelsa ham chalkashmasin
+# deb, target_owner_id va tahrirlanadigan xabar state'da saqlanadi).
+class ApproveTrial(StatesGroup):
+    waiting_days = State()
 
 
 # ---------- 6-BOSQICH: TARIFLAR VA TO'LOV OYNASI ----------
@@ -241,3 +254,95 @@ async def reject_payment_cb(callback: CallbackQuery):
         )
     except Exception as e:
         logging.warning(f"Egaga ({result['owner_id']}) rad etish xabarini yuborib bo'lmadi: {e}")
+
+
+# ---------- O'ZI RO'YXATDAN O'TGANLAR UCHUN: SINOV MUDDATINI TASDIQLASH ----------
+
+@router.callback_query(F.data.startswith("approve_trial:"))
+async def approve_trial_start(callback: CallbackQuery, state: FSMContext):
+    """"✅ Tasdiqlash" bosildi - endi admindan necha kunlik sinov muddati
+    berishini so'raymiz (erkin son, masalan 14)."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    target_id = int(callback.data.split(":", 1)[1])
+    await callback.answer()
+
+    owner = await db.get_owner(target_id)
+    if not owner or owner.get("subscription_status") != "pending_trial":
+        await callback.message.answer("Bu so'rov endi topilmadi yoki allaqachon hal qilingan.")
+        return
+
+    await state.set_state(ApproveTrial.waiting_days)
+    await state.update_data(target_owner_id=target_id)
+    await callback.message.answer(
+        f"✏️ ID {target_id} uchun necha kunlik bepul sinov muddati berasiz? "
+        f"Faqat son yuboring (masalan: {db.SUBSCRIPTION_TRIAL_DAYS})."
+    )
+
+
+@router.message(ApproveTrial.waiting_days)
+async def approve_trial_finish(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    target_id = data.get("target_owner_id")
+    text = (message.text or "").strip()
+
+    if not text.isdigit() or int(text) <= 0:
+        await message.answer("Iltimos, musbat butun son yuboring (masalan: 14).")
+        return
+
+    days = int(text)
+    await state.clear()
+
+    result = await db.approve_trial(target_id, days, decided_by=message.from_user.id)
+    if not result:
+        await message.answer("Bu so'rov endi topilmadi yoki allaqachon hal qilingan.")
+        return
+
+    await message.answer(
+        f"✅ ID {target_id} uchun {days} kunlik sinov muddati tasdiqlandi. "
+        f"Endi {result['subscription_until']} sanagacha amal qiladi."
+    )
+
+    try:
+        await message.bot.send_message(
+            target_id,
+            f"🎉 Tabriklaymiz! Bosh admin sizga {days} kunlik bepul sinov muddatini tasdiqladi.\n"
+            f"📅 {result['subscription_until']} sanagacha amal qiladi.\n\n"
+            "Davom etish uchun /start buyrug'ini bosing.",
+        )
+    except Exception as e:
+        logging.warning(f"Egaga ({target_id}) sinov muddati tasdiqlangani haqida xabar yuborib bo'lmadi: {e}")
+
+
+@router.callback_query(F.data.startswith("reject_trial:"))
+async def reject_trial_cb(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    target_id = int(callback.data.split(":", 1)[1])
+    ok = await db.reject_trial(target_id, decided_by=callback.from_user.id)
+    if not ok:
+        await callback.answer("Bu so'rov allaqachon hal qilingan.", show_alert=True)
+        return
+
+    await callback.answer("❌ Rad etildi")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    try:
+        await callback.message.bot.send_message(
+            target_id,
+            "❌ Ro'yxatdan o'tish so'rovingiz bosh admin tomonidan rad etildi. "
+            "Savolingiz bo'lsa, bosh admin bilan bog'laning.",
+        )
+    except Exception as e:
+        logging.warning(f"Egaga ({target_id}) rad etish xabarini yuborib bo'lmadi: {e}")
