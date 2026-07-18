@@ -590,14 +590,16 @@ async def _finalize_sale(message: Message, state: FSMContext):
         await db.add_sale_item(shop_id, sale_id, r["id"], r["qty"], r["price"], performed_by=performed_by)
         await db.mark_product_sold(shop_id, r["id"])
 
-    # SHUBHALI HOLATLAR - 9-BOSQICH: real vaqtda tekshiruv. Hozircha faqat
-    # logga yoziladi - Telegram orqali darhol ogohlantirish yuborish
-    # 10-bosqichda shu natijadan foydalanib qo'shiladi.
+    # SHUBHALI HOLATLAR - 9/10-BOSQICH: real vaqtda tekshiruv + topilsa
+    # do'kon egasiga darhol Telegram ogohlantirishi (loglash bilan bir
+    # qatorda - owner o'zining xabarlarini o'chirib qo'ygan bo'lsa ham,
+    # logda iz qolaveradi).
     suspicious_flags = await alerts.evaluate_sale_suspicions(shop_id, sale_lines, performed_by=performed_by)
     if suspicious_flags:
         logging.warning(
             f"[SHUBHALI - SAVDO] shop={shop_id} sale_id={sale_id}: " + " | ".join(suspicious_flags)
         )
+        await alerts.send_suspicious_alert(message.bot, shop_id, suspicious_flags, "savdo")
 
     await state.clear()
 
