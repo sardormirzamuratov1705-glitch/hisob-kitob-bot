@@ -111,6 +111,7 @@ async def init_db():
                 sell_price REAL,
                 min_price REAL,
                 alert_quantity REAL,
+                barcode TEXT,
                 created_at TEXT NOT NULL
             )
             """
@@ -126,11 +127,23 @@ async def init_db():
             ("category_id", "INTEGER"),
             ("discount_price", "REAL"),
             ("discount_until", "TEXT"),
+            ("barcode", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE products ADD COLUMN {column} {col_type}")
             except Exception:
                 pass
+        # BARKOD - MINI APP SAVDO/SKLAD - 1-BOSQICH: skanerlanganda tezda
+        # topish uchun (shop_id, barcode) bo'yicha indeks. UNIQUE emas -
+        # nazariy jihatdan bitta do'konda ikkita mahsulotga bir xil barkod
+        # yozib qo'yilishi (xodim xatosi) botni buzmasin, faqat
+        # find_product_by_barcode() BIRINCHI mos kelganini qaytaradi.
+        try:
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(shop_id, barcode)"
+            )
+        except Exception:
+            pass
         # Mahsulot bo'limlari - har bir do'kon egasi o'zi xohlagancha
         # bo'lim yarata oladi (masalan "Ichimliklar", "Non mahsulotlari").
         # Bo'limga bog'lanish ixtiyoriy - mahsulot bo'limsiz ham qolishi mumkin.
@@ -587,17 +600,18 @@ async def _ensure_category_schema(db):
 
 async def add_product(shop_id: int, name: str, price: float, quantity: float, photo_file_id,
                        channel_message_id=None, sell_price=None, min_price=None,
-                       alert_quantity=None, category_id=None):
+                       alert_quantity=None, category_id=None, barcode: str = None):
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         await _ensure_category_schema(db)
-        await db.execute(
+        cursor = await db.execute(
             "INSERT INTO products (shop_id, name, price, quantity, photo_file_id, channel_message_id, "
-            "sell_price, min_price, alert_quantity, category_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "sell_price, min_price, alert_quantity, category_id, barcode, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (shop_id, name, price, quantity, photo_file_id, channel_message_id, sell_price, min_price,
-             alert_quantity, category_id, _now()),
+             alert_quantity, category_id, (barcode or None), _now()),
         )
         await db.commit()
+        return cursor.lastrowid
 
 
 async def get_product(shop_id: int, product_id: int):
@@ -751,6 +765,45 @@ async def find_product_by_name(shop_id: int, name: str):
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+
+async def find_product_by_barcode(shop_id: int, barcode: str):
+    """BARKOD - MINI APP SAVDO/SKLAD - 1-BOSQICH: mahsulotni barkodi bo'yicha
+    aniq qidiradi (boshi/oxiridagi bo'sh joylarga qaramaydi, lekin
+    katta-kichik harfga sezgir - barkodlar odatda faqat raqam bo'ladi).
+    Mini app'da savdo qilishda ("skanerla -> savatga qo'sh") va skladga
+    kirim qilishda ("skanerla -> miqdor kiritish oynasi ochiladi") ishlatiladi.
+
+    Bir xil barkod xato bilan bir nechta mahsulotga yozilgan bo'lsa - eng
+    OXIRGI qo'shilgan (ID bo'yicha eng katta) qaytariladi, chunki odatda u
+    "to'g'irlangan" yozuv bo'ladi."""
+    if not barcode or not barcode.strip():
+        return None
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM products WHERE shop_id = ? AND barcode = ? ORDER BY id DESC LIMIT 1",
+            (shop_id, barcode.strip()),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def set_product_barcode(shop_id: int, product_id: int, barcode: str | None) -> bool:
+    """Mahsulotga barkod biriktiradi/o'zgartiradi (bo'sh/None berilsa -
+    barkodni olib tashlaydi). Bir xil barkod boshqa mahsulotda ham bo'lishi
+    mumkinligi haqida hech qanday tekshiruv qilmaydi - bu chaqiruvchi
+    tomonda (handlers/products.py, webapp.py) hal qilinadi, chunki ba'zan
+    (masalan bir xil tovarning turli o'lchamdagi qadoqlari) buni ataylab
+    xohlashlari mumkin."""
+    barcode = barcode.strip() if barcode else None
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "UPDATE products SET barcode = ? WHERE id = ? AND shop_id = ?",
+            (barcode, product_id, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def get_all_products(shop_id: int):
