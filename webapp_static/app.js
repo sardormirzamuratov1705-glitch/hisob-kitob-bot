@@ -507,9 +507,9 @@ function resetScannerStatusSoon(delay = 1600) {
 }
 
 function defaultScannerStatusText() {
-  return scannerMode === "sklad"
-    ? "Skladga qo'shish uchun barkodni skanerlang..."
-    : "Kamerani barkodga to'g'rilang...";
+  if (scannerMode === "sklad") return "Skladga qo'shish uchun barkodni skanerlang...";
+  if (scannerMode === "sklad_new") return "Yangi mahsulot uchun barkodni skanerlang...";
+  return "Kamerani barkodga to'g'rilang...";
 }
 
 async function openScanner(mode = "sale") {
@@ -555,16 +555,26 @@ async function stopScanner() {
 async function closeScanner() {
   el("modal-scanner").classList.add("hidden");
   await stopScanner();
+  // YANGI REJA - 3-BOSQICH: agar foydalanuvchi "Yangi mahsulot"
+  // oynasidan skaner ochib, hech narsa skanerlamasdan ✕ bosib yopsa -
+  // to'ldirilgan maydonlar (nom/narx/miqdor) yo'qolib qolmasligi uchun
+  // o'sha oynani qayta ko'rsatamiz.
+  if (scannerMode === "sklad_new") {
+    el("modal-sklad-new").classList.remove("hidden");
+  }
 }
 
-// 5/7-BOSQICH: skanerlangan barkodni rejimga qarab ikki xil oqimga
-// yo'naltiradi:
+// 5/7-BOSQICH (+ YANGI REJA 3-BOSQICH): skanerlangan barkodni rejimga
+// qarab UCH XIL oqimga yo'naltiradi:
 //  - "sale" (Savdo): uzluksiz - darhol savatga qo'shiladi, kamera davom
 //    ishlaydi (pastdagi izohga qarang).
-//  - "sklad" (Sklad): BITTA-BITTALAB - kamera to'xtatiladi, modal
-//    yopiladi va "nechta dona keldi?" oynasi ochiladi, chunki bu yerda
-//    foydalanuvchi albatta sonni QO'LDA kiritishi kerak (standart
-//    miqdor degan narsa yo'q).
+//  - "sklad" (Sklad, mavjud mahsulotga miqdor qo'shish): BITTA-
+//    BITTALAB - kamera to'xtatiladi, modal yopiladi va "nechta dona
+//    keldi?" oynasi ochiladi, chunki bu yerda foydalanuvchi albatta
+//    sonni QO'LDA kiritishi kerak (standart miqdor degan narsa yo'q).
+//  - "sklad_new" (Sklad, YANGI mahsulot yaratish): kamera to'xtatiladi,
+//    "Yangi mahsulot" oynasidagi barkod maydoni to'ldiriladi va o'sha
+//    oyna qayta ochiladi - hech qanday qidiruv qilinmaydi.
 async function onBarcodeDecoded(decodedText) {
   if (scanHandled) return; // bitta kadrda bir necha marta chaqirilishining oldini olamiz
   scanHandled = true;
@@ -575,6 +585,21 @@ async function onBarcodeDecoded(decodedText) {
     await stopScanner();
     el("modal-scanner").classList.add("hidden");
     await handleSkladBarcodeScan(decodedText);
+    scanHandled = false;
+    return;
+  }
+
+  // YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi barkod
+  // maydonini skanerlangan qiymat bilan to'ldirish - bu yerda hech
+  // qanday qidiruv/tekshiruv QILINMAYDI (u faqat "✅ Qo'shish"
+  // bosilganda, backendda amalga oshadi - qarang: skladCreateErrorText
+  // "barcode_exists"), chunki foydalanuvchi hali boshqa maydonlarni
+  // (nom/narx/miqdor) to'ldirib ulgurmagan bo'lishi mumkin.
+  if (scannerMode === "sklad_new") {
+    await stopScanner();
+    el("modal-scanner").classList.add("hidden");
+    el("sklad-new-barcode-input").value = decodedText;
+    el("modal-sklad-new").classList.remove("hidden");
     scanHandled = false;
     return;
   }
@@ -831,6 +856,7 @@ function openSkladNewProductModal() {
   el("sklad-new-price-input").value = "";
   el("sklad-new-sell-price-input").value = "";
   el("sklad-new-quantity-input").value = 1;
+  el("sklad-new-barcode-input").value = "";
   el("modal-sklad-new").classList.remove("hidden");
 }
 
@@ -838,6 +864,15 @@ el("sklad-new-product-btn").addEventListener("click", openSkladNewProductModal);
 
 el("sklad-new-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-new").classList.add("hidden");
+});
+
+// YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi 📷 tugmasi -
+// oynani vaqtincha yashiradi, kamerani "sklad_new" rejimida ochadi;
+// skaner o'qigach (onBarcodeDecoded) barkod maydoni to'ldiriladi va
+// oyna avtomatik qayta ko'rinadi.
+el("sklad-new-scan-btn").addEventListener("click", () => {
+  el("modal-sklad-new").classList.add("hidden");
+  openScanner("sklad_new");
 });
 
 el("sklad-new-save-btn").addEventListener("click", async () => {
@@ -860,6 +895,10 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
   }
 
   const body = { name, price, quantity };
+  const barcode = el("sklad-new-barcode-input").value.trim();
+  if (barcode) {
+    body.barcode = barcode;
+  }
   if (sellPriceRaw !== "") {
     const sellPrice = parseFloat(sellPriceRaw);
     if (isNaN(sellPrice) || sellPrice < 0) {
