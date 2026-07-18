@@ -100,6 +100,12 @@ body {
 
 .error-icon { font-size: 34px; margin-bottom: 10px; }
 
+#error-text {
+  white-space: pre-line; /* VAQTINCHALIK DIAGNOSTIKA qatoridagi \n ko'rinishi uchun */
+  font-size: 13px;
+  word-break: break-word;
+}
+
 /* ---------- SEARCH ---------- */
 
 .search-box {
