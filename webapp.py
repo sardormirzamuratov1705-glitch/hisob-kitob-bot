@@ -139,9 +139,14 @@ async def api_me(request: web.Request):
     auth = await _authenticate(request)
     if not auth:
         return web.json_response({"error": "unauthorized"}, status=401)
+    # 8-BOSQICH: front-end shu maydon orqali "📦 Sklad" bo'limidagi
+    # "➕ Skladga qo'shish" imkoniyatini (yoki butun bo'limni) sotuvchidan
+    # ega o'chirib qo'ygan bo'lsa yashiradi/qulflaydi - qarang: app.js init().
+    can_add_stock = await access_control.can_add_stock(auth["telegram_id"])
     return web.json_response({
         "name": auth["name"],
         "role": auth["role"],
+        "can_add_stock": can_add_stock,
     })
 
 
@@ -238,13 +243,16 @@ async def api_sklad_add_quantity(request: web.Request):
     KAMIDA bittasi kerak - front-end skanerlagan bo'lsa barcode, ro'yxatdan
     qidirib tanlagan bo'lsa product_id yuboradi), va {"qty": son (musbat)}.
 
-    RUXSAT: hozircha (8-bosqichgacha) do'kon egasi VA sotuvchining
-    ikkalasi ham sklad miqdorini oshira oladi - xuddi _authenticate()
-    savdo uchun ruxsat berganidek. 8-bosqichda bu alohida
-    (o'chirib-yoqiladigan) sozlamaga aylantiriladi."""
+    RUXSAT (8-BOSQICH): do'kon egasi har doim qo'sha oladi. Sotuvchi esa
+    faqat ega buni yoqib qo'ygan bo'lsa (owners.sellers_can_add_stock,
+    standart - yoqilgan) - qarang: access_control.can_add_stock() va
+    handlers/sellers.py ("🔐 Sklad ruxsati" tugmasi)."""
     auth = await _authenticate(request)
     if not auth:
         return web.json_response({"error": "unauthorized"}, status=401)
+
+    if not await access_control.can_add_stock(auth["telegram_id"]):
+        return web.json_response({"error": "forbidden"}, status=403)
 
     try:
         body = await request.json()
