@@ -56,6 +56,40 @@ try:
 except (ValueError, AttributeError):
     DAILY_REPORT_HOUR, DAILY_REPORT_MINUTE = 21, 0
 
+# ---------- SHUBHALI HOLATLAR - 8-BOSQICH: STANDART CHEGARALAR ----------
+# Bu yerdagi qiymatlar - FAQAT standart (default). Har bir do'kon egasi
+# "🔔 Kunlik hisobot" kabi o'z sozlamalar bo'limidan bularni O'ZIGA moslab
+# o'zgartira oladi (database.get_suspicious_rules/set_suspicious_rule,
+# settings jadvalida shop_id bo'yicha alohida saqlanadi) - shu sabab bu
+# yerdagi qiymatlar faqat hali hech narsa sozlanmagan yangi do'konlar uchun
+# "boshlang'ich" son sifatida ishlatiladi.
+#
+# 1) Manfiy qoldiq va 2) tannarxdan past sotish - chegarasiz, doim yoqilgan
+#    tekshiruvlar (bular sozlanmaydi, shuning uchun bu yerda yo'q).
+#
+# 3) G'ayrioddiy katta chegirma - sotuv narxi tavsiya etilgan sell_price'dan
+#    necha FOIZ past bo'lsa shubhali hisoblanadi.
+SUSPICIOUS_DISCOUNT_PERCENT = int(os.getenv("SUSPICIOUS_DISCOUNT_PERCENT", "20"))
+
+# 4) Bitta savdoda (bitta chekda, bitta mahsulotdan) necha DONADAN ko'p
+#    sotilsa shubhali hisoblanadi.
+SUSPICIOUS_SALE_QUANTITY = float(os.getenv("SUSPICIOUS_SALE_QUANTITY", "50"))
+
+# 5) Bitta chiqim (kirim-chiqimdagi "chiqim" yozuvi) necha SO'MDAN yuqori
+#    bo'lsa shubhali hisoblanadi - qo'lda oldindan kiritilgan standart qiymat,
+#    do'kon egasi o'zi sozlashi mumkin.
+SUSPICIOUS_EXPENSE_AMOUNT = float(os.getenv("SUSPICIOUS_EXPENSE_AMOUNT", "500000"))
+
+# 6) Ish vaqti oralig'i - shu oraliqdan TASHQARIDA kiritilgan savdo/chiqim
+#    shubhali hisoblanadi. Standart qiymat qo'lda kiritilgan (08:00-22:00),
+#    do'kon egasi o'zining ish vaqtiga moslab o'zgartira oladi.
+SUSPICIOUS_WORK_HOUR_START = int(os.getenv("SUSPICIOUS_WORK_HOUR_START", "8"))
+SUSPICIOUS_WORK_HOUR_END = int(os.getenv("SUSPICIOUS_WORK_HOUR_END", "22"))
+
+# 7) Bir kunda bitta xodimdan (performed_by) necha TADAN ko'p savdo/chiqim
+#    yozuvi kiritilsa shubhali hisoblanadi.
+SUSPICIOUS_SELLER_DAILY_COUNT = int(os.getenv("SUSPICIOUS_SELLER_DAILY_COUNT", "15"))
+
 # Tariflar ro'yxati - handlers/subscription.py shu yerdan o'qiydi (tugmalar,
 # narx ko'rsatish va tanlangan tarifga qarab subscription_until'ni necha
 # kunga uzaytirish kerakligini aniqlash uchun). "days" - 7-bosqichda
