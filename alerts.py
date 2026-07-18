@@ -116,7 +116,7 @@ async def send_debt_reminders(bot, days_threshold: int = None):
         days_threshold = config.DEBT_OVERDUE_DAYS_DEFAULT
 
     interval = timedelta(days=config.DEBT_CUSTOMER_REMINDER_INTERVAL_DAYS)
-    now = datetime.now()
+    now = config.now()
 
     owner_ids = await db.get_owner_ids()
     for shop_id in owner_ids:
@@ -299,7 +299,7 @@ def check_work_hour_suspicion(rules: dict) -> str:
     TASHQARIDAmi, tekshiradi. Bitta chek/tranzaksiya uchun BIR MARTA
     chaqirilishi kerak (har bir mahsulot qatori uchun emas - aks holda bir
     xil xabar bir nechta marta takrorlanadi). Hech narsa topilmasa None."""
-    now = datetime.now()
+    now = config.now()
     start, end = rules["work_hour_start"], rules["work_hour_end"]
     if start <= end:
         in_hours = start <= now.hour < end
