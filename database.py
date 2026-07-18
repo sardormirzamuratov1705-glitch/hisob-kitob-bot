@@ -724,7 +724,7 @@ async def update_product_quantity(shop_id: int, product_id: int, quantity: float
         await db.commit()
 
 
-async def add_stock_quantity(shop_id: int, product_id: int, add_qty: float):
+async def add_stock_quantity(shop_id: int, product_id: int, add_qty: float, performed_by: int = None):
     """SKLAD - MINI APP - 6-BOSQICH: mahsulot miqdorini TEZ oshiradi
     (masalan "yetkazib beruvchidan tovar keldi, sanab qo'yaylik" holati).
 
@@ -735,6 +735,11 @@ async def add_stock_quantity(shop_id: int, product_id: int, add_qty: float):
     kiritishni talab qilmaydi. Narxni ham yangilash kerak bo'lsa, foydalanuvchi
     hamon botdagi "✏️ Tahrirlash" yoki "📦 Kam qolganini to'ldirish" (to'liq
     xarid) oqimidan foydalanishi mumkin - ular o'zgarishsiz qoladi.
+
+    9-BOSQICH: performed_by berilsa (mini app orqali - ega yoki sotuvchi),
+    amal audit_log'ga yoziladi ("Skladga tovar qo'shildi (Mini App)") - shu
+    orqali ega keyinchalik KIM qachon qancha tovar kiritganini
+    "🗂 Audit jurnali"/Excel eksportdan ko'ra oladi.
 
     Muvaffaqiyatli bo'lsa {"name","old_quantity","new_quantity"} qaytaradi,
     mahsulot topilmasa - None."""
@@ -756,7 +761,13 @@ async def add_stock_quantity(shop_id: int, product_id: int, add_qty: float):
             (new_quantity, product_id, shop_id),
         )
         await db.commit()
-        return {"name": row["name"], "old_quantity": old_quantity, "new_quantity": new_quantity}
+        name = row["name"]
+
+    await log_action(
+        shop_id, performed_by, "Skladga tovar qo'shildi (Mini App)",
+        f"{name}: {old_quantity:.0f} → {new_quantity:.0f} dona (+{add_qty:.0f})",
+    )
+    return {"name": name, "old_quantity": old_quantity, "new_quantity": new_quantity}
 
 
 async def update_product_purchase(shop_id: int, product_id: int, add_quantity: float,
@@ -837,21 +848,50 @@ async def find_product_by_barcode(shop_id: int, barcode: str):
         return dict(row) if row else None
 
 
-async def set_product_barcode(shop_id: int, product_id: int, barcode: str | None) -> bool:
+async def set_product_barcode(shop_id: int, product_id: int, barcode: str | None, performed_by: int = None) -> bool:
     """Mahsulotga barkod biriktiradi/o'zgartiradi (bo'sh/None berilsa -
     barkodni olib tashlaydi). Bir xil barkod boshqa mahsulotda ham bo'lishi
     mumkinligi haqida hech qanday tekshiruv qilmaydi - bu chaqiruvchi
     tomonda (handlers/products.py, webapp.py) hal qilinadi, chunki ba'zan
     (masalan bir xil tovarning turli o'lchamdagi qadoqlari) buni ataylab
-    xohlashlari mumkin."""
+    xohlashlari mumkin.
+
+    9-BOSQICH: performed_by berilsa, o'zgarish audit_log'ga yoziladi (eski
+    -> yangi barkod bilan birga) - haqiqiy o'zgarish bo'lmasa (eski va yangi
+    barkod bir xil), yozuv qo'shilmaydi (audit jurnalini keraksiz
+    to'ldirmaslik uchun)."""
     barcode = barcode.strip() if barcode else None
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT name, barcode FROM products WHERE id = ? AND shop_id = ?",
+            (product_id, shop_id),
+        )
+        existing = await cursor.fetchone()
+        if not existing:
+            return False
+        old_barcode = existing["barcode"]
+        name = existing["name"]
+
         cursor = await db.execute(
             "UPDATE products SET barcode = ? WHERE id = ? AND shop_id = ?",
             (barcode, product_id, shop_id),
         )
         await db.commit()
-        return cursor.rowcount > 0
+        changed = cursor.rowcount > 0
+
+    if changed and old_barcode != barcode:
+        if barcode is None:
+            action = "Barkod olib tashlandi"
+        elif old_barcode is None:
+            action = "Barkod belgilandi"
+        else:
+            action = "Barkod o'zgartirildi"
+        await log_action(
+            shop_id, performed_by, action,
+            f"{name}: {old_barcode or '—'} → {barcode or '—'}",
+        )
+    return changed
 
 
 async def get_all_products(shop_id: int):
