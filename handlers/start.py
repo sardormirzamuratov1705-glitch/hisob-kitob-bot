@@ -9,7 +9,7 @@ from aiogram.fsm.state import StatesGroup, State
 import config
 import database as db
 import keyboards as kb
-from access_control import is_admin, is_authorized, get_role
+from access_control import is_admin, is_authorized, get_role, register_extra_admin
 
 router = Router()
 
@@ -241,6 +241,61 @@ async def cmd_start_deep_link(message: Message, state: FSMContext, command: Comm
     bir martalik taklif linki orqali botni ochganda ishga tushadi."""
     await state.clear()
     payload = command.args or ""
+
+    if payload.startswith("admin_"):
+        token = payload.split("_", 1)[1]
+        invite = await db.get_admin_invite(token)
+
+        if not invite:
+            await message.answer("❌ Bu link amal qilmaydi (noto'g'ri yoki eskirgan).")
+            return
+        if invite.get("used_by"):
+            await message.answer(
+                "❌ Bu link allaqachon ishlatilgan. Har bir taklif linki faqat "
+                "BITTA marta, bitta odam uchun amal qiladi. Yangi link so'rang."
+            )
+            return
+
+        if is_admin(message.from_user.id):
+            await message.answer("Siz allaqachon bosh adminsiz - bu link sizga kerak emas.")
+            return
+        if await db.is_owner(message.from_user.id):
+            await message.answer(
+                "Siz do'kon egasi sifatida ro'yxatdasiz - admin bo'lish uchun avval "
+                "bosh admin sizni do'kon egalari ro'yxatidan o'chirishi kerak."
+            )
+            return
+        if await db.is_seller(message.from_user.id):
+            await message.answer("Siz allaqachon bir do'konga sotuvchi sifatida ulangansiz.")
+            return
+
+        claimed = await db.use_admin_invite(token, message.from_user.id)
+        if not claimed:
+            await message.answer(
+                "❌ Bu link boshqa birov tomonidan sizdan bir zum oldin ishlatib bo'lingan."
+            )
+            return
+
+        await db.add_admin(
+            message.from_user.id,
+            message.from_user.full_name,
+            message.from_user.username,
+            added_by=invite["created_by"],
+        )
+        register_extra_admin(message.from_user.id)
+        await message.answer(
+            "👑 Tabriklaymiz! Sizga bosh admin huquqi berildi.\n"
+            "Boshlash uchun /start buyrug'ini qayta bosing."
+        )
+        try:
+            await message.bot.send_message(
+                invite["created_by"],
+                f"👑 Yangi bosh admin taklif linki orqali qo'shildi: "
+                f"{message.from_user.full_name} (ID: {message.from_user.id})",
+            )
+        except Exception as e:
+            logging.warning(f"Adminga xabar yuborib bo'lmadi: {e}")
+        return
 
     if payload.startswith("owner_"):
         token = payload.split("_", 1)[1]
