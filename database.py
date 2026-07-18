@@ -867,10 +867,11 @@ async def mark_product_sold(shop_id: int, product_id: int):
         await db.commit()
 
 
-async def get_stale_products(shop_id: int, days: int = 30):
+async def get_stale_products(shop_id: int, days: int = 30, limit: int = 10):
     """Skladda bor, lekin oxirgi `days` kun ichida sotilmagan (yoki umuman
     sotilmagan va shuncha vaqtdan beri turgan) mahsulotlar. Eng uzoq
-    turganidan boshlab tartiblanadi."""
+    turganidan (eng sekin sotilayotganidan) boshlab tartiblanadi va faqat
+    eng "sekin" `limit` tasi qaytariladi (standart - TOP 10)."""
     cutoff = datetime.now() - timedelta(days=days)
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -891,6 +892,8 @@ async def get_stale_products(shop_id: int, days: int = 30):
             stale.append(p)
 
     stale.sort(key=lambda p: p["reference_date"])
+    if limit:
+        stale = stale[:limit]
     return stale
 
 
