@@ -1,15 +1,18 @@
 import logging
+import os
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
 
 import config
 import database as db
 import keyboards as kb
 import alerts
-from access_control import get_shop_id, is_owner_level
+from access_control import get_shop_id, is_owner_level, get_role
 
 router = Router()
 
@@ -35,6 +38,16 @@ class SetDiscount(StatesGroup):
     egasiga ruxsat etilgan (har bir handlerda is_owner_level tekshiriladi)."""
     price = State()
     days = State()
+
+
+class ExcelFill(StatesGroup):
+    """Skladni Excel fayl orqali to'ldirish - shablon yuborilgach shu
+    holatga o'tiladi va navbatdagi hujjat (.xlsx) shu shop_id'ga qarab
+    qayta ishlanadi. target_shop_id state ma'lumotida saqlanadi - odatda
+    foydalanuvchining o'z do'koni, lekin admin boshqa eganing do'konini
+    to'ldirayotganda shu yerga o'sha eganing shop_id'si yoziladi
+    (handlers/users.py'dagi admin_sklad_excel_start_cb orqali)."""
+    waiting_file = State()
 
 
 class SearchProduct(StatesGroup):
@@ -71,6 +84,236 @@ async def _require_shop_cb(callback: CallbackQuery):
     if shop_id is None:
         await callback.answer("Bu bo'lim faqat do'kon egalari uchun.", show_alert=True)
     return shop_id
+
+
+# ---------- SKLADNI EXCEL BILAN TO'LDIRISH ----------
+# Do'kon egasi (yoki admin - handlers/users.py orqali, boshqa eganing
+# do'koni uchun) skladni bittalab emas, bitta Excel fayl orqali to'ldira
+# oladi: avval bot shablon (namuna) faylni o'zi tashlab beradi, keyin
+# to'ldirilgan fayl hujjat sifatida qaytarib yuborilsa, undagi har bir
+# qator mahsulot sifatida qo'shiladi/yangilanadi. send_products_excel_template
+# va process_products_excel_file funksiyalari qasddan alohida ajratilgan
+# (router handlerlariga bog'lanmagan) - handlers/users.py ularni import
+# qilib, admin uchun ham xuddi shu mantiqni ishlatadi.
+
+EXCEL_TEMPLATE_HEADERS = [
+    "Nomi", "Tannarx", "Sotuv narxi", "Eng past narx", "Miqdori",
+    "Ogohlantirish chegarasi", "Bo'lim",
+]
+
+
+def _build_products_template_file() -> str:
+    """Bo'sh (namunali bitta qator bilan) Excel shablonini /tmp'ga
+    yozadi va fayl yo'lini qaytaradi. Faqat \"Nomi\", \"Tannarx\" va
+    \"Miqdori\" ustunlari majburiy - qolganlari bo'sh qoldirilishi mumkin."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sklad"
+    ws.append(EXCEL_TEMPLATE_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    ws.append(["Coca-Cola 1.5L", 8000, 10000, 9000, 50, 5, "Ichimliklar"])
+    for column_cells in ws.columns:
+        length = max(len(str(cell.value or "")) for cell in column_cells)
+        ws.column_dimensions[column_cells[0].column_letter].width = length + 3
+
+    filepath = f"/tmp/sklad_shablon_{os.getpid()}_{id(wb)}.xlsx"
+    wb.save(filepath)
+    return filepath
+
+
+async def send_products_excel_template(message: Message):
+    """Shablon faylni yuboradi. Chaqiruvchi (owner yoki admin) buni
+    to'ldirib, keyin ExcelFill.waiting_file holatida qaytarib yuboradi."""
+    filepath = _build_products_template_file()
+    try:
+        await message.answer_document(
+            FSInputFile(filepath, filename="sklad_shablon.xlsx"),
+            caption=(
+                "📥 <b>Sklad shablon fayli</b>\n\n"
+                "Ustunlar: <b>Nomi</b>, <b>Tannarx</b> va <b>Miqdori</b> - majburiy. "
+                "Sotuv narxi, Eng past narx, Ogohlantirish chegarasi va Bo'lim - ixtiyoriy "
+                "(bo'lim nomi hali mavjud bo'lmasa, avtomatik yaratiladi).\n\n"
+                "Mavjud nomdagi mahsulot qatorga tushsa - miqdori qo'shiladi va tannarxi "
+                "o'rtacha (weighted average) qayta hisoblanadi, yangi nom bo'lsa - yangi "
+                "mahsulot sifatida qo'shiladi.\n\n"
+                "To'ldirib bo'lgach, shu faylni <b>hujjat</b> sifatida shu yerga qaytarib yuboring."
+            ),
+            parse_mode="HTML",
+        )
+    finally:
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+
+
+async def process_products_excel_file(shop_id: int, file_path: str) -> dict:
+    """Yuborilgan Excel faylini o'qib, shop_id do'konining skladiga
+    qo'llaydi. Qaytaradi: {"added": int, "updated": int, "errors": [str, ...]}.
+
+    Nomi bo'yicha (katta-kichik harfsiz) mos kelgan mahsulot bo'lsa -
+    database.update_product_purchase() orqali miqdor qo'shiladi va tannarx
+    o'rtacha (weighted average) qilib qayta hisoblanadi; sotuv/eng past
+    narx/ogohlantirish ustunlari faylda bo'sh qoldirilgan bo'lsa, mahsulotning
+    eski qiymati saqlab qolinadi (update_product_purchase berilgan qiymatni
+    so'zsiz yozib qo'yadi, shuning uchun bu yerda avval fallback qilinadi)."""
+    try:
+        wb = load_workbook(file_path, data_only=True)
+    except Exception:
+        return {"added": 0, "updated": 0, "errors": ["Fayl xato yoki buzilgan - .xlsx formatida ekanini tekshiring."]}
+
+    ws = wb.active
+    categories = await db.get_categories(shop_id)
+    cat_by_name = {c["name"].strip().lower(): c["id"] for c in categories}
+    existing_products = await db.get_all_products(shop_id)
+    existing_by_name = {p["name"].strip().lower(): p for p in existing_products}
+
+    added = 0
+    updated = 0
+    errors = []
+
+    def _num(row, idx):
+        if idx >= len(row) or row[idx] in (None, ""):
+            return None, True
+        try:
+            return float(row[idx]), True
+        except (ValueError, TypeError):
+            return None, False
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row or all(v is None or str(v).strip() == "" for v in row):
+            continue
+        name = str(row[0]).strip() if row[0] is not None else ""
+        if not name:
+            continue
+
+        price, price_ok = _num(row, 1)
+        if not price_ok:
+            errors.append(f"{row_idx}-qator ({name}): Tannarx raqam emas")
+            continue
+        quantity, qty_ok = _num(row, 4)
+        if not qty_ok:
+            errors.append(f"{row_idx}-qator ({name}): Miqdori raqam emas")
+            continue
+        if price is None or quantity is None:
+            errors.append(f"{row_idx}-qator ({name}): Tannarx va Miqdori majburiy")
+            continue
+
+        sell_price, sell_ok = _num(row, 2)
+        if not sell_ok:
+            errors.append(f"{row_idx}-qator ({name}): Sotuv narxi raqam emas")
+            continue
+        min_price, min_ok = _num(row, 3)
+        if not min_ok:
+            errors.append(f"{row_idx}-qator ({name}): Eng past narx raqam emas")
+            continue
+        alert_quantity, alert_ok = _num(row, 5)
+        if not alert_ok:
+            errors.append(f"{row_idx}-qator ({name}): Ogohlantirish chegarasi raqam emas")
+            continue
+
+        category_id = None
+        if len(row) > 6 and row[6] not in (None, ""):
+            cat_name = str(row[6]).strip()
+            key = cat_name.lower()
+            category_id = cat_by_name.get(key)
+            if category_id is None:
+                category = await db.add_category(shop_id, cat_name)
+                category_id = category["id"]
+                cat_by_name[key] = category_id
+
+        existing = existing_by_name.get(name.lower())
+        if existing:
+            final_sell_price = sell_price if sell_price is not None else existing.get("sell_price")
+            final_min_price = min_price if min_price is not None else existing.get("min_price")
+            final_alert_qty = alert_quantity if alert_quantity is not None else existing.get("alert_quantity")
+            await db.update_product_purchase(
+                shop_id, existing["id"], quantity, price,
+                final_sell_price, final_min_price, final_alert_qty,
+            )
+            if category_id is not None:
+                await db.set_product_category(shop_id, existing["id"], category_id)
+            existing["quantity"] = existing["quantity"] + quantity
+            updated += 1
+        else:
+            await db.add_product(
+                shop_id, name, price, quantity, None,
+                sell_price=sell_price, min_price=min_price,
+                alert_quantity=alert_quantity, category_id=category_id,
+            )
+            existing_by_name[name.lower()] = {
+                "id": None, "quantity": quantity, "price": price,
+                "sell_price": sell_price, "min_price": min_price,
+                "alert_quantity": alert_quantity,
+            }
+            added += 1
+
+    return {"added": added, "updated": updated, "errors": errors}
+
+
+def excel_result_text(result: dict, shop_label: str = "") -> str:
+    """process_products_excel_file() natijasini foydalanuvchiga
+    ko'rsatiladigan matnga aylantiradi. shop_label - admin oqimida
+    \"do'kon: <ism>\" kabi qo'shimcha izoh uchun (owner oqimida bo'sh)."""
+    text = "✅ <b>Sklad Excel fayl orqali to'ldirildi</b>"
+    if shop_label:
+        text += f" ({shop_label})"
+    text += f"\n\n➕ Yangi qo'shildi: {result['added']} ta\n🔄 Yangilandi: {result['updated']} ta"
+    if result["errors"]:
+        shown = result["errors"][:10]
+        text += f"\n\n⚠️ Quyidagi qatorlarda xatolik bor, ular o'tkazib yuborildi:\n" + "\n".join(shown)
+        if len(result["errors"]) > len(shown):
+            text += f"\n... yana {len(result['errors']) - len(shown)} ta xatolik."
+    return text
+
+
+@router.message(F.text == "📊 Excel bilan to'ldirish")
+async def excel_fill_start(message: Message, state: FSMContext):
+    shop_id = await _require_shop(message)
+    if shop_id is None:
+        return
+    await state.update_data(target_shop_id=shop_id)
+    await state.set_state(ExcelFill.waiting_file)
+    await send_products_excel_template(message)
+
+
+@router.message(ExcelFill.waiting_file, F.document)
+async def excel_fill_file(message: Message, state: FSMContext):
+    data = await state.get_data()
+    shop_id = data.get("target_shop_id")
+    if shop_id is None:
+        await state.clear()
+        return
+
+    document = message.document
+    if not (document.file_name or "").lower().endswith((".xlsx", ".xlsm")):
+        await message.answer("Iltimos, .xlsx formatidagi Excel faylni yuboring.")
+        return
+
+    tmp_path = f"/tmp/sklad_fill_{document.file_unique_id}.xlsx"
+    await message.bot.download(document.file_id, destination=tmp_path)
+    try:
+        result = await process_products_excel_file(shop_id, tmp_path)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    await state.clear()
+    role = await get_role(message.from_user.id)
+    menu = kb.main_menu("admin") if role == "admin" else kb.sklad_menu()
+    await message.answer(excel_result_text(result), parse_mode="HTML", reply_markup=menu)
+
+
+@router.message(ExcelFill.waiting_file)
+async def excel_fill_wrong_type(message: Message):
+    await message.answer(
+        "Iltimos, to'ldirilgan Excel faylni hujjat (document) sifatida yuboring, "
+        "yoki bekor qilish uchun \"⬅️ Orqaga\" tugmasini bosing."
+    )
 
 
 # ---------- MAHSULOT QO'SHISH ----------
