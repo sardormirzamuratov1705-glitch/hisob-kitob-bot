@@ -1253,12 +1253,12 @@ async def get_debt_payments(shop_id: int, debt_id: int):
 # (handlers/sellers.py buni har doim shop_id bilan tekshiradi).
 
 async def add_seller(telegram_id: int, shop_id: int, full_name: str = None,
-                      username: str = None, added_by: int = None):
+                      username: str = None, added_by: int = None, branch_id=None):
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO sellers (telegram_id, shop_id, full_name, username, added_by, "
-            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (telegram_id, shop_id, full_name, username, added_by, _now()),
+            "branch_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (telegram_id, shop_id, full_name, username, added_by, branch_id, _now()),
         )
         await db.commit()
 
@@ -1269,6 +1269,19 @@ async def remove_seller(shop_id: int, telegram_id: int) -> bool:
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             "DELETE FROM sellers WHERE telegram_id = ? AND shop_id = ?", (telegram_id, shop_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def set_seller_branch(shop_id: int, telegram_id: int, branch_id) -> bool:
+    """Do'kon egasi sotuvchini qo'lda boshqa filialga ko'chiradi.
+    branch_id=None bo'lsa - "Bosh filial"ga qaytaradi. shop_id bilan birga
+    tekshiriladi - egasi faqat O'Z sotuvchisini ko'chira oladi."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE sellers SET branch_id = ? WHERE telegram_id = ? AND shop_id = ?",
+            (branch_id, telegram_id, shop_id),
         )
         await db.commit()
         return cursor.rowcount > 0
@@ -1323,14 +1336,17 @@ async def set_seller_profile(telegram_id: int, seller_name: str, phone_number: s
 
 # ---------- SOTUVCHI UCHUN BIR MARTALIK TAKLIF LINKLARI ----------
 
-async def create_seller_invite(shop_id: int, created_by: int) -> str:
+async def create_seller_invite(shop_id: int, created_by: int, branch_id=None) -> str:
     """Yangi bir martalik sotuvchi taklif tokenini yaratadi (faqat shu do'konga
-    tegishli). Token faqat bitta marta, bitta odam tomonidan ishlatilishi mumkin."""
+    tegishli). Token faqat bitta marta, bitta odam tomonidan ishlatilishi mumkin.
+    branch_id - link yaratilgan paytdagi egasining joriy filiali; link
+    ishlatilib sotuvchi qo'shilganda shu filial sotuvchiga biriktiriladi."""
     token = secrets.token_urlsafe(12)
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.execute(
-            "INSERT INTO seller_invites (token, shop_id, created_by, created_at) VALUES (?, ?, ?, ?)",
-            (token, shop_id, created_by, _now()),
+            "INSERT INTO seller_invites (token, shop_id, created_by, branch_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (token, shop_id, created_by, branch_id, _now()),
         )
         await db.commit()
     return token
