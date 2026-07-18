@@ -1221,6 +1221,113 @@ async def use_owner_invite(token: str, used_by: int) -> bool:
         return cursor.rowcount > 0
 
 
+# ---------- 7-BOSQICH: TO'LOVLARNI QO'LDA TASDIQLASH ----------
+
+async def create_payment(owner_id: int, amount: float, plan: str, days: int,
+                          screenshot_file_id: str = None) -> int:
+    """Ega chek skrinshotini yuborganda yaratiladigan "kutilayotgan" to'lov
+    yozuvi. Hali hech narsani o'zgartirmaydi (obuna uzaytirilmaydi) - faqat
+    bosh admin tasdiqlashini (approve_payment) yoki rad etishini
+    (reject_payment) kutadi. Qaytadi: yangi yozuvning id'si."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO payments (owner_id, amount, plan, days, method, status, "
+            "screenshot_file_id, created_at) VALUES (?, ?, ?, ?, 'qolda', 'pending', ?, ?)",
+            (owner_id, amount, plan, days, screenshot_file_id, _now()),
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_payment(payment_id: int):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def approve_payment(payment_id: int, decided_by: int):
+    """To'lovni tasdiqlaydi: payments.status='approved' qilib belgilaydi va
+    owners.subscription_until'ni shu to'lovning "days" qiymatiga qarab
+    uzaytiradi.
+
+    Kunlar YO'QOTILMASLIGI uchun: agar ega hali FAOL obunaga ega bo'lsa
+    (masalan muddati tugashiga bir necha kun qolganda oldindan to'lasa),
+    yangi kunlar mavjud subscription_until'ning USTIGA qo'shiladi; aks
+    holda (obuna allaqachon tugagan/trialda) bugungi kundan boshlab
+    hisoblanadi.
+
+    Allaqachon hal qilingan (approved/rejected) to'lovni qayta tasdiqlamaydi
+    - bunday holda None qaytaradi (ikki marta bosilib qolishning oldini
+    olish uchun)."""
+    payment = await get_payment(payment_id)
+    if not payment or payment["status"] != "pending":
+        return None
+
+    owner = await get_owner(payment["owner_id"])
+    if not owner:
+        return None
+
+    today = datetime.now().date()
+    base_date = today
+    current_until = owner.get("subscription_until")
+    if current_until:
+        try:
+            parsed_until = datetime.strptime(current_until, "%Y-%m-%d").date()
+            if parsed_until > today:
+                base_date = parsed_until
+        except (TypeError, ValueError):
+            pass
+
+    new_until = (base_date + timedelta(days=payment["days"] or 0)).strftime("%Y-%m-%d")
+
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE payments SET status = 'approved', decided_by = ?, decided_at = ? WHERE id = ?",
+            (decided_by, _now(), payment_id),
+        )
+        await db.execute(
+            "UPDATE owners SET subscription_status = 'active', subscription_until = ? "
+            "WHERE telegram_id = ?",
+            (new_until, payment["owner_id"]),
+        )
+        await db.commit()
+
+    payment["status"] = "approved"
+    payment["new_subscription_until"] = new_until
+    return payment
+
+
+async def reject_payment(payment_id: int, decided_by: int, comment: str = None):
+    """To'lovni rad etadi - obunaga HECH QANDAY ta'sir qilmaydi, faqat
+    yozuvni "rejected" deb belgilaydi (owner qayta chek yuborishi mumkin)."""
+    payment = await get_payment(payment_id)
+    if not payment or payment["status"] != "pending":
+        return None
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE payments SET status = 'rejected', decided_by = ?, decided_at = ?, comment = ? "
+            "WHERE id = ?",
+            (decided_by, _now(), comment, payment_id),
+        )
+        await db.commit()
+    payment["status"] = "rejected"
+    return payment
+
+
+async def get_pending_payments():
+    """Bosh admin panelidagi "💳 Kutilayotgan to'lovlar" ro'yxati uchun
+    (9-bosqichda ulanadi) - hozircha kod ichida tayyorlab qo'yamiz."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM payments WHERE status = 'pending' ORDER BY id ASC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
 # ---------- QARZDORLAR ----------
 
 async def add_debt(shop_id: int, customer_name: str, phone: str, amount: float, description: str,
