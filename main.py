@@ -1,16 +1,38 @@
 import asyncio
+import html
 import logging
+import traceback
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import ErrorEvent
 
 import config
 import database as db
 import alerts
 from access_control import OwnerOnlyMiddleware
 from handlers import start, products, sales, transactions, debts, reports, users, sellers, branches, subscription
+
+
+async def notify_admins_error(bot: Bot, context: str, exc: Exception):
+    """1-BOSQICH: istalgan joyda (update ichida ham, fon tsikllarida ham)
+    yuz bergan xato haqida ADMIN_IDS'dagi barcha adminlarga Telegram orqali
+    xabar yuboradi. Adminga xabar yuborishning o'zi xato bersa - bu botning
+    asosiy ishlashiga ta'sir qilmaydi, faqat logga yoziladi."""
+    if not config.ADMIN_IDS:
+        return
+    text = (
+        "‼️ <b>Botda kutilmagan xato yuz berdi</b>\n\n"
+        f"<b>Joy:</b> {html.escape(context)}\n"
+        f"<b>Xato:</b> <code>{html.escape(str(exc))}</code>"
+    )
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception as notify_error:
+            logging.warning(f"Adminga ({admin_id}) xato haqida xabar yuborib bo'lmadi: {notify_error}")
 
 
 async def _debt_reminder_loop(bot: Bot):
@@ -22,6 +44,7 @@ async def _debt_reminder_loop(bot: Bot):
             await alerts.send_debt_reminders(bot)
         except Exception as e:
             logging.warning(f"Qarz eslatmasi tsiklida xato: {e}")
+            await notify_admins_error(bot, "Qarz eslatmasi tsikli", e)
         await asyncio.sleep(24 * 60 * 60)
 
 
@@ -34,6 +57,7 @@ async def _subscription_reminder_loop(bot: Bot):
             await alerts.send_subscription_reminders(bot)
         except Exception as e:
             logging.warning(f"Obuna eslatmasi tsiklida xato: {e}")
+            await notify_admins_error(bot, "Obuna eslatmasi tsikli", e)
         await asyncio.sleep(24 * 60 * 60)
 
 
@@ -57,6 +81,50 @@ async def _daily_report_loop(bot: Bot):
             await alerts.send_daily_reports_to_all(bot)
         except Exception as e:
             logging.warning(f"Kunlik hisobot tsiklida xato: {e}")
+            await notify_admins_error(bot, "Kunlik hisobot tsikli", e)
+
+
+def _make_error_handler(bot: Bot):
+    """1-BOSQICH: hech qaysi handler ushlamagan (kutilmagan) xatoni ushlaydi.
+    Avvalgidek serverning logiga yozadi, LEKIN endi qo'shimcha ravishda
+    ADMIN_IDS'dagi har bir adminga ham Telegram xabar ko'rinishida yuboradi -
+    shunda bot "jimgina" ishlamay qolsa ham, admin buni darhol biladi.
+    Adminga xabar yuborishning o'zi xato bersa (masalan admin botni
+    bloklagan) - bu botning ishlashiga umuman ta'sir qilmaydi, faqat logga
+    yoziladi."""
+
+    async def on_error(event: ErrorEvent):
+        logging.exception("Kutilmagan xato:", exc_info=event.exception)
+
+        if not config.ADMIN_IDS:
+            return
+
+        tb_text = "".join(traceback.format_exception(
+            type(event.exception), event.exception, event.exception.__traceback__,
+        ))
+        update_text = ""
+        try:
+            if event.update:
+                update_text = f"\n\n<b>Update:</b>\n<code>{html.escape(event.update.model_dump_json(exclude_none=True))[:500]}</code>"
+        except Exception:
+            pass
+
+        text = (
+            "‼️ <b>Botda kutilmagan xato yuz berdi</b>\n\n"
+            f"<b>Xato:</b> <code>{html.escape(str(event.exception))}</code>"
+            f"{update_text}\n\n"
+            f"<b>Traceback (oxiri):</b>\n<code>{html.escape(tb_text[-2000:])}</code>"
+        )
+        if len(text) > 4000:
+            text = text[:4000] + "\n…"
+
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, text)
+            except Exception as notify_error:
+                logging.warning(f"Adminga ({admin_id}) xato haqida xabar yuborib bo'lmadi: {notify_error}")
+
+    return on_error
 
 
 async def on_startup(bot: Bot):
@@ -88,6 +156,8 @@ def main():
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
+
+    dp.errors.register(_make_error_handler(bot))
 
     # MUHIM: botning barcha funksiyalari faqat bosh admin (ADMIN_IDS) va
     # bazaga qo'shilgan do'kon egalari uchun ochiq (access_control.is_authorized).
