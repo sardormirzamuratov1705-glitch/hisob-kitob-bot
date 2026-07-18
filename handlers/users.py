@@ -6,13 +6,18 @@ from aiogram.fsm.state import StatesGroup, State
 import config
 import database as db
 import keyboards as kb
-from access_control import is_admin, check_subscription_access, subscription_status_emoji
+import access_control
+from access_control import is_admin, check_subscription_access, subscription_status_emoji, register_extra_admin
 from handlers.products import ExcelFill, send_products_excel_template
 
 router = Router()
 
 
 class AddOwner(StatesGroup):
+    waiting_input = State()
+
+
+class AddAdmin(StatesGroup):
     waiting_input = State()
 
 
@@ -196,6 +201,167 @@ async def add_owner_finish(message: Message, state: FSMContext):
         )
     except Exception:
         pass
+
+
+# ---------- YANGI BOSH ADMIN QO'SHISH ----------
+# Do'kon egasi qo'shishdagi bilan bir xil naqsh (forward/ID yoki bir martalik
+# havola), FAQAT natijada odam do'kon egasi emas, BOSH ADMIN bo'ladi - ya'ni
+# u ham "Foydalanuvchilar" bo'limiga kirib, boshqa do'kon egalari/adminlarni
+# boshqara oladi. Shuning uchun bu amalni FAQAT mavjud bosh admin qila oladi
+# va juda ehtiyotkorlik bilan ishlatilishi kerak.
+
+@router.message(F.text == "👑 Admin qo'shish")
+async def add_admin_start(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.set_state(AddAdmin.waiting_input)
+    await message.answer(
+        "⚠️ Yangi BOSH ADMIN qo'shmoqchisiz - u sizga teng huquqqa ega bo'ladi "
+        "(barcha do'kon egalarini, adminlarni ko'radi/boshqaradi).\n\n"
+        "Qo'shish uchun:\n\n"
+        "• uning istalgan xabarini shu yerga forward qiling,\n"
+        "yoki\n"
+        "• uning Telegram ID raqamini yuboring."
+    )
+
+
+@router.message(F.text == "🔗 Bir martalik admin havolasi")
+async def create_admin_invite_link(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+
+    token = await db.create_admin_invite(message.from_user.id)
+    me = await message.bot.get_me()
+    link = f"https://t.me/{me.username}?start=admin_{token}"
+
+    await message.answer(
+        "🔗 Bir martalik ADMIN taklif linki tayyor:\n\n"
+        f"{link}\n\n"
+        "⚠️ Buni FAQAT ishonchli odamga yuboring - link orqali botni ochgan "
+        "kishi darhol sizga TENG bosh admin huquqiga ega bo'ladi.\n\n"
+        "Link faqat BITTA marta ishlaydi — birinchi bosgan odam uchun.",
+        reply_markup=kb.users_menu(),
+    )
+
+
+@router.message(AddAdmin.waiting_input)
+async def add_admin_finish(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+
+    target_id = None
+    full_name = None
+    username = None
+
+    if message.forward_from:
+        target_id = message.forward_from.id
+        full_name = message.forward_from.full_name
+        username = message.forward_from.username
+    elif message.text and message.text.strip().lstrip("-").isdigit():
+        target_id = int(message.text.strip())
+    else:
+        await message.answer(
+            "Iltimos, xabarni forward qiling yoki faqat Telegram ID raqamini yuboring.\n\n"
+            "Eslatma: agar foydalanuvchi Telegram sozlamalarida \"forward qilinganda "
+            "hisobim ko'rsatilmasin\" degan maxfiylik sozlamasini yoqqan bo'lsa, "
+            "forward orqali ID aniqlanmaydi - bunday holda uning ID raqamini "
+            "(masalan @userinfobot orqali) so'rab, shu yerga to'g'ridan-to'g'ri yuboring."
+        )
+        return
+
+    if is_admin(target_id):
+        await message.answer("Bu foydalanuvchi allaqachon bosh admin.", reply_markup=kb.users_menu())
+        await state.clear()
+        return
+
+    if await db.is_owner(target_id):
+        await message.answer(
+            "Bu foydalanuvchi do'kon egasi sifatida ro'yxatdan o'tgan - avval uni "
+            "\"📋 Do'kon egalari ro'yxati\"dan o'chiring, keyin admin sifatida qo'shing.",
+            reply_markup=kb.users_menu(),
+        )
+        await state.clear()
+        return
+
+    if await db.is_seller(target_id):
+        await message.answer(
+            "Bu foydalanuvchi biror do'konga sotuvchi sifatida ulangan - avval uni "
+            "o'sha do'kon egasi sotuvchilar ro'yxatidan o'chirishi kerak.",
+            reply_markup=kb.users_menu(),
+        )
+        await state.clear()
+        return
+
+    await db.add_admin(target_id, full_name, username, added_by=message.from_user.id)
+    register_extra_admin(target_id)
+    await state.clear()
+
+    name_part = f" ({full_name})" if full_name else ""
+    await message.answer(
+        f"✅ Yangi bosh admin qo'shildi{name_part}. ID: {target_id}\n\n"
+        "U hozirdanoq to'liq admin huquqiga ega (botni qayta ishga tushirish shart emas).",
+        reply_markup=kb.users_menu(),
+    )
+
+    try:
+        await message.bot.send_message(
+            target_id,
+            "👑 Sizga botda BOSH ADMIN huquqi berildi.\n"
+            "Boshlash uchun /start buyrug'ini bosing.",
+        )
+    except Exception:
+        pass
+
+
+@router.message(F.text == "👑 Adminlar ro'yxati")
+async def list_admins(message: Message, state: FSMContext):
+    await state.clear()
+    if not is_admin(message.from_user.id):
+        return
+
+    lines = ["👑 <b>Bosh adminlar</b>\n"]
+    if config.ADMIN_IDS:
+        lines.append("<b>.env orqali (o'chirib bo'lmaydi):</b>")
+        for admin_id in config.ADMIN_IDS:
+            lines.append(f"• {admin_id}")
+
+    db_admins = await db.get_admins()
+    if db_admins:
+        lines.append("\n<b>Botdan qo'shilganlar:</b>")
+
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb.users_menu())
+
+    for a in db_admins:
+        label = a["full_name"] or (f"@{a['username']}" if a["username"] else str(a["telegram_id"]))
+        await message.answer(
+            f"👤 {label}\nID: {a['telegram_id']}",
+            reply_markup=kb.admin_action_kb(a["telegram_id"]),
+        )
+
+
+@router.callback_query(F.data.startswith("remove_admin_"))
+async def remove_admin_cb(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    target_id = int(callback.data.replace("remove_admin_", ""))
+    if target_id == callback.from_user.id:
+        await callback.answer("O'zingizni o'chira olmaysiz.", show_alert=True)
+        return
+
+    removed = await db.remove_admin(target_id)
+    if removed:
+        access_control._extra_admin_ids.discard(target_id)
+        await callback.message.edit_text(f"❌ Admin huquqi olib tashlandi. ID: {target_id}")
+    else:
+        await callback.answer(
+            "Topilmadi (bu odam .env orqali qo'shilgan bo'lishi mumkin - "
+            "u faqat .env orqali olib tashlanadi).",
+            show_alert=True,
+        )
+    await callback.answer()
 
 
 @router.message(F.text == "📋 Do'kon egalari ro'yxati")
