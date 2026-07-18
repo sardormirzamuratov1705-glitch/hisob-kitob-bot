@@ -298,6 +298,106 @@ async def api_sklad_add_quantity(request: web.Request):
     })
 
 
+async def api_sklad_create_product(request: web.Request):
+    """SKLAD - MINI APP - YANGI REJA (10-BOSQICHLI) - 1-BOSQICH: "Sklad"
+    bo'limida to'g'ridan-to'g'ri (Telegram matnli oqimiga chiqmasdan)
+    YANGI mahsulot yaratish uchun backend qismi.
+
+    Bu - butun rejaning FAQAT birinchi bosqichi: hozircha faqat backend
+    (API + validatsiya) tayyor - front-end tugma/forma keyingi
+    bosqichlarda (2-4) qo'shiladi. Barkod skanerlash orqali to'ldirish
+    (5-bosqich) va savdo oqimidagi o'zgarish (6-7-bosqich) ham keyinroq.
+
+    Body (JSON):
+      - "name": mahsulot nomi (majburiy, bo'sh bo'lmasin)
+      - "price": tannarx (majburiy, >= 0)
+      - "sell_price": sotish narxi (ixtiyoriy)
+      - "quantity": boshlang'ich miqdor (majburiy, >= 0)
+      - "barcode": barkod matni (ixtiyoriy - qo'lda kiritilgan yoki
+        keyingi bosqichda kamera bilan skanerlangan bo'lishi mumkin)
+
+    RUXSAT: xuddi api_sklad_add_quantity bilan bir xil - faqat
+    access_control.can_add_stock() ruxsat bergan foydalanuvchi (do'kon
+    egasi doim, sotuvchi esa ega yoqib qo'ygan bo'lsa) yangi mahsulot
+    qo'sha oladi.
+
+    DIQQAT (BARKOD TAKRORLANISHI): agar yuborilgan barkod shu do'konda
+    ALLAQACHON boshqa mahsulotga biriktirilgan bo'lsa, yangi mahsulot
+    YARATILMAYDI - o'rniga "barcode_exists" xatosi va mavjud mahsulot
+    ma'lumoti qaytariladi. Buning sababi: bitta barkod ikkita xil
+    mahsulotga tegishli bo'lib qolsa, keyinchalik savdoda/skladda shu
+    barkod skanerlanganda QAYSI mahsulot nazarda tutilgani noaniq
+    bo'lib qoladi. Front-end (keyingi bosqichda) bu xatoni ko'rib,
+    foydalanuvchiga "bu barkod allaqachon <mahsulot nomi>da bor - unga
+    miqdor qo'shilsinmi?" kabi tanlov taklif qilishi mumkin."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    if not await access_control.can_add_stock(auth["telegram_id"]):
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        return web.json_response({"error": "missing_name"}, status=400)
+
+    try:
+        price = float(body.get("price"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_price"}, status=400)
+    if price < 0:
+        return web.json_response({"error": "invalid_price"}, status=400)
+
+    sell_price = None
+    if body.get("sell_price") not in (None, ""):
+        try:
+            sell_price = float(body.get("sell_price"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid_sell_price"}, status=400)
+        if sell_price < 0:
+            return web.json_response({"error": "invalid_sell_price"}, status=400)
+
+    try:
+        quantity = float(body.get("quantity"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_quantity"}, status=400)
+    if quantity < 0:
+        return web.json_response({"error": "invalid_quantity"}, status=400)
+
+    barcode = (body.get("barcode") or "").strip() or None
+
+    shop_id = auth["shop_id"]
+
+    if barcode:
+        existing = await db.find_product_by_barcode(shop_id, barcode)
+        if existing:
+            return web.json_response({
+                "error": "barcode_exists",
+                "product": _product_payload(existing),
+            }, status=409)
+
+    product_id = await db.add_product(
+        shop_id, name, price, quantity, None,
+        sell_price=sell_price, barcode=barcode,
+    )
+
+    try:
+        await db.log_action(
+            shop_id, auth["telegram_id"], "Veb-ilova orqali yangi mahsulot qo'shildi",
+            f"{name} — {quantity:.0f} dona" + (f", barkod: {barcode}" if barcode else ""),
+        )
+    except Exception:
+        logger.warning("WebApp yangi mahsulot log_action xatosi", exc_info=True)
+
+    product = await db.get_product(shop_id, product_id)
+    return web.json_response({"ok": True, "product": _product_payload(product)})
+
+
 async def api_cross_sell(request: web.Request):
     """3-BOSQICH: matnli oqimdagi "💡 Odatda bu tovar(lar) bilan birga
     quyidagilar ham sotib olinadi" taklifi bilan AYNAN BIR XIL
@@ -483,6 +583,7 @@ def create_web_app(bot) -> web.Application:
     app.router.add_post("/api/webapp/sale", api_sale_submit)
     app.router.add_get("/api/webapp/sklad/products", api_sklad_products)
     app.router.add_post("/api/webapp/sklad/add-quantity", api_sklad_add_quantity)
+    app.router.add_post("/api/webapp/sklad/create-product", api_sklad_create_product)
 
     # MUHIM: har bir statik fayl uchun ANIQ route (yuqoridagi izohga qarang -
     # add_static() o'rniga, 403 Forbidden xatosining oldini olish uchun).
