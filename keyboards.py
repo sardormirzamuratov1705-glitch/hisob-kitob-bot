@@ -223,11 +223,12 @@ def hisobot_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="📊 Umumiy hisobot")
     builder.button(text="🏢 Filial bo'yicha hisobot")
+    builder.button(text="🆚 Filiallar solishtiruvi")
     builder.button(text="🔔 Kunlik hisobot")
     builder.button(text="🚨 Shubhali holatlar")
     builder.button(text="📥 Excel yuklab olish")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
