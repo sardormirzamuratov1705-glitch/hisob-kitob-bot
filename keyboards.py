@@ -192,10 +192,11 @@ def sklad_menu() -> ReplyKeyboardMarkup:
     builder.button(text="🔍 Qidirish")
     builder.button(text="🗂 Bo'limlar")
     builder.button(text="🧾 Olinishi kerak bo'lgan tovarlar")
+    builder.button(text="🤖 AI buyurtma tavsiyasi")
     builder.button(text="🏆 Top mahsulotlar")
     builder.button(text="🐌 Sekin sotiladigan tovarlar")
     builder.button(text="⬅️ Orqaga")
-    builder.adjust(1, 2, 1, 2, 1)
+    builder.adjust(1, 2, 1, 2, 1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 
