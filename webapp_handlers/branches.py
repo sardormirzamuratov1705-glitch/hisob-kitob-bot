@@ -1,13 +1,11 @@
-"""FILIALLAR TO'LIQ BOSHQARUVI - MINI APP (2-BLOK, 3-BOSQICH: BACKEND).
+"""FILIALLAR TO'LIQ BOSHQARUVI - MINI APP (2-BLOK, 3-BOSQICH: BACKEND; 20-BOSQICH: REFAKTORING).
 
-Bu modul do'kon egasi Mini App'dagi "Filiallar" bo'limi orqali yangi
-filial yaratishi, mavjudini nomini o'zgartirishi va o'chirishi uchun REST
-API endpointlarini o'z ichiga oladi. Filiallar RO'YXATI va "joriy
-filialga o'tish" (almashtirish) ALLAQACHON webapp.py'da mavjud
-(api_branches_list / api_branches_switch, route: GET/POST
-/api/webapp/branches[/switch]) - shu sababli bu yerda TAKRORLANMAYDI,
-faqat YETISHMAYOTGAN uchta amal (yaratish/nomini o'zgartirish/o'chirish)
-qo'shiladi.
+Bu modul do'kon egasi Mini App'dagi "Filiallar" bo'limi orqali:
+- filiallar ro'yxatini va joriy filialni ko'rish, boshqasiga o'tish
+  (api_branches_list / api_branches_switch - 20-bosqichda webapp.py'dan
+  BU YERGA ko'chirildi, xatti-harakat o'zgarmadi),
+- yangi filial yaratish, mavjudini nomini o'zgartirish va o'chirish,
+qila olishi uchun REST API endpointlarini o'z ichiga oladi.
 
 MUHIM - BIR XILLIK: yaratish va o'chirish uchun database.py'dagi
 db.add_branch() / db.ensure_default_branch() / db.delete_branch()
@@ -63,6 +61,52 @@ async def _rename_branch_row(shop_id: int, branch_id: int, new_name: str) -> boo
         )
         await conn.commit()
         return cursor.rowcount > 0
+
+
+async def api_branches_list(request: web.Request):
+    """MINI APP ICHIDAN FILIALGA O'TISH: filiallar ro'yxati + joriy filial.
+    Faqat HAQIQIY do'kon egasi uchun - sotuvchi o'z filialini o'zi
+    almashtira olmaydi (qarang: access_control.get_branch_id izohi,
+    handlers/branches.py bilan bir xil qoida)."""
+    auth, err = await _require_owner_auth(request)
+    if err:
+        return err
+
+    shop_id = auth["shop_id"]
+    owner = await db.get_owner(shop_id)
+    branches = await db.get_branches(shop_id)
+    current_branch_id = (owner or {}).get("current_branch_id")
+    return web.json_response({
+        "branches": [{"id": b["id"], "name": b["name"]} for b in branches],
+        "current_branch_id": current_branch_id,
+    })
+
+
+async def api_branches_switch(request: web.Request):
+    """handlers/branches.py'dagi branch_switch_cb bilan AYNAN BIR XIL amal -
+    faqat mini app'dan chaqirilishi uchun. branch_id=null yuborilsa -
+    "Bosh filial" (filialga bog'lanmagan holat)ga qaytaradi."""
+    auth, err = await _require_owner_auth(request)
+    if err:
+        return err
+
+    shop_id = auth["shop_id"]
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    branch_id = body.get("branch_id")
+
+    branch_name = "Bosh filial"
+    if branch_id is not None:
+        branch = await db.get_branch(shop_id, int(branch_id))
+        if not branch:
+            return web.json_response({"error": "not_found"}, status=404)
+        branch_name = branch["name"]
+        branch_id = branch["id"]
+
+    await db.set_owner_current_branch(shop_id, branch_id)
+    return web.json_response({"ok": True, "branch_id": branch_id, "branch_name": branch_name})
 
 
 async def api_branches_create(request: web.Request):
@@ -173,11 +217,9 @@ async def api_branches_delete(request: web.Request):
 
 
 def register_routes(app: web.Application) -> None:
-    """webapp.py'ning create_web_app() ichidan chaqiriladi. DIQQAT: GET
-    /api/webapp/branches va POST /api/webapp/branches/switch ALLAQACHON
-    webapp.py'ning o'zida ro'yxatdan o'tgan (api_branches_list /
-    api_branches_switch) - shu sababli bu yerda faqat YANGI uchta route
-    qo'shiladi, "GET /api/webapp/branches" TAKRORLANMAYDI."""
+    """webapp.py'ning create_web_app() ichidan chaqiriladi."""
+    app.router.add_get("/api/webapp/branches", api_branches_list)
+    app.router.add_post("/api/webapp/branches/switch", api_branches_switch)
     app.router.add_post("/api/webapp/branches", api_branches_create)
     app.router.add_post("/api/webapp/branches/rename", api_branches_rename)
     app.router.add_post("/api/webapp/branches/delete", api_branches_delete)
