@@ -95,6 +95,9 @@ const API = {
   // 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI
   sellers: "/api/webapp/sellers",
   sellersRemove: "/api/webapp/sellers/remove",
+  // 8-BLOK, 16-BOSQICH: RO'YXATDAN O'TISH / TAKLIF HAVOLASI (backend:
+  // 15-bosqich, webapp_handlers/onboarding.py).
+  sellersInviteLink: "/api/webapp/onboarding/seller-invite",
   sellersBranch: "/api/webapp/sellers/branch",
 
   // 11-BOSQICH: BOSH ADMIN PANELI
@@ -1710,6 +1713,29 @@ el("seller-detail-remove-btn").addEventListener("click", async () => {
 el("sellers-add-btn").addEventListener("click", () => {
   el("seller-add-id-input").value = "";
   el("modal-seller-add").classList.remove("hidden");
+});
+
+el("sellers-invite-link-btn").addEventListener("click", async () => {
+  const btn = el("sellers-invite-link-btn");
+  btn.disabled = true;
+  try {
+    const res = await apiFetch(API.sellersInviteLink, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error("Linkni yasab bo'lmadi.");
+    tg.showPopup({
+      title: "🔗 Sotuvchi uchun taklif havolasi",
+      message: "Buni yangi sotuvchiga yuboring. U linkni bosib botni ochishi bilanoq sizning do'koningizga qo'shiladi.\n\n⚠️ Link faqat BITTA marta ishlaydi.\n\n" + data.link,
+      buttons: [{ id: "copy", type: "default", text: "Nusxalash" }, { type: "close" }],
+    }, (btnId) => {
+      if (btnId === "copy" && navigator.clipboard) {
+        navigator.clipboard.writeText(data.link).catch(() => {});
+      }
+    });
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 el("seller-add-cancel-btn").addEventListener("click", () => {
