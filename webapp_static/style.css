@@ -1074,3 +1074,9 @@ body.admin-mode .screen {
 .branch-row.current { box-shadow: 0 0 0 1.5px var(--accent), 0 1px 3px rgba(0, 0, 0, 0.06); }
 .branch-row .value { display: flex; align-items: center; gap: 6px; }
 .branch-row .branch-check { color: var(--accent); font-weight: 700; }
+
+.admin-stat-card.clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+.admin-stat-card.clickable:active { opacity: 0.8; transform: scale(0.97); }
