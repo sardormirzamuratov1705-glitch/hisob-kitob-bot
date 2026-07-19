@@ -8,13 +8,29 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// 1-BOSQICH: MAVZULAR (THEMES) POYDEVORI - hozircha faqat "default"
-// mavzu bor (qarang: style.css'dagi body[data-theme="default"]) - bu
-// AYNAN hozirgi ko'rinishni takrorlaydi. Keyingi bosqichlarda shu yerga
-// applyTheme() funksiyasi va tanlangan mavzuni serverdan o'qish/saqlash
-// qo'shiladi - hozircha faqat CSS o'zgaruvchilar tizimi ishga tayyor
-// bo'lishi uchun standart qiymat o'rnatiladi.
-document.body.dataset.theme = "default";
+// 1-3-BOSQICH: MAVZULAR (THEMES) - hozircha faqat joriy seansda ishlaydi
+// (sahifa qayta ochilganda "default"ga qaytadi) - serverda saqlash
+// 4-bosqichda qo'shiladi. applyTheme() <body data-theme="..."> ni
+// o'rnatadi (style.css shunga qarab ranglarni almashtiradi) va
+// "Profil" ekranidagi tanlagichda joriy mavzuni yorug'lantiradi.
+const VALID_THEMES = ["default", "purple", "teal", "midnight", "nature", "gold"];
+
+function applyTheme(theme) {
+  if (!VALID_THEMES.includes(theme)) theme = "default";
+  document.body.dataset.theme = theme;
+  document.querySelectorAll(".theme-swatch").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.themeOption === theme);
+  });
+}
+
+applyTheme("default");
+
+document.querySelectorAll(".theme-swatch").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    applyTheme(btn.dataset.themeOption);
+    tg.HapticFeedback.impactOccurred("light");
+  });
+});
 
 // ZAXIRA (FALLBACK): ba'zi Telegram Desktop versiyalarida WebApp haqiqiy
 // "web_app" tugmasi orqali ochilsa ham (URL fragmentida #tgWebAppData=...
