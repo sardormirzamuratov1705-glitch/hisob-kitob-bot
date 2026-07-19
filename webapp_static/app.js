@@ -50,6 +50,7 @@ const API = {
   profile: "/api/webapp/profile",
   branches: "/api/webapp/branches",
   branchesSwitch: "/api/webapp/branches/switch",
+  skladPermission: "/api/webapp/sklad-permission",
 
   // 11-BOSQICH: BOSH ADMIN PANELI
   adminStats: "/api/webapp/admin/stats",
@@ -1155,21 +1156,27 @@ function renderProfile(data) {
   // ---- statistika kartalari ----
   const cards = isOwner
     ? [
-        ["🧑‍💼", formatNum(data.sellers_count), "Sotuvchilar"],
-        ["🏢", formatNum(data.branches_count), "Filiallar"],
-        ["📦", formatNum(data.products_count), "Mahsulotlar"],
-        ["🔐", data.sellers_can_add_stock ? "🔓 Yoqilgan" : "🚫 O'chirilgan", "Sotuvchilarga sklad ruxsati"],
+        ["🧑‍💼", formatNum(data.sellers_count), "Sotuvchilar", null],
+        ["🏢", formatNum(data.branches_count), "Filiallar", null],
+        ["📦", formatNum(data.products_count), "Mahsulotlar", null],
+        ["🔐", data.sellers_can_add_stock ? "🔓 Yoqilgan" : "🚫 O'chirilgan", "Sotuvchilarga sklad ruxsati (bosib o'zgartiring)", "stock-perm"],
       ]
     : [
-        ["🏢", data.branch_name || "—", "Filial"],
-        ["🔐", data.can_add_stock ? "✅ Bor" : "🚫 Yo'q", "Sklad qo'shish huquqi"],
+        ["🏢", data.branch_name || "—", "Filial", null],
+        ["🔐", data.can_add_stock ? "✅ Bor" : "🚫 Yo'q", "Sklad qo'shish huquqi", null],
       ];
-  el("profile-stats-grid").innerHTML = cards.map(([cardIcon, value, label]) => `
-    <div class="admin-stat-card">
+  el("profile-stats-grid").innerHTML = cards.map(([cardIcon, value, label, action]) => `
+    <div class="admin-stat-card${action ? " clickable" : ""}"${action ? ` data-action="${action}"` : ""}>
       <div class="admin-stat-value">${cardIcon} ${escapeHtml(String(value))}</div>
       <div class="admin-stat-label">${escapeHtml(label)}</div>
     </div>
   `).join("");
+  if (isOwner) {
+    const permCard = el("profile-stats-grid").querySelector('[data-action="stock-perm"]');
+    if (permCard) {
+      permCard.addEventListener("click", () => toggleSkladPermission(!data.sellers_can_add_stock));
+    }
+  }
 
   // ---- tafsilotlar ro'yxati ----
   const rows = isOwner
@@ -1254,6 +1261,26 @@ async function switchProfileBranch(branchId, branchName) {
     if (!res.ok) throw new Error("Filialga o'tib bo'lmadi.");
     tg.HapticFeedback.notificationOccurred("success");
     tg.showAlert(`✅ "${branchName.replace(/^[🏠🏢]\s*/, "")}" filialiga o'tdingiz.`);
+    loadProfile();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+// MINI APP ICHIDAN SKLAD RUXSATINI YOQISH/O'CHIRISH: handlers/sellers.py
+// dagi bot orqali "🔐 Sklad ruxsati" bilan bir xil amal, faqat Profil
+// ekranidagi statistika kartasidan (bosib almashtiriladi).
+async function toggleSkladPermission(nextAllowed) {
+  try {
+    const res = await apiFetch(API.skladPermission, {
+      method: "POST",
+      body: JSON.stringify({ allowed: nextAllowed }),
+    });
+    if (!res.ok) throw new Error("Ruxsatni o'zgartirib bo'lmadi.");
+    tg.HapticFeedback.notificationOccurred("success");
+    tg.showAlert(nextAllowed
+      ? "🔓 Sotuvchilarga skladga tovar qo'shishga ruxsat berildi."
+      : "🚫 Sotuvchilarga skladga tovar qo'shish taqiqlandi (faqat ega qo'sha oladi).");
     loadProfile();
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
