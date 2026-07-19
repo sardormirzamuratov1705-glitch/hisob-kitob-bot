@@ -129,6 +129,10 @@
            hozirgacha faqat botning ichki audit jurnalida ko'rinardi, endi
            veb-ilovada ham ko'rish mumkin. -->
       <button id="sklad-history-btn" type="button" class="secondary-btn">🗂 Tarix</button>
+      <!-- 19-BOSQICH: AI BUYURTMA TAVSIYASI - botdagi "🤖 AI buyurtma
+           tavsiyasi" bo'limining Mini App'dagi ko'rinishi (qarang:
+           webapp_handlers/sklad_extra.py). -->
+      <button id="sklad-ai-btn" type="button" class="secondary-btn">🤖 AI tavsiya</button>
     </div>
     <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
     <div id="sklad-product-list" class="product-list"></div>
@@ -321,6 +325,18 @@
       <div id="sklad-history-list" class="history-list"></div>
       <div class="modal-actions">
         <button id="sklad-history-close-btn" class="secondary-btn">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 19-BOSQICH: AI BUYURTMA TAVSIYASI oynasi -->
+  <div id="modal-sklad-ai" class="modal hidden">
+    <div class="modal-content">
+      <h3>🤖 AI buyurtma tavsiyasi</h3>
+      <p id="sklad-ai-subtitle" class="muted">Oxirgi 30 kunlik sotilish tezligi asosida hisoblanadi.</p>
+      <div id="sklad-ai-list" class="history-list"></div>
+      <div class="modal-actions">
+        <button id="sklad-ai-close-btn" class="secondary-btn">Yopish</button>
       </div>
     </div>
   </div>
