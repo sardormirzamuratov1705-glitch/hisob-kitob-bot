@@ -500,6 +500,45 @@ async def api_sklad_update_product(request: web.Request):
     return web.json_response({"ok": True, "product": _product_payload(updated)})
 
 
+# 9-BOSQICH: SKLAD TARIXI - audit_log jadvalidagi barcha amal turlaridan
+# faqat SKLAD/MAHSULOT bilan bog'liqlarini ko'rsatamiz - "Kirim"/"Chiqim"
+# (pul harakati) va "Savdo bekor qilindi" kabi boshqa bo'limlarga tegishli
+# yozuvlar bu yerda ortiqcha shovqin bo'lardi (ular allaqachon "Hisobot"
+# bo'limida bor).
+_SKLAD_HISTORY_ACTIONS = {
+    "Skladga tovar qo'shildi (Mini App)",
+    "Sklad to'ldirildi (qayta xarid)",
+    "Veb-ilova orqali yangi mahsulot qo'shildi",
+    "Excel orqali sklad to'ldirildi",
+    "Mahsulot o'chirildi",
+    "Barkod belgilandi",
+    "Barkod o'zgartirildi",
+}
+
+
+async def api_sklad_history(request: web.Request):
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    # audit_log'dan kengroq oyna olib (200 ta), keyin faqat sklad turlarini
+    # filtrlab, oxirgi 50 tasini qaytaramiz - shu orqali oraga ko'p sonli
+    # "Kirim"/"Chiqim" yozuvlari tushib qolgan taqdirda ham sklad tarixi
+    # "qisqarib" qolmaydi.
+    rows = await db.get_audit_log(auth["shop_id"], limit=200)
+    sklad_rows = [r for r in rows if r["action"] in _SKLAD_HISTORY_ACTIONS][:50]
+    payload = [
+        {
+            "action": r["action"],
+            "details": r["details"],
+            "actor_name": r["actor_name"],
+            "created_at": r["created_at"],
+        }
+        for r in sklad_rows
+    ]
+    return web.json_response({"history": payload})
+
+
 async def api_cross_sell(request: web.Request):
     """3-BOSQICH: matnli oqimdagi "💡 Odatda bu tovar(lar) bilan birga
     quyidagilar ham sotib olinadi" taklifi bilan AYNAN BIR XIL
@@ -687,6 +726,7 @@ def create_web_app(bot) -> web.Application:
     app.router.add_post("/api/webapp/sklad/add-quantity", api_sklad_add_quantity)
     app.router.add_post("/api/webapp/sklad/create-product", api_sklad_create_product)
     app.router.add_post("/api/webapp/sklad/update-product", api_sklad_update_product)
+    app.router.add_get("/api/webapp/sklad/history", api_sklad_history)
 
     # MUHIM: har bir statik fayl uchun ANIQ route (yuqoridagi izohga qarang -
     # add_static() o'rniga, 403 Forbidden xatosining oldini olish uchun).
