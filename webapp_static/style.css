@@ -1028,3 +1028,39 @@ body.admin-mode .screen {
 }
 
 .admin-nav-btn:active { transform: scale(0.94); }
+
+/* ============================================================
+   YANGI: DO'KON EGASI / SOTUVCHI PROFIL EKRANI
+   "👑 Admin panel"dagi bilan bir xil uslub (admin-stats-grid,
+   admin-detail-row) - qarang: index.html #screen-profile, app.js
+   renderProfile().
+   ============================================================ */
+
+.profile-header-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 16px;
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  margin-bottom: 4px;
+}
+
+.profile-header-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.profile-header-info { flex: 1; min-width: 0; }
+.profile-header-title { font-size: 16.5px; font-weight: 700; }
+.profile-header-sub { font-size: 13px; color: var(--hint); margin-top: 3px; }
+.profile-header-badge { flex-shrink: 0; }
+
+.profile-detail-card {
+  padding: 4px 14px;
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
