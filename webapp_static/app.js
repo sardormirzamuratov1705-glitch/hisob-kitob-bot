@@ -586,27 +586,33 @@ async function startCameraWithFallback() {
     throw new Error("no_camera_found");
   }
 
-  // Orqa kamerani label bo'yicha oldinga chiqaramiz (topilsa); qolgan
-  // kameralar (odatda noutbukda - yagona old kamera) navbat bilan
-  // zaxira sifatida sinaladi.
-  const backCamera = cameras.find((c) => /back|rear|environment/i.test(c.label || ""));
-  const orderedCameras = backCamera
-    ? [backCamera, ...cameras.filter((c) => c.id !== backCamera.id)]
-    : cameras;
+  // MUHIM (yana bir bug tuzatildi): avval orqa kamerani label matnidan
+  // ("back"/"rear" so'zi bor-yo'qligidan) aniqlashga harakat qilingan
+  // edi - lekin ko'p qurilmalarda kamera labeli shunchaki "Camera 1",
+  // "Camera 2" kabi bo'ladi, hech qanday yo'nalish so'zisiz. Natijada
+  // "orqa kamera" aniqlanmay, ro'yxatdagi BIRINCHI (odatda OLD) kamera
+  // tanlanardi. Shuning uchun endi avval brauzerning o'zidan
+  // `facingMode: "environment"` orqali so'raymiz - bu labelga emas,
+  // kameraning haqiqiy fizik yo'nalishi (facing) metadatasiga qarab
+  // ishlaydi va ancha ishonchli. Faqat shu urinish muvaffaqiyatsiz
+  // bo'lsa (masalan noutbukda - orqa kamera umuman yo'q), keyin
+  // qurilmadagi barcha kameralar navbat bilan (ID orqali) sinaladi.
+  const attempts = [
+    { facingMode: "environment" },
+    ...cameras.map((c) => c.id),
+  ];
 
   let lastError = null;
-  for (const camera of orderedCameras) {
+  for (const cameraIdOrConfig of attempts) {
     const instance = new Html5Qrcode("scanner-reader", scannerOptions);
     try {
-      // MUHIM (yana bir bug tuzatildi): cameraIdOrConfig (birinchi
-      // argument) OBYEKT bo'lsa, kutubxona uni FAQAT bitta kalit bilan
-      // qabul qiladi ({deviceId:{exact:...}} YOKI {facingMode:...} -
-      // ikkalasi birga emas, va hech qanday qo'shimcha kalit bilan
-      // ham emas). Shuning uchun kamerani oddiy ID satri (string)
-      // sifatida uzatamiz, HD o'lcham cheklovlarini esa alohida -
-      // ikkinchi argumentdagi "videoConstraints" maydoniga joylaymiz.
+      // MUHIM: cameraIdOrConfig OBYEKT bo'lsa, kutubxona uni FAQAT
+      // bitta kalit bilan qabul qiladi ({facingMode:...} YOKI
+      // {deviceId:{exact:...}} - qo'shimcha kalit bilan emas). Shuning
+      // uchun HD o'lcham cheklovlarini alohida - ikkinchi argumentdagi
+      // "videoConstraints" maydoniga joylaymiz.
       await instance.start(
-        camera.id,
+        cameraIdOrConfig,
         { ...scanConfig, videoConstraints: hdConstraints },
         onBarcodeDecoded, () => {}
       );
