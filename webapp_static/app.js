@@ -944,6 +944,10 @@ el("sklad-new-scan-btn").addEventListener("click", () => {
   openScanner("sklad_new");
 });
 
+function confirmAsync(message) {
+  return new Promise((resolve) => tg.showConfirm(message, resolve));
+}
+
 el("sklad-new-save-btn").addEventListener("click", async () => {
   const name = el("sklad-new-name-input").value.trim();
   const price = parseFloat(el("sklad-new-price-input").value);
@@ -969,8 +973,10 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
   if (barcode) {
     body.barcode = barcode;
   }
+
+  let sellPrice = null;
   if (sellPriceRaw !== "") {
-    const sellPrice = parseFloat(sellPriceRaw);
+    sellPrice = parseFloat(sellPriceRaw);
     if (isNaN(sellPrice) || sellPrice < 0) {
       tg.showAlert("Sotish narxini to'g'ri kiriting.");
       return;
@@ -988,18 +994,27 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
     body.min_price = minPrice;
   }
 
+  // 5-BOSQICH: sotish narxi tannarxdan PAST kiritilsa - bu ko'pincha
+  // xato terish (masalan nol yetishmay qolgan) belgisi bo'ladi va shu
+  // narxda sotilsa do'kon ZARARDA qoladi. Shuning uchun jim o'tkazib
+  // yubormasdan, aniq ogohlantirib tasdiqlatib olamiz.
+  if (sellPrice !== null && sellPrice < price) {
+    const ok = await confirmAsync(
+      `Diqqat: sotish narxi (${formatNum(sellPrice)} so'm) tannarxdan (${formatNum(price)} so'm) PAST!\n\n` +
+      "Shu narxda sotilsa, har bir donada zarar ko'rasiz. Shunday davom etamizmi?"
+    );
+    if (!ok) return;
+  }
+
   // 2-BOSQICH: agar "eng past narx" umuman kiritilmasa - buni indamay
   // o'tkazib yubormaymiz, chunki bu maydon sotuvchilarning narxni juda
   // pastga tushirib yuborishining OLDINI OLADI. Shuning uchun kiritilmasa
   // ANIQ OGOHLANTIRIB, davom etish/qaytib kiritishni so'raymiz.
   if (minPrice === null) {
-    tg.showConfirm(
-      "Eng past narx kiritilmadi. Bunday holda sotuvchilar bu mahsulotni istalgan (hatto juda past) narxda sotib yuborishi mumkin.\n\nShunday davom etamizmi?",
-      (confirmed) => {
-        if (confirmed) saveSkladNewProduct(body);
-      }
+    const ok = await confirmAsync(
+      "Eng past narx kiritilmadi. Bunday holda sotuvchilar bu mahsulotni istalgan (hatto juda past) narxda sotib yuborishi mumkin.\n\nShunday davom etamizmi?"
     );
-    return;
+    if (!ok) return;
   }
 
   await saveSkladNewProduct(body);
