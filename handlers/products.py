@@ -1658,7 +1658,7 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
     if data["restock_type"] == "product":
         result = await db.update_product_purchase(
             shop_id, data["product_id"], data["quantity"], data["price"], data["sell_price"],
-            data["min_price"], alert_quantity=alert_quantity,
+            data["min_price"], alert_quantity=alert_quantity, performed_by=message.from_user.id,
         )
         if result is None:
             await state.clear()
