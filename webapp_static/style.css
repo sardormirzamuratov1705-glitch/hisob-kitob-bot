@@ -174,24 +174,24 @@ body {
 
 .search-box input {
   padding-left: 38px;
-  padding-right: 46px;
+  padding-right: 56px;
 }
 
 /* ---------- 4-BOSQICH: BARKOD SKANERLASH ---------- */
 
 .scan-icon-btn {
   position: absolute;
-  right: 6px;
+  right: 5px;
   top: 50%;
   transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
   border: none;
   border-radius: 50%;
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 15px;
+  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -623,7 +623,7 @@ input:focus {
 }
 
 .barcode-input-box input {
-  padding-right: 46px;
+  padding-right: 56px;
 }
 
 /* YANGI REJA - 9-BOSQICH: barkod raqami ko'proq "barkod"ga o'xshab
