@@ -74,6 +74,9 @@ const API = {
   reportsSuspiciousAlert: "/api/webapp/reports/suspicious-alert",
   reportsAuditLog: "/api/webapp/reports/audit-log",
   profile: "/api/webapp/profile",
+  // 6-BLOK, 12-BOSQICH: SOZLAMALAR (backend: 11-bosqich,
+  // webapp_handlers/settings.py). GET - joriy profil, POST - yangilash.
+  settings: "/api/webapp/settings",
   branches: "/api/webapp/branches",
   branchesSwitch: "/api/webapp/branches/switch",
   // 2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI (backend: 3-bosqich,
@@ -1281,7 +1284,82 @@ function renderProfile(data) {
   }
 }
 
-// MINI APP ICHIDAN FILIALGA O'TISH: handlers/branches.py "🏢 Filiallar"dagi
+// 6-BLOK, 12-BOSQICH: SOZLAMALAR - Profil ekranidagi "✏️ Sozlamalarni
+// tahrirlash" tugmasi (backend: webapp_handlers/settings.py, 11-bosqich).
+// Ochilganda joriy qiymatlar GET bilan olinadi, rolga qarab (owner/seller)
+// tegishli maydonlar ko'rsatiladi (branch-edit modal bilan bir xil
+// oddiy show/hide + apiFetch naqshi).
+let settingsEditRole = null;
+
+async function openSettingsEditModal() {
+  el("modal-settings-edit").classList.remove("hidden");
+  el("settings-owner-fields").classList.add("hidden");
+  el("settings-seller-fields").classList.add("hidden");
+  try {
+    const res = await apiFetch(API.settings);
+    if (!res.ok) throw new Error("Sozlamalarni yuklab bo'lmadi.");
+    const data = await res.json();
+    settingsEditRole = data.role;
+    if (data.role === "owner") {
+      el("settings-owner-fields").classList.remove("hidden");
+      el("settings-owner-name-input").value = data.owner_name || "";
+      el("settings-shop-name-input").value = data.shop_name || "";
+    } else {
+      el("settings-seller-fields").classList.remove("hidden");
+      el("settings-seller-name-input").value = data.seller_name || "";
+    }
+    el("settings-phone-input").value = data.phone_number || "";
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+    el("modal-settings-edit").classList.add("hidden");
+  }
+}
+
+el("settings-edit-btn").addEventListener("click", openSettingsEditModal);
+
+el("settings-edit-cancel-btn").addEventListener("click", () => {
+  el("modal-settings-edit").classList.add("hidden");
+});
+
+el("settings-edit-save-btn").addEventListener("click", async () => {
+  const phone = el("settings-phone-input").value.trim();
+  const body = { phone_number: phone };
+  if (settingsEditRole === "owner") {
+    body.owner_name = el("settings-owner-name-input").value.trim();
+    body.shop_name = el("settings-shop-name-input").value.trim();
+    if (!body.owner_name || !body.shop_name || !phone) {
+      tg.showAlert("Barcha maydonlarni to'ldiring.");
+      return;
+    }
+  } else {
+    body.seller_name = el("settings-seller-name-input").value.trim();
+    if (!body.seller_name || !phone) {
+      tg.showAlert("Barcha maydonlarni to'ldiring.");
+      return;
+    }
+  }
+
+  const btn = el("settings-edit-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Saqlanmoqda...";
+  try {
+    const res = await apiFetch(API.settings, { method: "POST", body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(data.error === "empty_field" ? "Barcha maydonlarni to'ldiring." : "Saqlab bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-settings-edit").classList.add("hidden");
+    loadProfile();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Saqlash";
+  }
+});
+
 // bilan bir xil amal, faqat mini app'dan. Faqat do'kon egasiga ko'rinadi.
 async function loadProfileBranches() {
   const list = el("profile-branches-list");
