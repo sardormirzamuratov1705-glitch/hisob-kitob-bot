@@ -200,6 +200,13 @@ body {
 
 .scan-icon-btn:active { opacity: 0.8; }
 
+/* YANGI: skladda kam qolgan mahsulot uchun ogohlantirish matni
+   (qarang: app.js applyStockWarning()). */
+.stock-low {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 /* YANGI REJA - 8-BOSQICH: sklad ruxsati yo'q sotuvchi uchun
    tugmalarni (bosilishi mumkin, lekin) vizual "qulflangan" holatda
    ko'rsatadi - qarang: app.js updateSkladPermissionUI(). */
