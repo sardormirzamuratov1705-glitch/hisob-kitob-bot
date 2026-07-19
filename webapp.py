@@ -1534,6 +1534,11 @@ def create_web_app(bot) -> web.Application:
     from webapp_handlers.transactions import register_routes as _register_transactions_routes
     _register_transactions_routes(app)
 
+    # 5-BLOK, 9-BOSQICH: HISOBOTLAR (mini app) - alohida modulga chiqarilgan
+    # (qarang: webapp_handlers/reports.py).
+    from webapp_handlers.reports import register_routes as _register_reports_routes
+    _register_reports_routes(app)
+
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
     app.router.add_get("/api/webapp/admin/owners", api_admin_owners_list)
