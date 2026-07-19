@@ -50,9 +50,22 @@ const API = {
   restockList: "/api/webapp/restock",
   restockAdd: "/api/webapp/restock/add",
   restockDeleteManual: "/api/webapp/restock/delete-manual",
+
+  // 3-BLOK, 6-BOSQICH: QARZLAR (backend: 5-bosqich, webapp_handlers/debts.py)
+  debts: "/api/webapp/debts",
+  debtsPay: "/api/webapp/debts/pay",
+  debtsRemind: "/api/webapp/debts/remind",
+  debtsLink: "/api/webapp/debts/link",
   profile: "/api/webapp/profile",
   branches: "/api/webapp/branches",
   branchesSwitch: "/api/webapp/branches/switch",
+  // 2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI (backend: 3-bosqich,
+  // webapp_handlers/branches.py). branchesCreate xuddi shu
+  // "/api/webapp/branches" manziliga POST qiladi - ro'yxatni olish (GET)
+  // bilan TO'QNASHMAYDI, chunki HTTP metodi boshqa.
+  branchesCreate: "/api/webapp/branches",
+  branchesRename: "/api/webapp/branches/rename",
+  branchesDelete: "/api/webapp/branches/delete",
   skladPermission: "/api/webapp/sklad-permission",
 
   // 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI
@@ -119,7 +132,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "profile",
+    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "debts", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -1085,6 +1098,9 @@ function switchSection(section) {
   } else if (section === "sellers") {
     showScreen("sellers");
     loadSellers();
+  } else if (section === "debts") {
+    showScreen("debts");
+    loadDebts();
   } else if (section === "profile") {
     showScreen("profile");
     loadProfile();
@@ -1119,6 +1135,7 @@ el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
 el("tab-restock").addEventListener("click", () => switchSection("restock"));
 el("tab-sellers").addEventListener("click", () => switchSection("sellers"));
+el("tab-debts").addEventListener("click", () => switchSection("debts"));
 el("tab-profile").addEventListener("click", () => switchSection("profile"));
 
 // ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
@@ -1255,14 +1272,27 @@ function renderProfileBranches(branches, currentBranchId) {
   const list = el("profile-branches-list");
   list.innerHTML = "";
 
-  const rows = [{ id: null, name: "🏠 Bosh filial" }, ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}` }))];
+  // "🏠 Bosh filial" - haqiqiy filial EMAS (id: null, hali birorta ham
+  // haqiqiy filial qo'shilmagan holatdagi joriy ma'lumotlarni bildiradi) -
+  // shu sababli unga tahrirlash/o'chirish tugmalari BERILMAYDI (qarang:
+  // webapp_handlers/branches.py boshidagi izoh - "Bosh filial" nomi
+  // faqat birinchi haqiqiy filial qo'shilganda db.ensure_default_branch()
+  // orqali haqiqiy qatorga aylanadi).
+  const rows = [{ id: null, name: "🏠 Bosh filial", real: false }, ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}`, real: true }))];
   rows.forEach((b) => {
     const isCurrent = (b.id || null) === (currentBranchId || null);
     const row = document.createElement("div");
     row.className = `admin-settings-row branch-row${isCurrent ? " current" : ""}`;
+    const actions = b.real
+      ? `<div class="row-actions">
+          <button type="button" class="branch-rename-btn" data-id="${b.id}" title="Nomini o'zgartirish">✏️</button>
+          <button type="button" class="branch-delete-btn" data-id="${b.id}" title="O'chirish">🗑</button>
+        </div>`
+      : "";
     row.innerHTML = `
       <div class="value">${escapeHtml(b.name)}</div>
       ${isCurrent ? '<span class="branch-check">✅</span>' : ""}
+      ${actions}
     `;
     if (!isCurrent) {
       row.addEventListener("click", () => switchProfileBranch(b.id, b.name));
@@ -1270,10 +1300,25 @@ function renderProfileBranches(branches, currentBranchId) {
     list.appendChild(row);
   });
 
+  list.querySelectorAll(".branch-rename-btn").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const branch = branches.find((x) => x.id === Number(btn.dataset.id));
+      if (branch) openBranchEditModal("rename", branch);
+    });
+  });
+  list.querySelectorAll(".branch-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const branch = branches.find((x) => x.id === Number(btn.dataset.id));
+      if (branch) deleteBranch(branch);
+    });
+  });
+
   if (branches.length === 0) {
     const hint = document.createElement("p");
     hint.className = "muted";
-    hint.textContent = "Hozircha qo'shimcha filial yo'q - botning \"🏢 Filiallar\" bo'limidan qo'shishingiz mumkin.";
+    hint.textContent = "Hozircha qo'shimcha filial yo'q - pastdagi \"➕ Filial qo'shish\" tugmasidan qo'shishingiz mumkin.";
     list.appendChild(hint);
   }
 }
@@ -1287,6 +1332,84 @@ async function switchProfileBranch(branchId, branchName) {
     if (!res.ok) throw new Error("Filialga o'tib bo'lmadi.");
     tg.HapticFeedback.notificationOccurred("success");
     tg.showAlert(`✅ "${branchName.replace(/^[🏠🏢]\s*/, "")}" filialiga o'tdingiz.`);
+    loadProfile();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+// ---- 2-BLOK, 4-BOSQICH: filial yaratish/nomini o'zgartirish/o'chirish ----
+// (backend: webapp_handlers/branches.py, 3-bosqich). Bitta modal
+// (#modal-branch-edit) ikkala holatda ham ishlatiladi - branchEditMode
+// ("create" | "rename") va branchEditTarget shu farqni saqlaydi.
+let branchEditMode = "create";
+let branchEditTarget = null;
+
+function openBranchEditModal(mode, branch = null) {
+  branchEditMode = mode;
+  branchEditTarget = branch;
+  el("branch-edit-title").textContent = mode === "rename" ? "✏️ Filial nomini o'zgartirish" : "➕ Yangi filial";
+  el("branch-edit-name-input").value = mode === "rename" && branch ? branch.name : "";
+  el("modal-branch-edit").classList.remove("hidden");
+}
+
+el("branches-add-btn").addEventListener("click", () => openBranchEditModal("create"));
+
+el("branch-edit-cancel-btn").addEventListener("click", () => {
+  el("modal-branch-edit").classList.add("hidden");
+});
+
+el("branch-edit-save-btn").addEventListener("click", async () => {
+  const name = el("branch-edit-name-input").value.trim();
+  if (!name) {
+    tg.showAlert("Filial nomini kiriting.");
+    return;
+  }
+  const btn = el("branch-edit-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Saqlanmoqda...";
+  try {
+    const isRename = branchEditMode === "rename" && branchEditTarget;
+    const url = isRename ? API.branchesRename : API.branchesCreate;
+    const body = isRename ? { branch_id: branchEditTarget.id, name } : { name };
+    const res = await apiFetch(url, { method: "POST", body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        empty_name: "Filial nomini kiriting.",
+        duplicate_name: "Bu nomdagi filial allaqachon mavjud.",
+        not_found: "Filial topilmadi.",
+      };
+      tg.showAlert(map[data.error] || "Saqlab bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-branch-edit").classList.add("hidden");
+    loadProfileBranches();
+    loadProfile();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Saqlash";
+  }
+});
+
+async function deleteBranch(branch) {
+  const ok = await confirmAsync(`"${branch.name}" filiali o'chirilsinmi? Unga biriktirilgan sotuvchilar va joriy filial tanlovi "Bosh filial"ga qaytariladi.`);
+  if (!ok) return;
+  try {
+    const res = await apiFetch(API.branchesDelete, {
+      method: "POST",
+      body: JSON.stringify({ branch_id: branch.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(data.error === "not_found" ? "Filial topilmadi." : "O'chirib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    loadProfileBranches();
     loadProfile();
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
@@ -1510,6 +1633,301 @@ el("seller-add-save-btn").addEventListener("click", async () => {
     btn.textContent = "✅ Qo'shish";
   }
 });
+
+// ---------- 3-BLOK, 6-BOSQICH: QARZLAR ----------
+// Do'kon egasi HAM, sotuvchi HAM ko'radi (backend: webapp_handlers/debts.py,
+// 5-bosqich - bot tarafidagi handlers/debts.py bilan bir xil ruxsat qoidasi).
+
+let currentDebtDetail = null;
+
+async function loadDebts() {
+  const list = el("debts-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  el("debts-total-card").innerHTML = "";
+  try {
+    const res = await apiFetch(API.debts);
+    if (!res.ok) throw new Error("Qarzlarni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderDebtsTotal(data.total_debt || 0);
+    renderDebts(data.debts || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderDebtsTotal(total) {
+  el("debts-total-card").innerHTML = `
+    <div>
+      <div class="value">💵 ${formatNum(total)} so'm</div>
+      <div class="env-tag">Umumiy qarzdorlik</div>
+    </div>
+  `;
+}
+
+function renderDebts(debts) {
+  const list = el("debts-list");
+  list.innerHTML = "";
+  if (debts.length === 0) {
+    list.innerHTML = '<p class="muted">Qarzdorlar yo\'q. 🎉</p>';
+    return;
+  }
+  debts.forEach((d) => {
+    const card = document.createElement("div");
+    card.className = "product-card owner-card";
+    const sub = [d.phone, `${formatNum(d.remaining)} so'm qoldi`].filter(Boolean).join(" · ");
+    const overdueBadge = (d.days_left !== null && d.days_left < 0)
+      ? `<div class="discount-badge">❗️ ${-d.days_left} kun kechikdi</div>`
+      : "";
+    card.innerHTML = `
+      <div class="owner-card-top">
+        <div>
+          <div class="name">${escapeHtml(d.customer_name)}</div>
+          <div class="sub">${escapeHtml(sub)}</div>
+          ${overdueBadge}
+        </div>
+      </div>
+    `;
+    card.addEventListener("click", () => openDebtDetail(d));
+    list.appendChild(card);
+  });
+}
+
+function debtDetailRows(d) {
+  const rows = [
+    ["Telefon", d.phone || "—"],
+    ["Jami qarz", `${formatNum(d.amount)} so'm`],
+    ["To'landi", `${formatNum(d.paid_amount)} so'm`],
+    ["Qolgan", `${formatNum(d.remaining)} so'm`],
+    ["Qarz olingan sana", d.taken_date || "—"],
+    ["Qaytarish sanasi", d.due_date || "—"],
+    ["Izoh", d.description || "—"],
+  ];
+  if (d.days_left !== null && d.days_left !== undefined) {
+    let dueStatus;
+    if (d.days_left < 0) dueStatus = `❗️ ${-d.days_left} kun kechikdi`;
+    else if (d.days_left === 0) dueStatus = "📅 Bugun";
+    else dueStatus = `${d.days_left} kun qoldi`;
+    rows.push(["Muddat holati", dueStatus]);
+  }
+  rows.push(["Botga ulanish", d.customer_linked ? "🔗 Ulangan" : "Ulanmagan"]);
+  return rows;
+}
+
+function openDebtDetail(debt) {
+  currentDebtDetail = debt;
+  el("debt-detail-title").textContent = debt.customer_name;
+  el("debt-detail-body").innerHTML = debtDetailRows(debt).map(([k, v]) => `
+    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
+  `).join("");
+  el("debt-detail-pay-btn").classList.toggle("hidden", debt.is_paid);
+  el("modal-debt-detail").classList.remove("hidden");
+}
+
+el("debt-detail-close-btn").addEventListener("click", () => {
+  el("modal-debt-detail").classList.add("hidden");
+  currentDebtDetail = null;
+});
+
+el("debt-detail-remind-btn").addEventListener("click", async () => {
+  if (!currentDebtDetail) return;
+  try {
+    const res = await apiFetch(API.debtsRemind, {
+      method: "POST",
+      body: JSON.stringify({ debt_id: currentDebtDetail.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error("Eslatma yuborilmadi.");
+    if (data.sent) {
+      tg.HapticFeedback.notificationOccurred("success");
+      tg.showAlert("✅ Eslatma mijozga yuborildi.");
+    } else {
+      tg.showAlert("❌ Mijoz hali botga ulanmagan.");
+    }
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+el("debt-detail-link-btn").addEventListener("click", async () => {
+  if (!currentDebtDetail) return;
+  try {
+    const res = await apiFetch(`${API.debtsLink}?debt_id=${currentDebtDetail.id}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error("Linkni olib bo'lmadi.");
+    tg.showPopup({
+      title: "🔗 Shaxsiy link",
+      message: "Buni mijozga yuboring — u linkni bosib botni ochsa, keyin unga to'g'ridan-to'g'ri eslatma yuborish mumkin bo'ladi:\n\n" + data.link,
+      buttons: [{ id: "copy", type: "default", text: "Nusxalash" }, { type: "close" }],
+    }, (btnId) => {
+      if (btnId === "copy" && navigator.clipboard) {
+        navigator.clipboard.writeText(data.link).catch(() => {});
+      }
+    });
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+// ---- qarz qo'shish ----
+
+el("debts-add-btn").addEventListener("click", () => {
+  ["name", "phone", "amount", "taken", "due", "desc"].forEach((k) => {
+    el(`debt-add-${k}-input`).value = "";
+  });
+  el("modal-debt-add").classList.remove("hidden");
+});
+
+el("debt-add-cancel-btn").addEventListener("click", () => {
+  el("modal-debt-add").classList.add("hidden");
+});
+
+el("debt-add-save-btn").addEventListener("click", async () => {
+  const customer_name = el("debt-add-name-input").value.trim();
+  const phone = el("debt-add-phone-input").value.trim();
+  const amountRaw = el("debt-add-amount-input").value;
+  const taken_date = el("debt-add-taken-input").value.trim();
+  const due_date = el("debt-add-due-input").value.trim();
+  const description = el("debt-add-desc-input").value.trim();
+
+  if (!customer_name) {
+    tg.showAlert("Mijoz ismini kiriting.");
+    return;
+  }
+  const amount = parseNum(amountRaw);
+  if (isNaN(amount) || amount <= 0) {
+    tg.showAlert("Qarz summasini to'g'ri kiriting.");
+    return;
+  }
+
+  const btn = el("debt-add-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Qo'shilmoqda...";
+  try {
+    const res = await apiFetch(API.debts, {
+      method: "POST",
+      body: JSON.stringify({ customer_name, phone, amount, taken_date, due_date, description }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        empty_customer_name: "Mijoz ismini kiriting.",
+        invalid_amount: "Qarz summasini to'g'ri kiriting.",
+        invalid_taken_date: "Qarz olingan sanani to'g'ri kiriting: kun.oy.yil (masalan 10.07.2026).",
+        invalid_due_date: "Qaytarish sanasini to'g'ri kiriting: kun.oy.yil, son, yoki '-'.",
+      };
+      tg.showAlert(map[data.error] || "Qo'shib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-debt-add").classList.add("hidden");
+    loadDebts();
+    tg.showPopup({
+      title: "✅ Qarz qo'shildi",
+      message: "Bu mijozga eslatmalarni bevosita botdan yuborish uchun, quyidagi shaxsiy linkni unga yuboring:\n\n" + data.link,
+      buttons: [{ id: "copy", type: "default", text: "Nusxalash" }, { type: "close" }],
+    }, (btnId) => {
+      if (btnId === "copy" && navigator.clipboard) {
+        navigator.clipboard.writeText(data.link).catch(() => {});
+      }
+    });
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Qo'shish";
+  }
+});
+
+// ---- to'lov qabul qilish ----
+// selectedPaymentMethod (Savat/To'lov ekranidagi global o'zgaruvchi) BILAN
+// ARALASHMASLIGI uchun bu yerda ALOHIDA o'zgaruvchi va ALOHIDA CSS klass
+// (.debt-pay-btn, .pay-btn EMAS) ishlatiladi - qarang: style.css'dagi
+// izoh (ikkalasi bir xil ko'rinishda, lekin JS holatlari mustaqil).
+let selectedDebtPaymentMethod = null;
+
+el("debt-detail-pay-btn").addEventListener("click", () => {
+  if (!currentDebtDetail) return;
+  el("debt-pay-remaining").textContent = `Qolgan qarz: ${formatNum(currentDebtDetail.remaining)} so'm`;
+  el("debt-pay-amount-input").value = currentDebtDetail.remaining;
+  el("debt-mixed-cash-input").value = "";
+  selectedDebtPaymentMethod = null;
+  document.querySelectorAll(".debt-pay-btn").forEach((b) => b.classList.remove("selected"));
+  el("debt-mixed-box").classList.add("hidden");
+  el("modal-debt-detail").classList.add("hidden");
+  el("modal-debt-pay").classList.remove("hidden");
+});
+
+document.querySelectorAll(".debt-pay-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    selectedDebtPaymentMethod = btn.dataset.method;
+    document.querySelectorAll(".debt-pay-btn").forEach((b) => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    el("debt-mixed-box").classList.toggle("hidden", selectedDebtPaymentMethod !== "aralash");
+  });
+});
+
+el("debt-pay-cancel-btn").addEventListener("click", () => {
+  el("modal-debt-pay").classList.add("hidden");
+  currentDebtDetail = null;
+});
+
+el("debt-pay-save-btn").addEventListener("click", async () => {
+  if (!currentDebtDetail) return;
+  const amount = parseNum(el("debt-pay-amount-input").value);
+  if (isNaN(amount) || amount <= 0) {
+    tg.showAlert("To'lanadigan summani to'g'ri kiriting.");
+    return;
+  }
+  if (amount > currentDebtDetail.remaining + 0.0001) {
+    tg.showAlert(`Kiritilgan summa qolgan qarzdan (${formatNum(currentDebtDetail.remaining)} so'm) katta bo'lmasligi kerak.`);
+    return;
+  }
+  if (!selectedDebtPaymentMethod) {
+    tg.showAlert("To'lov turini tanlang.");
+    return;
+  }
+
+  const body = { debt_id: currentDebtDetail.id, amount, payment_method: selectedDebtPaymentMethod };
+  if (selectedDebtPaymentMethod === "aralash") {
+    const cash = parseNum(el("debt-mixed-cash-input").value);
+    if (isNaN(cash) || cash < 0 || cash > amount) {
+      tg.showAlert(`Naqd summasi 0 dan ${formatNum(amount)} so'mgacha bo'lishi kerak.`);
+      return;
+    }
+    body.cash_amount = cash;
+  }
+
+  const btn = el("debt-pay-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Yuborilmoqda...";
+  try {
+    const res = await apiFetch(API.debtsPay, { method: "POST", body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        already_paid: "Bu qarz allaqachon to'liq to'langan.",
+        amount_too_large: `Kiritilgan summa qolgan qarzdan katta.`,
+        invalid_payment_method: "To'lov turini tanlang.",
+      };
+      tg.showAlert(map[data.error] || "To'lovni qabul qilib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-debt-pay").classList.add("hidden");
+    currentDebtDetail = null;
+    tg.showAlert(data.status === "full"
+      ? "✅ Qarz to'liq to'landi!"
+      : `✅ To'lov qabul qilindi. Qolgan qarz: ${formatNum(data.remaining)} so'm`);
+    loadDebts();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Tasdiqlash";
+  }
+});
+
+wireEnterToNext(["debt-mixed-cash-input"], "debt-pay-save-btn");
 
 async function loadSkladProducts(query = "") {
   try {
