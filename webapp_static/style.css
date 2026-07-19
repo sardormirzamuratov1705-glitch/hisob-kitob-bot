@@ -1,5 +1,19 @@
 * { box-sizing: border-box; }
 
+/* ---------- MAVZULAR (THEMES) ----------
+   1-BOSQICH: hozircha faqat "default" mavzu bor - u aynan HOZIRGI
+   ko'rinishni (Telegramning o'z rangiga moslashadigan) takrorlaydi,
+   hech narsa vizual jihatdan o'zgarmadi. Keyingi bosqichlarda shu
+   yerga yana 4 ta mavzu (binafsha, teal, dark-blue, light-green,
+   dark-gold) qo'shiladi - har biri shunchaki shu o'zgaruvchilarning
+   boshqa qiymatlari, boshqa hech narsa o'zgarmaydi.
+
+   Qanday ishlaydi: <body data-theme="..."> atributiga qarab tegishli
+   blok ishga tushadi (app.js buni o'rnatadi). Hali data-theme
+   o'rnatilmagan bo'lsa ham (masalan JS ulanmasdan turib sahifa
+   ko'rinsa) - :root'dagi standart qiymatlar ishlaydi, shuning uchun
+   hech qachon "rangsiz" holat bo'lmaydi. */
+
 :root {
   --accent: var(--tg-theme-button-color, #5b8def);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
@@ -11,6 +25,19 @@
   --success: #2fb344;
   --radius: 16px;
   --radius-sm: 10px;
+}
+
+/* "default" mavzu - :root bilan AYNAN bir xil (Telegram ranglariga
+   moslashadi) - shunchaki endi rasman "mavzu" sifatida ham
+   belgilangan, keyingi bosqichlarda shu qatorga qo'shni bloklar
+   qo'shiladi. */
+body[data-theme="default"] {
+  --accent: var(--tg-theme-button-color, #5b8def);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --bg: var(--tg-theme-bg-color, #f4f6fb);
+  --card-bg: var(--tg-theme-secondary-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #14161a);
+  --hint: var(--tg-theme-hint-color, #8a8f98);
 }
 
 html, body {
