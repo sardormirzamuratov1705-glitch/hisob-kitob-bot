@@ -171,6 +171,20 @@ function formatNum(n) {
   return Number(n).toFixed(0);
 }
 
+// YANGI: mahsulot qoldig'i do'kon egasi belgilagan "ogohlantirish
+// chegarasi" (alert_quantity)dan pastga tushgan bo'lsa - qoldiq matnini
+// qizil/qalin qilib, chegarani ham ko'rsatib qo'yamiz. Chegara
+// belgilanmagan mahsulotlar uchun (alert_quantity == null) hech qanday
+// ogohlantirish ko'rsatilmaydi - bu xuddi bot tarafidagi
+// alerts.notify_stock_change() bilan bir xil mantiq (qarang: alerts.py).
+function applyStockWarning(el, baseText, product) {
+  const low = product.alert_quantity != null && product.quantity <= product.alert_quantity;
+  el.textContent = low
+    ? `${baseText} ⚠️ Kam qoldi! (chegara: ${formatNum(product.alert_quantity)} dona)`
+    : baseText;
+  el.classList.toggle("stock-low", low);
+}
+
 // ---------- SAVATGA QO'SHISH OYNASI ----------
 
 // 5-BOSQICH: skanerlash orqali va qo'lda ("+" bosib) qo'shishning ikkalasi
@@ -193,7 +207,7 @@ function cartValidationError(product, qty, price) {
 function openAddModal(product) {
   currentModalProduct = product;
   el("modal-product-name").textContent = product.name;
-  el("modal-product-stock").textContent = `Skladda ${formatNum(product.quantity)} dona bor`;
+  applyStockWarning(el("modal-product-stock"), `Skladda ${formatNum(product.quantity)} dona bor`, product);
 
   // Mahsulot savatda ALLAQACHON bor bo'lsa (masalan avval skanerlab
   // qo'shilgan bo'lsa) - shu yozuvning joriy qty/narxini ko'rsatamiz,
@@ -229,6 +243,7 @@ function openAddModal(product) {
 el("modal-cancel-btn").addEventListener("click", () => {
   el("modal-add").classList.add("hidden");
   currentModalProduct = null;
+  if (openedViaScan) stopScanner();
   openedViaScan = false;
 });
 
@@ -515,7 +530,32 @@ let openedViaScan = false;
 // (yashil, ~1.4 soniya) ko'rsatiladi, keyin darhol keyingi skanerlashga
 // tayyor bo'ladi.
 async function continueScanning(mode, successMessage) {
-  await openScanner(mode);
+  scannerMode = mode;
+  scanHandled = false;
+  el("scanner-native-qr-btn").classList.add("hidden");
+  el("modal-scanner").classList.remove("hidden");
+
+  // TEZLASHTIRISH: kamera hali PAUZADA (pauseScannerFeed() tomonidan
+  // to'xtatilgan, lekin obyekt yo'q qilinmagan) bo'lsa - uni to'liq
+  // qayta ochish (stop+start, sekin va yangi getUserMedia so'rovi
+  // talab qiladi) O'RNIGA shunchaki davom ettiramiz (deyarli darhol,
+  // ruxsat qayta so'ralmaydi). Faqat kamera negadir yo'q qilingan
+  // bo'lsa (masalan xatolik tufayli) - to'liq qayta ochamiz (zaxira).
+  let resumed = false;
+  if (html5QrCode) {
+    try {
+      html5QrCode.resume();
+      resumed = true;
+    } catch (e) {
+      // Davom ettirib bo'lmadi - eskisini toza to'xtatib, pastda to'liq
+      // qayta ochamiz (aks holda eski kamera oqimi ochiq qolib ketardi).
+      await stopScanner();
+    }
+  }
+  if (!resumed) {
+    await openScanner(mode);
+  }
+
   setScannerStatus(successMessage, "success");
   setTimeout(() => {
     if (html5QrCode) setScannerStatus(defaultScannerStatusText());
@@ -695,6 +735,23 @@ el("scanner-torch-btn").addEventListener("click", async () => {
   }
 });
 
+// YANGI: kamerani TO'LIQ o'chirib qayta ochish (stop + yangi obyekt +
+// start) sezilarli sekinlik va (WebView'da) qo'shimcha ruxsat so'rovi
+// xavfini keltirib chiqarardi. Ketma-ket skanerlashda (bitta mahsulot
+// qo'shilgach - keyingisiga o'tishda) buning o'rniga kamerani shunchaki
+// PAUZA qilamiz (video oqim ham to'xtaydi, batareya tejaladi, lekin
+// obyekt "tirik" qoladi) - keyin resumeScannerFeed() bilan DARHOL
+// davom ettiramiz, hech qanday qayta ruxsat so'ralmaydi.
+function pauseScannerFeed() {
+  if (!html5QrCode) return;
+  try {
+    html5QrCode.pause(true);
+  } catch (e) {
+    // Pauza qila olmadi (masalan hali skanerlanmagan holatda) - keyingi
+    // safar to'liq qayta ochamiz (fallback continueScanning() ichida bor).
+  }
+}
+
 async function stopScanner() {
   el("scanner-torch-btn").classList.add("hidden");
   el("scanner-torch-btn").classList.remove("torch-on");
@@ -759,7 +816,7 @@ async function onBarcodeDecoded(decodedText) {
 
   if (scannerMode === "sklad") {
     setScannerStatus("Qidirilmoqda...");
-    await stopScanner();
+    pauseScannerFeed();
     el("modal-scanner").classList.add("hidden");
     await handleSkladBarcodeScan(decodedText);
     scanHandled = false;
@@ -811,7 +868,7 @@ async function onBarcodeDecoded(decodedText) {
   }
 
   setScannerStatus("Qidirilmoqda...");
-  await stopScanner();
+  pauseScannerFeed();
   el("modal-scanner").classList.add("hidden");
   await handleSaleBarcodeScan(decodedText);
   scanHandled = false;
@@ -835,6 +892,7 @@ async function handleSaleBarcodeScan(decodedText) {
       const msg = data.error === "not_found"
         ? `Bu barkod bo'yicha mahsulot topilmadi: ${decodedText}`
         : "Barkod bo'yicha qidirishda xatolik yuz berdi.";
+      await stopScanner();
       tg.showAlert(msg);
       return;
     }
@@ -842,6 +900,7 @@ async function handleSaleBarcodeScan(decodedText) {
     openedViaScan = true;
     openAddModal(data.product);
   } catch (e) {
+    await stopScanner();
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   }
 }
@@ -863,6 +922,7 @@ async function handleSkladBarcodeScan(decodedText) {
     const data = await res.json();
     if (!res.ok) {
       if (data.error === "not_found") {
+        await stopScanner();
         tg.showAlert(
           `Bu barkod bo'yicha mahsulot topilmadi:\n${decodedText}\n\n` +
           "Uni yangi mahsulot sifatida qo'shishingiz mumkin."
@@ -870,12 +930,14 @@ async function handleSkladBarcodeScan(decodedText) {
         openSkladNewProductModal(decodedText);
         return;
       }
+      await stopScanner();
       tg.showAlert("Barkod bo'yicha qidirishda xatolik yuz berdi.");
       return;
     }
     openedViaScan = true;
     openSkladAddModal(data.product);
   } catch (e) {
+    await stopScanner();
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   }
 }
@@ -1011,7 +1073,7 @@ function openSkladAddModal(product) {
   }
   currentSkladProduct = product;
   el("sklad-modal-product-name").textContent = product.name;
-  el("sklad-modal-product-stock").textContent = `Hozir skladda ${formatNum(product.quantity)} dona bor`;
+  applyStockWarning(el("sklad-modal-product-stock"), `Hozir skladda ${formatNum(product.quantity)} dona bor`, product);
   el("sklad-modal-qty-input").value = 1;
   el("modal-sklad-add").classList.remove("hidden");
 }
@@ -1019,6 +1081,7 @@ function openSkladAddModal(product) {
 el("sklad-modal-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-add").classList.add("hidden");
   currentSkladProduct = null;
+  if (openedViaScan) stopScanner();
   openedViaScan = false;
 });
 
