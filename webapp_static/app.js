@@ -48,6 +48,8 @@ const API = {
   skladUpdateProduct: "/api/webapp/sklad/update-product",
   skladHistory: "/api/webapp/sklad/history",
   profile: "/api/webapp/profile",
+  branches: "/api/webapp/branches",
+  branchesSwitch: "/api/webapp/branches/switch",
 
   // 11-BOSQICH: BOSH ADMIN PANELI
   adminStats: "/api/webapp/admin/stats",
@@ -1139,7 +1141,7 @@ function renderProfile(data) {
     ? (data.shop_name || "Do'kon egasi")
     : (data.seller_name || "Sotuvchi");
   const sub = isOwner
-    ? (data.owner_name || `ID: ${data.telegram_id}`)
+    ? [data.owner_name, data.branch_name ? `📍 ${data.branch_name}` : null].filter(Boolean).join(" · ") || `ID: ${data.telegram_id}`
     : [data.shop_name, data.branch_name].filter(Boolean).join(" · ") || `ID: ${data.telegram_id}`;
   el("profile-header-card").innerHTML = `
     <div class="profile-header-icon">${icon}</div>
@@ -1190,6 +1192,72 @@ function renderProfile(data) {
   el("profile-detail-body").innerHTML = rows.map(([k, v]) => `
     <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
   `).join("");
+
+  // ---- filiallar (faqat do'kon egasi almashtira oladi) ----
+  const branchesSection = el("profile-branches-section");
+  if (isOwner) {
+    branchesSection.classList.remove("hidden");
+    loadProfileBranches();
+  } else {
+    branchesSection.classList.add("hidden");
+  }
+}
+
+// MINI APP ICHIDAN FILIALGA O'TISH: handlers/branches.py "🏢 Filiallar"dagi
+// bilan bir xil amal, faqat mini app'dan. Faqat do'kon egasiga ko'rinadi.
+async function loadProfileBranches() {
+  const list = el("profile-branches-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.branches);
+    if (!res.ok) throw new Error("Filiallarni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderProfileBranches(data.branches || [], data.current_branch_id);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderProfileBranches(branches, currentBranchId) {
+  const list = el("profile-branches-list");
+  list.innerHTML = "";
+
+  const rows = [{ id: null, name: "🏠 Bosh filial" }, ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}` }))];
+  rows.forEach((b) => {
+    const isCurrent = (b.id || null) === (currentBranchId || null);
+    const row = document.createElement("div");
+    row.className = `admin-settings-row branch-row${isCurrent ? " current" : ""}`;
+    row.innerHTML = `
+      <div class="value">${escapeHtml(b.name)}</div>
+      ${isCurrent ? '<span class="branch-check">✅</span>' : ""}
+    `;
+    if (!isCurrent) {
+      row.addEventListener("click", () => switchProfileBranch(b.id, b.name));
+    }
+    list.appendChild(row);
+  });
+
+  if (branches.length === 0) {
+    const hint = document.createElement("p");
+    hint.className = "muted";
+    hint.textContent = "Hozircha qo'shimcha filial yo'q - botning \"🏢 Filiallar\" bo'limidan qo'shishingiz mumkin.";
+    list.appendChild(hint);
+  }
+}
+
+async function switchProfileBranch(branchId, branchName) {
+  try {
+    const res = await apiFetch(API.branchesSwitch, {
+      method: "POST",
+      body: JSON.stringify({ branch_id: branchId }),
+    });
+    if (!res.ok) throw new Error("Filialga o'tib bo'lmadi.");
+    tg.HapticFeedback.notificationOccurred("success");
+    tg.showAlert(`✅ "${branchName.replace(/^[🏠🏢]\s*/, "")}" filialiga o'tdingiz.`);
+    loadProfile();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
 }
 
 async function loadSkladProducts(query = "") {
