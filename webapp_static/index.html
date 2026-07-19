@@ -28,6 +28,12 @@
            ikkalasiga ham shop_id qaytaradi). Qarang: app.js loadDebts(),
            backend: webapp_handlers/debts.py (5-bosqich). -->
       <button id="tab-debts" type="button" class="section-tab" data-section="debts">💳 Qarzlar</button>
+      <!-- 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR - do'kon egasi HAM,
+           sotuvchi HAM ko'radi (backend: webapp_handlers/transactions.py,
+           7-bosqich - bot tarafidagi handlers/transactions.py bilan bir xil
+           ruxsat qoidasi: "Kirim" qo'shish FAQAT do'kon egasiga, "Chiqim"
+           qo'shish va ro'yxatni ko'rish ikkalasiga ham). -->
+      <button id="tab-transactions" type="button" class="section-tab" data-section="transactions">💰 Tranzaksiyalar</button>
       <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat HAQIQIY do'kon
            egasiga ko'rinadi (standart holatda "hidden", app.js loadMe()
            ichida role==="owner" bo'lsa ko'rsatiladi - xuddi sotuvchi
@@ -149,6 +155,25 @@
     </div>
     <div id="debts-total-card" class="admin-settings-row"></div>
     <div id="debts-list" class="product-list"></div>
+  </div>
+
+  <!-- 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR - do'kon egasi HAM,
+       sotuvchi HAM ko'radi (qarang: app.js loadTransactions()/
+       renderTransactions(), backend: webapp_handlers/transactions.py,
+       7-bosqich). Bot tarafidagi "➕ Kirim qo'shish" / "➖ Chiqim qo'shish" /
+       "📈 Bugungi holat" bilan bir xil amallar - shu yerda bitta ekranda,
+       bot tarafida yo'q bo'lgan TO'LIQ tranzaksiyalar jurnali (savdo/qarz/
+       qo'lda kiritilgan - hammasi birga) bilan. -->
+  <div id="screen-transactions" class="screen hidden">
+    <div class="sklad-toolbar">
+      <!-- "Kirim" FAQAT haqiqiy do'kon egasiga ko'rinadi - app.js loadMe()
+           ichida (tab-sellers bilan bir xil g'oya) role!=="owner" bo'lsa
+           yashiriladi. Backend ham qayta tekshiradi (owner_only xatosi). -->
+      <button id="tx-add-income-btn" type="button" class="secondary-btn">➕ Kirim qo'shish</button>
+      <button id="tx-add-expense-btn" type="button" class="secondary-btn">➖ Chiqim qo'shish</button>
+    </div>
+    <div id="tx-stats-grid" class="admin-stats-grid"></div>
+    <div id="tx-list" class="history-list"></div>
   </div>
 
   <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat do'kon egasi ko'radi
@@ -482,6 +507,24 @@
   <!-- ==================================================================
        3-BLOK, 6-BOSQICH: QARZLAR oynalari
        ================================================================== -->
+
+  <!-- 4-BLOK, 8-BOSQICH: kirim/chiqim qo'shish oynasi - bitta oyna, sarlavha
+       va tur (income/expense) tx-add-open() orqali qaysi tugma bosilganiga
+       qarab dinamik o'rnatiladi (qarang: app.js). -->
+  <div id="modal-tx-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="tx-add-title">➕ Kirim qo'shish</h3>
+      <label>Summa (so'mda)</label>
+      <input id="tx-add-amount-input" type="text" inputmode="decimal" placeholder="0">
+      <label>Izoh</label>
+      <input id="tx-add-desc-input" type="text" placeholder="Masalan: Un sotib olindi">
+      <div class="modal-actions">
+        <button id="tx-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="tx-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Yangi qarz qo'shish oynasi -->
   <div id="modal-debt-add" class="modal hidden">
