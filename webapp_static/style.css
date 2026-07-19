@@ -275,6 +275,35 @@ body {
   pointer-events: none;
 }
 
+/* 4-BOSQICH: fonar (torch) tugmasi - kamera oynasining pastki o'ng
+   burchagida, boshqa elementlar bilan ustma-ust tushmasin deb alohida
+   joylashtirilgan. Fonar qo'llab-quvvatlanmasa (ko'p old kamera/ba'zi
+   qurilmalarda) app.js tomonidan "hidden" qilib qo'yiladi. */
+.scanner-torch-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 22, 26, 0.55);
+  color: #ffffff;
+  font-size: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.scanner-torch-btn.torch-on {
+  background: #f5a623;
+  color: #14161a;
+  box-shadow: 0 0 0 4px rgba(245, 166, 35, 0.3);
+}
+
+.scanner-torch-btn:active { opacity: 0.8; }
+
 .scanner-status {
   text-align: center;
   margin: 12px 0 2px;
@@ -558,8 +587,18 @@ input:focus {
   background: var(--bg);
   width: 100%;
   border-radius: 20px 20px 0 0;
-  padding: 10px 18px 22px;
+  padding: 10px 18px calc(22px + env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.15);
+  /* 10-BOSQICH: BARKOD OYNASI TUZATISH - avval bu yerda max-height/overflow
+     yo'q edi, shuning uchun uzunroq oynalarda (masalan skaner: sarlavha +
+     4:3 nisbatdagi kamera oqimi + status matni) tarkib ekran balandligidan
+     OSHIB KETSA, pastki qismi (status matni) ekrandan tashqarida, ko'rinmay
+     qolar edi. Endi max-height bilan chegaralanadi va agar baribir sig'masa,
+     ICHKARIDA aylantirib (scroll) ko'rish mumkin - hech narsa yashirin
+     qolmaydi. */
+  max-height: 88vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-handle {
