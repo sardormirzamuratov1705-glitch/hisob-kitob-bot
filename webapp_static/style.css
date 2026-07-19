@@ -397,6 +397,29 @@ input:focus {
   font-weight: 700;
 }
 
+/* 7-BOSQICH: "Sklad" ro'yxatida ➕ (qo'shish) yonida ✏️ (tahrirlash,
+   faqat do'kon egasiga) - ikkalasi yonma-yon joylashsin deb o'raladi. */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--card-bg);
+  font-size: 15px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.edit-icon:active { opacity: 0.7; }
+
 /* ---------- CART ---------- */
 
 .cart-items { display: flex; flex-direction: column; gap: 10px; }
