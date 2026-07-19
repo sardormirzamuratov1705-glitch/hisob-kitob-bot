@@ -143,6 +143,16 @@ async def api_sklad_add_quantity(request: web.Request):
     KAMIDA bittasi kerak - front-end skanerlagan bo'lsa barcode, ro'yxatdan
     qidirib tanlagan bo'lsa product_id yuboradi), va {"qty": son (musbat)}.
 
+    YANGI - "unit_cost" (ixtiyoriy, musbat son, 1 dona narxi): front-end
+    buni FAQAT "Kerak" (olinishi kerak bo'lgan tovarlar) ro'yxatidan
+    ochilganda yuboradi, chunki o'sha holatda bu HAQIQIY xarid - shuning
+    uchun shu narxdan (unit_cost * qty) moliyaga (Tranzaksiyalar) avtomatik
+    "Chiqim" yoziladi (bot tarafidagi handlers/transactions.py bilan bir
+    xil db.add_transaction() orqali). Oddiy "Sklad" bo'limidan (yoki
+    barkod skanerlab) miqdor qo'shilganda "unit_cost" yuborilmaydi -
+    o'shanda moliyaga umuman tegilmaydi (masalan miqdorni to'g'irlash
+    uchun, allaqachon hisobga olingan tovar).
+
     RUXSAT (8-BOSQICH): do'kon egasi har doim qo'sha oladi. Sotuvchi esa
     faqat ega buni yoqib qo'ygan bo'lsa (owners.sellers_can_add_stock,
     standart - yoqilgan) - qarang: access_control.can_add_stock() va
@@ -166,6 +176,15 @@ async def api_sklad_add_quantity(request: web.Request):
     if qty <= 0:
         return web.json_response({"error": "invalid_quantity"}, status=400)
 
+    unit_cost = None
+    if body.get("unit_cost") not in (None, ""):
+        try:
+            unit_cost = float(body.get("unit_cost"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid_unit_cost"}, status=400)
+        if unit_cost <= 0:
+            return web.json_response({"error": "invalid_unit_cost"}, status=400)
+
     shop_id = auth["shop_id"]
     product = None
 
@@ -188,6 +207,16 @@ async def api_sklad_add_quantity(request: web.Request):
     result = await db.add_stock_quantity(shop_id, product["id"], qty, performed_by=auth["telegram_id"])
     if not result:
         return web.json_response({"error": "product_not_found"}, status=400)
+
+    # YANGI: "Kerak" ro'yxatidan haqiqiy xarid qilingan bo'lsa - moliyaga
+    # "Chiqim" yoziladi (axir tovar sotib olinyapti, pul chiqyapti).
+    if unit_cost is not None:
+        total_cost = unit_cost * qty
+        await db.add_transaction(
+            shop_id, "expense", total_cost,
+            f"Sklad uchun xarid: {result['name']} — {qty:.0f} dona ({unit_cost:.0f} so'mdan)",
+            performed_by=auth["telegram_id"], branch_id=auth.get("branch_id"),
+        )
 
     # 18-BOSQICH: bot tarafidagi savdo oqimi kanaldagi postni avtomatik
     # yangilaganidek (handlers/sales.py), Mini App orqali miqdor
@@ -328,6 +357,19 @@ async def api_sklad_create_product(request: web.Request):
         )
     except Exception:
         logger.warning("WebApp yangi mahsulot log_action xatosi", exc_info=True)
+
+    # YANGI: "Kerak" ro'yxatidagi qo'lda qo'shilgan tovarni "✅ olindi" deb
+    # belgilab, shu oyna orqali (haqiqiy narx bilan) skladga qo'shilganda -
+    # bu HAQIQIY xarid, shuning uchun moliyaga (Tranzaksiyalar) tannarx *
+    # miqdor bo'yicha avtomatik "Chiqim" yoziladi. Oddiy "+ Yangi mahsulot"
+    # orqali (front-end "is_purchase" yubormaydi) moliyaga tegilmaydi.
+    if body.get("is_purchase") and price > 0 and quantity > 0:
+        total_cost = price * quantity
+        await db.add_transaction(
+            shop_id, "expense", total_cost,
+            f"Sklad uchun xarid: {name} — {quantity:.0f} dona ({price:.0f} so'mdan)",
+            performed_by=auth["telegram_id"], branch_id=auth.get("branch_id"),
+        )
 
     product = await db.get_product(shop_id, product_id)
     return web.json_response({"ok": True, "product": _product_payload(product)})
