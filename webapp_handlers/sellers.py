@@ -18,11 +18,11 @@ tarafda ham natija bir xil bo'ladi.
 DIQQAT - SKLAD/NARX HUQUQI HAQIDA: joriy bazada (database.py, jadval:
 owners.sellers_can_add_stock) sklad huquqi FAQAT do'kon darajasida
 saqlanadi - ya'ni "hamma sotuvchiga birdek" yoqiladi/o'chiriladi, HAR BIR
-sotuvchi uchun ALOHIDA emas. Bu funksiya allaqachon mavjud
-(webapp.api_sklad_permission_set, route: POST /api/webapp/sklad-permission)
-- shu sababli bu yerda takrorlanmaydi, faqat api_sellers_list javobida
-hozirgi holati (sellers_can_add_stock) qo'shib beriladi, front-end shuni
-"Sotuvchilar" ekranida ko'rsatib, o'sha mavjud endpointga murojaat qiladi.
+sotuvchi uchun ALOHIDA emas. Bu funksiya (api_sklad_permission_set, route: POST
+/api/webapp/sklad-permission) 20-bosqichda webapp.py'dan shu modulga
+ko'chirildi - endi TO'LIQ shu yerda. api_sellers_list javobida ham
+hozirgi holati (sellers_can_add_stock) qo'shib beriladi, front-end
+shuni "Sotuvchilar" ekranida ko'rsatib, shu endpointga murojaat qiladi.
 
 "Narx huquqi" degan alohida tushuncha esa joriy bazada UMUMAN YO'Q (na
 do'kon darajasida, na sotuvchi darajasida). Buni qo'shish uchun
@@ -82,6 +82,29 @@ def _seller_payload(s: dict, branch_name: str) -> dict:
         "branch_id": s.get("branch_id"),
         "branch_name": branch_name,
     }
+
+
+async def api_sklad_permission_set(request: web.Request):
+    """MINI APP ICHIDAN SKLAD RUXSATINI YOQISH/O'CHIRISH: handlers/sellers.py
+    dagi sklad_permission_set_cb (bot'dagi "🔐 Sklad ruxsati") bilan AYNAN
+    BIR XIL amal - faqat mini app Profil ekranidan chaqirilishi uchun.
+    Faqat HAQIQIY do'kon egasi o'zgartira oladi.
+
+    20-BOSQICH: REFAKTORING - bu funksiya ilgari webapp.py'da edi, shu
+    yerga (o'ziga tegishli mavzu - sotuvchi huquqlari - bo'lgani uchun)
+    ko'chirildi. Xatti-harakat o'zgarmadi."""
+    auth, err = await _require_owner_auth(request)
+    if err:
+        return err
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    allowed = bool(body.get("allowed"))
+
+    await db.set_sellers_can_add_stock(auth["shop_id"], allowed)
+    return web.json_response({"ok": True, "allowed": allowed})
 
 
 async def api_sellers_list(request: web.Request):
@@ -233,3 +256,4 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post("/api/webapp/sellers", api_sellers_add)
     app.router.add_post("/api/webapp/sellers/remove", api_sellers_remove)
     app.router.add_post("/api/webapp/sellers/branch", api_sellers_set_branch)
+    app.router.add_post("/api/webapp/sklad-permission", api_sklad_permission_set)
