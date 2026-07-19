@@ -176,6 +176,7 @@ def _product_payload(p: dict) -> dict:
         "discount_price": discount["price"] if discount else None,
         "discount_days_left": discount["days_left"] if discount else None,
         "barcode": p.get("barcode"),
+        "alert_quantity": p.get("alert_quantity"),
     }
 
 
