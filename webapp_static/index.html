@@ -45,6 +45,12 @@
            o'zi bu tugmani boshqa yo'l bilan ochib qolmasligi uchun
            backend (webapp_handlers/sellers.py) ham alohida tekshiradi). -->
       <button id="tab-sellers" type="button" class="section-tab hidden" data-section="sellers">🧑‍💼 Sotuvchilar</button>
+      <!-- 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV - FAQAT haqiqiy do'kon egasiga
+           ko'rinadi (standart holatda "hidden", app.js loadMe() ichida
+           role==="owner" bo'lsa ko'rsatiladi - tab-sellers bilan bir xil
+           g'oya). Qarang: app.js loadSubscription(), backend:
+           webapp_handlers/subscription.py (13-bosqich). -->
+      <button id="tab-subscription" type="button" class="section-tab hidden" data-section="subscription">💳 Obuna</button>
       <!-- YANGI: do'kon egasi/sotuvchi uchun "Admin panel"dagi kabi tartibli
            profil ekrani (qarang: app.js renderProfile(), webapp.py api_profile). -->
       <button id="tab-profile" type="button" class="section-tab" data-section="profile">👤 Profil</button>
@@ -243,6 +249,32 @@
          birdek) - qarang: webapp_handlers/sellers.py boshidagi izoh. -->
     <div id="sellers-perm-section" class="admin-settings-list"></div>
     <div id="sellers-list" class="product-list"></div>
+  </div>
+
+  <!-- 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV - FAQAT haqiqiy do'kon egasiga
+       (qarang: app.js loadSubscription()/renderSubscription(), backend:
+       webapp_handlers/subscription.py, 13-bosqich). Bot tarafidagi
+       "💳 Obuna" bo'limi bilan bir xil amal - tarif tanlash + chek
+       yuklash (rasm fayl input orqali, Telegramdagidek chatga yuborish
+       o'rniga). -->
+  <div id="screen-subscription" class="screen hidden">
+    <div id="subscription-status-card" class="profile-header-card"></div>
+
+    <div class="section-title">📦 Tariflar</div>
+    <div id="subscription-plans-list" class="admin-settings-list"></div>
+
+    <div id="subscription-requisites-section" class="hidden">
+      <div class="section-title">💳 To'lov rekvizitlari</div>
+      <div id="subscription-requisites-body" class="admin-detail-body"></div>
+
+      <div class="section-title">📷 Chekni yuklash</div>
+      <p class="muted">To'lovni amalga oshirgach, chek/skrinshotni tanlang - u bosh adminga tekshirish uchun boradi.</p>
+      <input id="subscription-photo-input" type="file" accept="image/*">
+      <div class="modal-actions">
+        <button id="subscription-pay-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="subscription-pay-send-btn" type="button" class="primary-btn">✅ Chekni yuborish</button>
+      </div>
+    </div>
   </div>
 
   <!-- YANGI: PROFIL EKRANI - do'kon egasi/sotuvchi uchun "👑 Admin panel"
