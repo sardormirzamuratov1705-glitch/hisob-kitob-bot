@@ -195,6 +195,134 @@ body {
   text-align: center;
 }
 
+/* ============================================================
+   YANGI: "🏠 BOSH SAHIFA" (DASHBOARD) - foydalanuvchi taqdim etgan 5 ta
+   dizayn namunasi asosida. MUHIM: bu yerda hech qanday RANG QATTIQ
+   yozilmagan - hammasi mavjud --accent/--bg/--card-bg/--text/--hint
+   o'zgaruvchilaridan olinadi, shuning uchun Profil ekranida qaysi mavzu
+   tanlansa (binafsha/teal/midnight/nature/gold), bu ekran ham AVTOMATIK
+   o'sha uslubga o'tadi - 5 ta rasmning barchasi shu bitta joylashuvning
+   turli mavzulardagi ko'rinishi, xolos.
+   ============================================================ */
+
+.home-greeting-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.home-greeting { font-size: 19px; font-weight: 800; }
+.home-subgreeting { font-size: 13px; color: var(--hint); margin-top: 4px; }
+
+.home-bell-btn {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-bell-btn:active { transform: scale(0.94); }
+
+.home-sales-card {
+  border-radius: var(--radius);
+  padding: 18px 18px 20px;
+  margin-bottom: 14px;
+  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 60%, black) 100%);
+  color: var(--accent-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.home-sales-label {
+  font-size: 13px;
+  opacity: 0.85;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.home-sales-amount { font-size: 26px; font-weight: 800; }
+.home-sales-amount .sum-label { font-size: 15px; font-weight: 600; }
+
+.home-sales-growth {
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  opacity: 0.95;
+}
+.home-sales-growth.negative { opacity: 0.85; }
+
+.home-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.home-stat-box {
+  background: var(--card-bg);
+  border-radius: var(--radius-sm);
+  padding: 12px 12px 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.home-stat-icon { font-size: 16px; margin-bottom: 4px; }
+.home-stat-value { font-size: 16px; font-weight: 800; }
+.home-stat-label { font-size: 11.5px; color: var(--hint); margin-top: 2px; }
+.home-stat-box.home-stat-danger .home-stat-value { color: var(--danger); }
+
+.home-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.home-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+.home-menu-item:active { transform: scale(0.94); opacity: 0.85; }
+.home-menu-icon { font-size: 20px; }
+
+.home-daily-report-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--card-bg);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.home-daily-report-bar:active { opacity: 0.85; }
+.home-daily-report-link { color: var(--accent); }
+
 /* ---------- SCREENS ---------- */
 
 .screen {
