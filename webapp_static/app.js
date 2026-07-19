@@ -47,6 +47,7 @@ const API = {
   skladCreateProduct: "/api/webapp/sklad/create-product",
   skladUpdateProduct: "/api/webapp/sklad/update-product",
   skladHistory: "/api/webapp/sklad/history",
+  profile: "/api/webapp/profile",
 
   // 11-BOSQICH: BOSH ADMIN PANELI
   adminStats: "/api/webapp/admin/stats",
@@ -97,7 +98,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad",
+    "loading", "error", "products", "cart", "sklad", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -1057,6 +1058,9 @@ function switchSection(section) {
     showScreen("sklad");
     updateSkladPermissionUI();
     loadSkladProducts(el("sklad-search-input").value.trim());
+  } else if (section === "profile") {
+    showScreen("profile");
+    loadProfile();
   } else {
     showScreen("products");
   }
@@ -1086,6 +1090,107 @@ function updateSkladPermissionUI() {
 
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
+el("tab-profile").addEventListener("click", () => switchSection("profile"));
+
+// ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
+// "👑 Admin panel"dagi Statistika ekrani bilan bir xil uslub - qarang:
+// index.html #screen-profile, style.css "PROFIL EKRANI" bo'limi.
+
+const PROFILE_STATUS_LABELS = {
+  active: "✅ Faol",
+  trial: "🎁 Sinov muddati",
+  expired: "⌛ Muddati tugagan",
+  blocked: "⛔ Bloklangan",
+  pending_trial: "⏳ Tasdiqlanmagan",
+  unknown: "❔ Noma'lum",
+};
+
+function profileStatusBadgeHtml(status) {
+  const label = PROFILE_STATUS_LABELS[status] || PROFILE_STATUS_LABELS.unknown;
+  return `<span class="status-badge status-${escapeHtml(status || "unknown")}">${label}</span>`;
+}
+
+function profileDaysLeftText(daysLeft) {
+  if (daysLeft == null) return "—";
+  return daysLeft >= 0 ? `${daysLeft} kun` : `${Math.abs(daysLeft)} kun oldin tugagan`;
+}
+
+async function loadProfile() {
+  const card = el("profile-header-card");
+  card.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  el("profile-stats-grid").innerHTML = "";
+  el("profile-detail-body").innerHTML = "";
+  try {
+    const res = await apiFetch(API.profile);
+    if (!res.ok) throw new Error("Profilni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderProfile(data);
+  } catch (e) {
+    card.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderProfile(data) {
+  const isOwner = data.role === "owner";
+
+  // ---- sarlavha kartasi ----
+  const icon = isOwner ? "🏪" : "🧑‍💼";
+  const title = isOwner
+    ? (data.shop_name || "Do'kon egasi")
+    : (data.seller_name || "Sotuvchi");
+  const sub = isOwner
+    ? (data.owner_name || `ID: ${data.telegram_id}`)
+    : [data.shop_name, data.branch_name].filter(Boolean).join(" · ") || `ID: ${data.telegram_id}`;
+  el("profile-header-card").innerHTML = `
+    <div class="profile-header-icon">${icon}</div>
+    <div class="profile-header-info">
+      <div class="profile-header-title">${escapeHtml(title)}</div>
+      <div class="profile-header-sub">${escapeHtml(sub)}</div>
+    </div>
+    <div class="profile-header-badge">${profileStatusBadgeHtml(data.status)}</div>
+  `;
+
+  // ---- statistika kartalari ----
+  const cards = isOwner
+    ? [
+        ["🧑‍💼", formatNum(data.sellers_count), "Sotuvchilar"],
+        ["🏢", formatNum(data.branches_count), "Filiallar"],
+        ["📦", formatNum(data.products_count), "Mahsulotlar"],
+        ["🔐", data.sellers_can_add_stock ? "🔓 Yoqilgan" : "🚫 O'chirilgan", "Sotuvchilarga sklad ruxsati"],
+      ]
+    : [
+        ["🏢", data.branch_name || "—", "Filial"],
+        ["🔐", data.can_add_stock ? "✅ Bor" : "🚫 Yo'q", "Sklad qo'shish huquqi"],
+      ];
+  el("profile-stats-grid").innerHTML = cards.map(([cardIcon, value, label]) => `
+    <div class="admin-stat-card">
+      <div class="admin-stat-value">${cardIcon} ${escapeHtml(String(value))}</div>
+      <div class="admin-stat-label">${escapeHtml(label)}</div>
+    </div>
+  `).join("");
+
+  // ---- tafsilotlar ro'yxati ----
+  const rows = isOwner
+    ? [
+        ["Telegram ID", data.telegram_id],
+        ["Ega F.I.Sh.", data.owner_name || "—"],
+        ["Telefon", data.phone_number || "—"],
+        ["Obuna holati", PROFILE_STATUS_LABELS[data.status] || PROFILE_STATUS_LABELS.unknown],
+        ["Obuna muddati", data.subscription_until || "—"],
+        ["Qolgan kun", profileDaysLeftText(data.days_left)],
+      ]
+    : [
+        ["Telegram ID", data.telegram_id],
+        ["Ism", data.seller_name || "—"],
+        ["Telefon", data.phone_number || "—"],
+        ["Do'kon", data.shop_name || "—"],
+        ["Filial", data.branch_name || "—"],
+        ["Do'kon obunasi", PROFILE_STATUS_LABELS[data.status] || PROFILE_STATUS_LABELS.unknown],
+      ];
+  el("profile-detail-body").innerHTML = rows.map(([k, v]) => `
+    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
+  `).join("");
+}
 
 async function loadSkladProducts(query = "") {
   try {
