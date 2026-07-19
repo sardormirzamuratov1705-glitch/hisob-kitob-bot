@@ -385,6 +385,15 @@ async def api_sklad_create_product(request: web.Request):
     if quantity < 0:
         return web.json_response({"error": "invalid_quantity"}, status=400)
 
+    alert_quantity = None
+    if body.get("alert_quantity") not in (None, ""):
+        try:
+            alert_quantity = float(body.get("alert_quantity"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid_alert_quantity"}, status=400)
+        if alert_quantity < 0:
+            return web.json_response({"error": "invalid_alert_quantity"}, status=400)
+
     barcode = (body.get("barcode") or "").strip() or None
 
     shop_id = auth["shop_id"]
@@ -399,7 +408,7 @@ async def api_sklad_create_product(request: web.Request):
 
     product_id = await db.add_product(
         shop_id, name, price, quantity, None,
-        sell_price=sell_price, min_price=min_price, barcode=barcode,
+        sell_price=sell_price, min_price=min_price, alert_quantity=alert_quantity, barcode=barcode,
     )
 
     try:
@@ -492,6 +501,19 @@ async def api_sklad_update_product(request: web.Request):
             if min_price < 0:
                 return web.json_response({"error": "invalid_min_price"}, status=400)
             await db.update_product_field(shop_id, product_id, "min_price", min_price)
+
+    if "alert_quantity" in body:
+        raw = body.get("alert_quantity")
+        if raw in (None, ""):
+            await db.update_product_field(shop_id, product_id, "alert_quantity", None)
+        else:
+            try:
+                alert_quantity = float(raw)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "invalid_alert_quantity"}, status=400)
+            if alert_quantity < 0:
+                return web.json_response({"error": "invalid_alert_quantity"}, status=400)
+            await db.update_product_field(shop_id, product_id, "alert_quantity", alert_quantity)
 
     if "barcode" in body:
         barcode = (body.get("barcode") or "").strip() or None
