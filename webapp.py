@@ -240,6 +240,10 @@ def create_web_app(bot) -> web.Application:
     app.router.add_get("/api/webapp/me", api_me)
     app.router.add_get("/api/webapp/profile", api_profile)
 
+    # YANGI: BOSH SAHIFA (dashboard) - mini app'ning yangi kirish ekrani.
+    from webapp_handlers.dashboard import register_routes as _register_dashboard_routes
+    _register_dashboard_routes(app)
+
     # 1-BLOK, 1-BOSQICH: SOTUVCHILAR + SKLAD RUXSATI (20-bosqichda
     # api_sklad_permission_set ham shu modulga ko'chirildi).
     from webapp_handlers.sellers import register_routes as _register_sellers_routes
