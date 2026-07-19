@@ -543,6 +543,53 @@ function defaultScannerStatusText() {
   return "Kamerani barkodga to'g'rilang...";
 }
 
+// Ba'zi qurilmalarda (ayniqsa noutbuk/kompyuter - ORQA kamera UMUMAN
+// yo'q) faqat "environment" (orqa) kamerani so'rasak, brauzer mos
+// kamera topa olmay xato qaytaradi - bu "ruxsat berilmadi"ga o'xshab
+// ko'rinadi, aslida esa shunchaki mos kamera yo'qligi. Shuning uchun
+// ketma-ket 3 usulda uriniladi: avval orqa kamera (telefon uchun eng
+// yaxshisi), keyin old kamera (noutbukda odatda FAQAT shu bor), va
+// oxirida - facingMode'ni butunlay chetlab o'tib, birinchi mavjud
+// kamerani ID orqali to'g'ridan-to'g'ri tanlash.
+async function startCameraWithFallback() {
+  const scanConfig = {
+    // Kadr chastotasini biroz oshirdik (10 -> 15) - barkod tezroq
+    // "ushlanadi", ayniqsa qo'l titrasa/harakatda bo'lsa.
+    fps: 15,
+    qrbox: { width: 280, height: 170 },
+  };
+  // 8-BOSQICH: kameradan YUQORIROQ chinakam piksel sifatini so'raymiz
+  // (qurilma qo'llab-quvvatlasa) - past yorug'likda yoki kichik/uzoqdagi
+  // barkodlarda aniqlik sezilarli oshadi.
+  const hdConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+
+  try {
+    await html5QrCode.start(
+      { facingMode: "environment", ...hdConstraints },
+      scanConfig, onBarcodeDecoded, () => {}
+    );
+    return;
+  } catch (e) {
+    // Orqa kamera topilmadi/ishlamadi - keyingi usulga o'tamiz.
+  }
+
+  try {
+    await html5QrCode.start(
+      { facingMode: "user", ...hdConstraints },
+      scanConfig, onBarcodeDecoded, () => {}
+    );
+    return;
+  } catch (e) {
+    // Old kamera ham ishlamadi - oxirgi usulga o'tamiz.
+  }
+
+  const cameras = await Html5Qrcode.getCameras();
+  if (!cameras || cameras.length === 0) {
+    throw new Error("no_camera_found");
+  }
+  await html5QrCode.start(cameras[0].id, scanConfig, onBarcodeDecoded, () => {});
+}
+
 async function openScanner(mode = "sale") {
   scannerMode = mode;
   scanHandled = false;
@@ -567,24 +614,7 @@ async function openScanner(mode = "sale") {
       // xatolik chiqmaydi.
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
     });
-    await html5QrCode.start(
-      {
-        facingMode: "environment",
-        // 8-BOSQICH: kameradan YUQORIROQ chinakam piksel sifatini
-        // so'raymiz (qurilma qo'llab-quvvatlasa) - past yorug'likda yoki
-        // kichik/uzoqdagi barkodlarda aniqlik sezilarli oshadi.
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      {
-        // Kadr chastotasini biroz oshirdik (10 -> 15) - barkod tezroq
-        // "ushlanadi", ayniqsa qo'l titrasa/harakatda bo'lsa.
-        fps: 15,
-        qrbox: { width: 280, height: 170 },
-      },
-      onBarcodeDecoded,
-      () => {} // har bir kadrda "topilmadi" - bu normal holat, e'tiborsiz qoldiramiz
-    );
+    await startCameraWithFallback();
     await setupTorchButton();
     await setupContinuousFocus();
   } catch (err) {
