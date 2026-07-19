@@ -543,6 +543,64 @@ input:focus {
 .muted { color: var(--hint); font-size: 13px; margin-top: -6px; }
 .sklad-hint { margin: 0 2px 12px; }
 
+.sklad-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.sklad-toolbar .secondary-btn {
+  width: auto;
+  flex: 1;
+  margin-top: 0;
+}
+
+/* ---------- 9-BOSQICH: SKLAD TARIXI ---------- */
+
+.history-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.history-row {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.history-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.history-action {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.history-time {
+  font-size: 11.5px;
+  color: var(--hint);
+  white-space: nowrap;
+}
+
+.history-details {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.history-actor {
+  font-size: 12px;
+  color: var(--hint);
+}
+
 /* YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi barkod maydoni +
    skanerlash tugmasi - .search-box bilan bir xil g'oya, faqat qidiruv
    ikonkasisiz (chap tarafda joy bo'sh qoladi). */
