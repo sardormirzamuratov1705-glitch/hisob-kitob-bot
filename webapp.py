@@ -1507,6 +1507,14 @@ def create_web_app(bot) -> web.Application:
     app.router.add_post("/api/webapp/restock/add", api_restock_add)
     app.router.add_post("/api/webapp/restock/delete-manual", api_restock_delete_manual)
 
+    # 1-BLOK, 1-BOSQICH: SOTUVCHILAR (mini app) - alohida modulga chiqarilgan
+    # (qarang: webapp_handlers/sellers.py). Import ATAYLAB shu yerda (yuqorida
+    # emas) - chunki sellers.py o'zi ichida _authenticate'ni webapp.py'dan
+    # import qiladi (aylanma import); create_web_app() faqat webapp.py TO'LIQ
+    # yuklangandan keyin chaqiriladi, shuning uchun bu yerda xavfsiz.
+    from webapp_handlers.sellers import register_routes as _register_sellers_routes
+    _register_sellers_routes(app)
+
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
     app.router.add_get("/api/webapp/admin/owners", api_admin_owners_list)
