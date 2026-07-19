@@ -543,136 +543,26 @@ function defaultScannerStatusText() {
   return "Kamerani barkodga to'g'rilang...";
 }
 
-// Ba'zi qurilmalarda (ayniqsa noutbuk/kompyuter - ORQA kamera UMUMAN
-// yo'q) faqat "environment" (orqa) kamerani so'rasak, brauzer mos
-// kamera topa olmay xato qaytaradi - bu "ruxsat berilmadi"ga o'xshab
-// ko'rinadi, aslida esa shunchaki mos kamera yo'qligi. Shuning uchun
-// avval getCameras() orqali BARCHA kameralar ro'yxatga olinadi, so'ng
-// orqa kamera (label bo'yicha) birinchi navbatda, qolganlari keyin
-// sinab ko'riladi.
-//
-// MUHIM (bug tuzatildi): avval shu funksiya BITTA html5QrCode
-// obyektida .start()ni ketma-ket bir necha marta (facingMode:
-// "environment", keyin "user") chaqirar edi. Agar birinchi urinish
-// hali to'liq "chala" holatda bo'lsa (masalan ruxsat so'ralayotgan
-// vaqtda), ikkinchi .start() chaqiruvi kutubxonaning o'z ichki holat
-// mashinasidan "Cannot transition to a new state, already under
-// transition" xatosini qaytarardi - bu haqiqiy sababni (masalan
-// qaysi kamera ishlamayotganini) butunlay yashirar edi. Shuning uchun
-// endi HAR BIR urinish uchun YANGI Html5Qrcode obyekti yaratiladi.
+// MUHIM (60-versiyada buzilgan, endi 53-versiyadagidek soddaga
+// qaytarildi): bu qurilma/WebView'da HAR QANDAY qo'shimcha kamera
+// bilan bog'liq chaqiruv (getCameras(), applyVideoConstraints(),
+// videoConstraints, experimentalFeatures va h.k.) - hattoki ruxsat
+// "allaqachon berilgan" deb hisoblansa ham - qayta ruxsat so'rovi
+// sifatida ko'rinar ekan (foydalanuvchiga yana bir "kameraga ruxsat
+// berasizmi?" so'rovi chiqadi). Shuning uchun endi FAQAT bitta
+// Html5Qrcode obyekti va BITTA .start() chaqiruvi ({facingMode:
+// "environment"} bilan) ishlatiladi - avvalgi (53-versiya) kabi.
 async function startCameraWithFallback() {
-  const scanConfig = {
-    // Kadr chastotasini biroz oshirdik (10 -> 15) - barkod tezroq
-    // "ushlanadi", ayniqsa qo'l titrasa/harakatda bo'lsa.
-    fps: 15,
-    qrbox: { width: 280, height: 170 },
-  };
-  // 8-BOSQICH: kameradan YUQORIROQ chinakam piksel sifatini so'raymiz
-  // (qurilma qo'llab-quvvatlasa) - past yorug'likda yoki kichik/uzoqdagi
-  // barkodlarda aniqlik sezilarli oshadi.
-  const hdConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
   const scannerOptions = {
     formatsToSupport: BARCODE_FORMATS,
     verbose: false,
-    // 8-BOSQICH: qurilma/brauzer qo'llab-quvvatlasa (ko'p zamonaviy
-    // Android Chrome'da bor), kutubxona OS/brauzerning O'ZINING tezroq
-    // va aniqroq (past yorug'likka ham chidamliroq) native
-    // BarcodeDetector API'sidan foydalanadi.
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
   };
-
-  // MUHIM (yana bir bug tuzatildi - IKKI MARTA ruxsat so'ralishi):
-  // avval BU YERDA, urinishlar ro'yxatini tuzishdan oldin,
-  // Html5Qrcode.getCameras() darhol chaqirilar edi. Bu funksiyaning
-  // O'ZI ham kamera nomlarini (label) olish uchun ICHKI ravishda
-  // alohida getUserMedia so'rovi yuboradi - demak BIRINCHI ruxsat
-  // so'rovi shu yerda, IKKINCHISI esa keyinroq haqiqiy skanerlash
-  // uchun instance.start() chaqirilganda bo'lardi. Ba'zi WebView'larda
-  // ruxsat sessiya davomida eslab qolinmagani uchun foydalanuvchidan
-  // ketma-ket IKKI marta so'ralardi. Shuning uchun endi getCameras()
-  // OLDINDAN chaqirilmaydi - to'g'ridan-to'g'ri `facingMode:
-  // "environment"` bilan urinamiz (BITTA so'rov). getCameras() endi
-  // FAQAT shu urinish muvaffaqiyatsiz bo'lsa, zaxira sifatida
-  // (pastda) chaqiriladi.
-  let lastError = null;
-
-  const instance1 = new Html5Qrcode("scanner-reader", scannerOptions);
-  try {
-    // MUHIM: cameraIdOrConfig OBYEKT bo'lsa, kutubxona uni FAQAT
-    // bitta kalit bilan qabul qiladi ({facingMode:...} YOKI
-    // {deviceId:{exact:...}} - qo'shimcha kalit bilan emas). Shuning
-    // uchun HD o'lcham cheklovlarini alohida - ikkinchi argumentdagi
-    // "videoConstraints" maydoniga joylaymiz.
-    await instance1.start(
-      { facingMode: "environment" },
-      { ...scanConfig, videoConstraints: hdConstraints },
-      onBarcodeDecoded, () => {}
-    );
-    // MUHIM (yana bir bug tuzatildi): ba'zi arzon Android qurilmalar
-    // "environment" cheklovini E'TIBORSIZ qoldirib, xato chiqarmasdan
-    // baribir OLD kamerani berib yuboradi. Shuning uchun kamera
-    // ishga tushgach uning HAQIQIY yo'nalishini tekshiramiz. Agar old
-    // kamera kelib qolgan bo'lsa - RUXSATNI QAYTA SO'RAMASDAN (u
-    // allaqachon shu sessiyada berilgan) boshqa kamerani sinaymiz.
-    const settings1 = typeof instance1.getRunningTrackSettings === "function"
-      ? instance1.getRunningTrackSettings() : {};
-    if (!settings1.facingMode || settings1.facingMode !== "user") {
-      html5QrCode = instance1;
-      return;
-    }
-    try { await instance1.stop(); } catch (_) { /* e'tiborsiz */ }
-    try { instance1.clear(); } catch (_) { /* e'tiborsiz */ }
-  } catch (e) {
-    lastError = e;
-    try { instance1.clear(); } catch (_) { /* e'tiborsiz */ }
-  }
-
-  // Zaxira yo'l: qurilmadagi barcha kameralarni ID orqali navbat bilan
-  // sinaymiz. DIQQAT: ruxsat allaqachon (yuqorida) berilgani uchun bu
-  // yerdagi getCameras() va start() chaqiruvlari QAYTA SO'RAMAYDI -
-  // brauzer bir marta berilgan kamera ruxsatini shu sahifa/sessiya
-  // davomida eslab qoladi.
-  const cameras = await Html5Qrcode.getCameras();
-  if (!cameras || cameras.length === 0) {
-    throw lastError || new Error("no_camera_found");
-  }
-
-  // Old kamera (facingMode "user") bo'lmagan birinchi kamerani
-  // qidiramiz; agar hech qaysi kamerada aniq facingMode ma'lumoti
-  // bo'lmasa yoki barchasi "old" deb ko'ringan bo'lsa - hech bo'lmasa
-  // BIRON kamera ishlashi uchun oxirgi ishga tushgan kamerani zaxira
-  // sifatida saqlab qo'yamiz.
-  let fallbackInstance = null;
-  for (const camera of cameras) {
-    const instance = new Html5Qrcode("scanner-reader", scannerOptions);
-    try {
-      await instance.start(
-        camera.id,
-        { ...scanConfig, videoConstraints: hdConstraints },
-        onBarcodeDecoded, () => {}
-      );
-      const settings = typeof instance.getRunningTrackSettings === "function"
-        ? instance.getRunningTrackSettings() : {};
-      if (settings.facingMode && settings.facingMode !== "user") {
-        html5QrCode = instance;
-        return;
-      }
-      if (fallbackInstance) {
-        try { await fallbackInstance.stop(); } catch (_) { /* e'tiborsiz */ }
-        try { fallbackInstance.clear(); } catch (_) { /* e'tiborsiz */ }
-      }
-      fallbackInstance = instance;
-    } catch (e) {
-      lastError = e;
-      try { instance.clear(); } catch (_) { /* e'tiborsiz */ }
-    }
-  }
-
-  if (fallbackInstance) {
-    html5QrCode = fallbackInstance;
-    return;
-  }
-  throw lastError || new Error("no_camera_found");
+  html5QrCode = new Html5Qrcode("scanner-reader", scannerOptions);
+  await html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 15, qrbox: { width: 280, height: 170 } },
+    onBarcodeDecoded, () => {}
+  );
 }
 
 async function openScanner(mode = "sale") {
@@ -688,12 +578,13 @@ async function openScanner(mode = "sale") {
   }
 
   try {
-    // DIQQAT: html5QrCode obyekti endi startCameraWithFallback() ichida
-    // (har bir urinish uchun yangidan) yaratiladi - qarang: shu funksiya
-    // ustidagi izoh ("already under transition" xatosi tuzatildi).
+    // DIQQAT: fonar (torch) va avtofokus funksiyalari (pastda) ATAYLAB
+    // chaqirilmayapti - ular start()dan keyin applyVideoConstraints()/
+    // getRunningTrackCameraCapabilities() chaqiradi, bu ham ba'zi
+    // qurilma/WebView'larda qo'shimcha ruxsat so'rovi sifatida
+    // ko'rinishi mumkin ekan. Funksiyalar joyida qoladi (xavfsiz,
+    // ishlatilmaydi), kerak bo'lsa keyin qayta yoqiladi.
     await startCameraWithFallback();
-    await setupTorchButton();
-    await setupContinuousFocus();
   } catch (err) {
     // Xato turiga qarab aniqroq maslahat beramiz - "ruxsat berilmadi" bilan
     // "kamera band"/"kamera topilmadi" sabablari butunlay boshqa yechim
