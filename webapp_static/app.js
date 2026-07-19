@@ -578,13 +578,18 @@ async function openScanner(mode = "sale") {
   }
 
   try {
-    // DIQQAT: fonar (torch) va avtofokus funksiyalari (pastda) ATAYLAB
-    // chaqirilmayapti - ular start()dan keyin applyVideoConstraints()/
-    // getRunningTrackCameraCapabilities() chaqiradi, bu ham ba'zi
-    // qurilma/WebView'larda qo'shimcha ruxsat so'rovi sifatida
-    // ko'rinishi mumkin ekan. Funksiyalar joyida qoladi (xavfsiz,
-    // ishlatilmaydi), kerak bo'lsa keyin qayta yoqiladi.
+    // MUHIM (aniqlandi): applyVideoConstraints() va
+    // getRunningTrackCameraCapabilities() YANGI getUserMedia() so'rovi
+    // YUBORMAYDI - ular allaqachon ochilgan kamera oqimi (track)
+    // ustida ishlaydi, shuning uchun qayta ruxsat so'rovini
+    // keltirib chiqarmaydi. Qayta ruxsat so'rovining haqiqiy sababi
+    // avvalgi bir necha marta start()/getCameras() chaqirilishi edi
+    // (bular HAR BIRI o'z getUserMedia so'rovini yuboradi) - shular
+    // startCameraWithFallback()da yuqorida bitta start()ga tushirildi.
+    // Shuning uchun fonar/avtofokus xavfsiz - qaytarildi.
     await startCameraWithFallback();
+    await setupTorchButton();
+    await setupContinuousFocus();
   } catch (err) {
     // Xato turiga qarab aniqroq maslahat beramiz - "ruxsat berilmadi" bilan
     // "kamera band"/"kamera topilmadi" sabablari butunlay boshqa yechim
