@@ -606,8 +606,26 @@ el("finalize-btn").addEventListener("click", async () => {
     tg.HapticFeedback.notificationOccurred("success");
     tg.showPopup(
       { title: "✅ Savdo yakunlandi", message: `Jami: ${formatNum(data.total)} so'm` },
-      () => tg.close()
+      () => {}
     );
+
+    // MUHIM TUZATISH: ilgari shu yerda tg.close() chaqirilib, HAR BIR
+    // savdo yakunlangandan keyin butun Mini App yopilib, foydalanuvchi
+    // botga qaytarib yuborilar edi - keyingi savdo uchun qayta "🛒 Savdo"
+    // tugmasini bosishga majbur bo'lardi. Endi ilova ochiq qoladi: savat
+    // tozalanadi, to'lov tanlovi bekor qilinadi, va mahsulotlar ro'yxati
+    // (yangi qoldiqlar bilan) qayta yuklanadi - foydalanuvchi darhol
+    // keyingi mijozga xizmat qila oladi.
+    cart = [];
+    selectedPaymentMethod = null;
+    document.querySelectorAll(".pay-btn").forEach((b) => b.classList.remove("selected"));
+    el("mixed-box").classList.add("hidden");
+    el("mixed-cash-input").value = "";
+    el("finalize-btn").classList.add("hidden");
+    el("finalize-btn").disabled = false;
+    el("finalize-btn").textContent = "✅ Savdoni yakunlash";
+    renderCartBar();
+    await loadProducts(el("search-input").value || "");
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
     el("finalize-btn").disabled = false;
