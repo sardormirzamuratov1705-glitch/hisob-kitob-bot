@@ -1,152 +1,147 @@
-"""SOTUVCHILAR BOSHQARUVI - MINI APP (1-BLOK, 1-BOSQICH: BACKEND).
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
-Bu modul do'kon egasi Mini App'dagi "Sotuvchilar" bo'limi orqali:
-- sotuvchilar ro'yxatini ko'rish,
-- yangi sotuvchi qo'shish (telegram_id orqali - mini appda xabarni forward
-  qilib bo'lmaydi, shuning uchun bot'dagi kabi forward varianti YO'Q),
-- sotuvchini o'chirish,
-- sotuvchini boshqa filialga ko'chirish,
-
-qila olishi uchun REST API endpointlarini o'z ichiga oladi.
-
-MUHIM - BIR XILLIK: bu yerdagi har bir amal handlers/sellers.py (bot
-tarafi)dagi bilan AYNAN BIR XIL database.py funksiyalaridan va bir xil
-tekshiruv qoidalaridan (bosh admin bo'la olmaydi, boshqa do'konning
-egasi/sotuvchisi bo'la olmaydi va h.k.) foydalanadi - shu sababli ikkala
-tarafda ham natija bir xil bo'ladi.
-
-DIQQAT - SKLAD/NARX HUQUQI HAQIDA: joriy bazada (database.py, jadval:
-owners.sellers_can_add_stock) sklad huquqi FAQAT do'kon darajasida
-saqlanadi - ya'ni "hamma sotuvchiga birdek" yoqiladi/o'chiriladi, HAR BIR
-sotuvchi uchun ALOHIDA emas. Bu funksiya allaqachon mavjud
-(webapp.api_sklad_permission_set, route: POST /api/webapp/sklad-permission)
-- shu sababli bu yerda takrorlanmaydi, faqat api_sellers_list javobida
-hozirgi holati (sellers_can_add_stock) qo'shib beriladi, front-end shuni
-"Sotuvchilar" ekranida ko'rsatib, o'sha mavjud endpointga murojaat qiladi.
-
-"Narx huquqi" degan alohida tushuncha esa joriy bazada UMUMAN YO'Q (na
-do'kon darajasida, na sotuvchi darajasida). Buni qo'shish uchun
-database.py'ga yangi ustun/jadval kerak bo'ladi - reja qoidasiga ko'ra
-("hech bir bosqich database.py'ga tegmaydi") bu ALOHIDA (kelasi) bosqich
-sifatida qaraladi, shu bosqichda ataylab qo'shilmadi.
-"""
-
-import logging
-
-from aiohttp import web
-
-import access_control
 import database as db
+import keyboards as kb
+from access_control import is_admin, get_branch_id
 
-logger = logging.getLogger(__name__)
-
-
-async def _require_owner_auth(request: web.Request):
-    """webapp._authenticate orqali autentifikatsiya qiladi va faqat HAQIQIY
-    do'kon egasiga (role == "owner") ruxsat beradi - na bosh admin, na
-    sotuvchi sotuvchilar bo'limini boshqara olmaydi (xuddi bot tarafidagi
-    _require_owner() kabi).
-
-    Aylanma import (webapp.py <-> webapp_handlers/sellers.py)dan qochish
-    uchun _authenticate shu yerda, funksiya ICHIDA import qilinadi - bu
-    xavfsiz, chunki bu funksiya faqat so'rov kelganda (ya'ni webapp.py
-    to'liq yuklangandan keyin) chaqiriladi.
-
-    Qaytaradi: (auth_dict, None) - muvaffaqiyatli bo'lsa;
-               (None, error_response) - xato bo'lsa (chaqiruvchi shu
-               javobni to'g'ridan-to'g'ri qaytarishi kerak)."""
-    from webapp import _authenticate
-
-    auth = await _authenticate(request)
-    if not auth:
-        return None, web.json_response({"error": "unauthorized"}, status=401)
-    if auth["role"] != "owner":
-        return None, web.json_response({"error": "not_applicable"}, status=404)
-    return auth, None
+router = Router()
 
 
-def _seller_payload(s: dict, branch_name: str) -> dict:
-    """Ro'yxat/qo'shish javoblari uchun bitta xil shakl - handlers/sellers.py
-    dagi list_sellers() ko'rsatadigan ma'lumotlar bilan bir xil tarkib
-    (ism, telefon, filial), lekin JSON uchun tuzilgan holda."""
-    telegram_label = s.get("full_name") or (
-        f"@{s['username']}" if s.get("username") else str(s["telegram_id"])
+class AddSeller(StatesGroup):
+    waiting_input = State()
+
+
+# MUHIM: bu bo'lim tugmasi faqat HAQIQIY do'kon egasiga ko'rsatiladi
+# (handlers/start.py -> kb.main_menu), lekin har bir handler ichida ham
+# db.is_owner() bilan qayta tekshiramiz - na bosh admin, na sotuvchi shu
+# bo'limga boshqa yo'l bilan (masalan eski chatdan matnni qayta yuborib)
+# kira olmasligi uchun. Sotuvchi o'ziga o'xshagan boshqa sotuvchi qo'sha
+# olmaydi - faqat do'kon egasining o'zi buni qila oladi.
+
+async def _require_owner(message: Message):
+    if not await db.is_owner(message.from_user.id):
+        await message.answer("Bu bo'lim faqat do'kon egasi uchun.")
+        return None
+    return message.from_user.id  # owner uchun shop_id = o'z telegram_id'si
+
+
+@router.message(F.text == "🧑‍💼 Sotuvchilar")
+async def open_sellers(message: Message, state: FSMContext):
+    await state.clear()
+    if await _require_owner(message) is None:
+        return
+    await message.answer("Sotuvchilar bo'limi:", reply_markup=kb.sellers_menu())
+
+
+@router.message(F.text == "➕ Sotuvchi qo'shish")
+async def add_seller_start(message: Message, state: FSMContext):
+    if await _require_owner(message) is None:
+        return
+    await state.set_state(AddSeller.waiting_input)
+    await message.answer(
+        "Yangi sotuvchini qo'shish uchun:\n\n"
+        "• uning istalgan xabarini shu yerga forward qiling,\n"
+        "yoki\n"
+        "• uning Telegram ID raqamini yuboring (masalan, @userinfobot orqali bilib olishi mumkin)."
     )
-    return {
-        "telegram_id": s["telegram_id"],
-        "seller_name": s.get("seller_name"),
-        "full_name": s.get("full_name"),
-        "username": s.get("username"),
-        "display_name": s.get("seller_name") or telegram_label,
-        "phone_number": s.get("phone_number"),
-        "branch_id": s.get("branch_id"),
-        "branch_name": branch_name,
-    }
 
 
-async def api_sellers_list(request: web.Request):
-    """GET /api/webapp/sellers - joriy do'kon egasining barcha sotuvchilari
-    (filial nomi bilan birga) + tanlash uchun filiallar ro'yxati + joriy
-    sklad huquqi holati (front-end shu javobdan "Sotuvchilar" ekranini
-    bitta so'rovda to'liq quradi)."""
-    auth, err = await _require_owner_auth(request)
-    if err:
-        return err
+# ---------- BIR MARTALIK TAKLIF LINKI ----------
+# owner uchun /users.py'dagi "Bir martalik link"ka o'xshaydi, lekin bu link
+# FAQAT shu do'kon egasining o'z do'koniga sotuvchi qo'shadi (shop_id token
+# bilan birga saqlanadi).
 
-    shop_id = auth["shop_id"]
-    sellers = await db.get_sellers(shop_id)
-    branches = await db.get_branches(shop_id)
-    branch_map = {b["id"]: b["name"] for b in branches}
+@router.message(F.text == "🔗 Sotuvchi uchun link")
+async def create_seller_invite_link(message: Message):
+    shop_id = await _require_owner(message)
+    if shop_id is None:
+        return
 
-    payload = [
-        _seller_payload(s, branch_map.get(s.get("branch_id"), "Bosh filial"))
-        for s in sellers
-    ]
-    can_add_stock = await db.get_sellers_can_add_stock(shop_id)
+    token = await db.create_seller_invite(shop_id, message.from_user.id, branch_id=await get_branch_id(shop_id))
+    me = await message.bot.get_me()
+    link = f"https://t.me/{me.username}?start=seller_{token}"
 
-    return web.json_response({
-        "sellers": payload,
-        "branches": [{"id": b["id"], "name": b["name"]} for b in branches],
-        "sellers_can_add_stock": can_add_stock,
-    })
+    await message.answer(
+        "🔗 Sotuvchi uchun bir martalik taklif linki tayyor:\n\n"
+        f"{link}\n\n"
+        "Buni yangi sotuvchiga yuboring. U linkni bosib botni ochishi bilanoq "
+        "avtomatik sizning do'koningizga sotuvchi sifatida qo'shiladi.\n\n"
+        "⚠️ Link faqat BITTA marta ishlaydi — birinchi bosgan odam uchun. "
+        "Agar boshqa birov ham shu linkni keyinroq bossa, unga \"link band\" "
+        "deb xabar beriladi.",
+        reply_markup=kb.sellers_menu(),
+    )
 
 
-async def api_sellers_add(request: web.Request):
-    """POST /api/webapp/sellers - yangi sotuvchini FAQAT telegram_id orqali
-    qo'shadi (body: {"telegram_id": ...}). Bot tarafidagi add_seller_finish()
-    bilan AYNAN BIR XIL tekshiruvlar: bosh admin, boshqa do'konning egasi
-    yoki allaqachon (istalgan do'konning) sotuvchisi bo'la olmaydi. Yangi
-    sotuvchi joriy do'kon egasining hozirgi filialiga biriktiriladi."""
-    auth, err = await _require_owner_auth(request)
-    if err:
-        return err
-    shop_id = auth["shop_id"]
+@router.message(AddSeller.waiting_input)
+async def add_seller_finish(message: Message, state: FSMContext):
+    shop_id = await _require_owner(message)
+    if shop_id is None:
+        await state.clear()
+        return
 
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid_json"}, status=400)
+    target_id = None
+    full_name = None
+    username = None
 
-    try:
-        target_id = int(str(body.get("telegram_id")).strip())
-    except (TypeError, ValueError, AttributeError):
-        return web.json_response({"error": "invalid_telegram_id"}, status=400)
+    if message.forward_from:
+        target_id = message.forward_from.id
+        full_name = message.forward_from.full_name
+        username = message.forward_from.username
+    elif message.text and message.text.strip().lstrip("-").isdigit():
+        target_id = int(message.text.strip())
+    else:
+        await message.answer(
+            "Iltimos, xabarni forward qiling yoki faqat Telegram ID raqamini yuboring."
+        )
+        return
 
-    if access_control.is_admin(target_id):
-        return web.json_response({"error": "already_admin"}, status=409)
+    if is_admin(target_id):
+        await message.answer("Bu foydalanuvchi bosh admin - sotuvchi qila olmaysiz.", reply_markup=kb.sellers_menu())
+        await state.clear()
+        return
+
     if await db.is_owner(target_id):
-        return web.json_response({"error": "already_owner"}, status=409)
-    if await db.is_seller(target_id):
-        return web.json_response({"error": "already_seller"}, status=409)
+        await message.answer(
+            "Bu foydalanuvchi allaqachon bir do'konning egasi - sotuvchi qila olmaysiz.",
+            reply_markup=kb.sellers_menu(),
+        )
+        await state.clear()
+        return
 
-    branch_id = await access_control.get_branch_id(shop_id)
-    await db.add_seller(
-        target_id, shop_id, None, None, added_by=auth["telegram_id"], branch_id=branch_id
+    if await db.is_seller(target_id):
+        await message.answer(
+            "Bu foydalanuvchi allaqachon (sizning yoki boshqa) do'konga sotuvchi sifatida qo'shilgan.",
+            reply_markup=kb.sellers_menu(),
+        )
+        await state.clear()
+        return
+
+    branch_id = await get_branch_id(shop_id)
+    await db.add_seller(target_id, shop_id, full_name, username, added_by=message.from_user.id, branch_id=branch_id)
+    await state.clear()
+
+    name_part = f" ({full_name})" if full_name else ""
+    branch_label = "Bosh filial"
+    if branch_id:
+        branch = await db.get_branch(shop_id, branch_id)
+        if branch:
+            branch_label = branch["name"]
+    await message.answer(
+        f"✅ Sotuvchi qo'shildi{name_part}. ID: {target_id}\n"
+        f"🏢 Filial: {branch_label}\n\n"
+        f"Endi u botga /start bosib kira oladi - lekin faqat savdo, mahsulotlar "
+        f"ro'yxatini ko'rish (tannarxsiz) va qarz daftar bilan ishlay oladi. "
+        f"Birinchi /start'da undan ismi va telefon raqami so'raladi - shu "
+        f"ma'lumot \"📋 Sotuvchilar ro'yxati\"da ko'rinadi.",
+        reply_markup=kb.sellers_menu(),
     )
 
-    bot = request.app["bot"]
     try:
-        await bot.send_message(
+        await message.bot.send_message(
             target_id,
             "✅ Sizga do'kon boshqaruv botidan sotuvchi sifatida foydalanish huquqi berildi.\n"
             "Boshlash uchun /start buyrug'ini bosing.",
@@ -154,82 +149,153 @@ async def api_sellers_add(request: web.Request):
     except Exception:
         pass
 
-    seller = await db.get_seller(target_id)
+
+@router.message(F.text == "📋 Sotuvchilar ro'yxati")
+async def list_sellers(message: Message, state: FSMContext):
+    await state.clear()
+    shop_id = await _require_owner(message)
+    if shop_id is None:
+        return
+
+    sellers = await db.get_sellers(shop_id)
+    if not sellers:
+        await message.answer("Hozircha sotuvchilar qo'shilmagan.", reply_markup=kb.sellers_menu())
+        return
+
+    await message.answer("🧑‍💼 <b>Sotuvchilar:</b>", parse_mode="HTML", reply_markup=kb.sellers_menu())
+    for s in sellers:
+        telegram_label = s["full_name"] or (f"@{s['username']}" if s["username"] else str(s["telegram_id"]))
+        name_line = f"👤 {s['seller_name']}" if s.get("seller_name") else f"👤 {telegram_label}"
+        phone_line = f"\n📞 {s['phone_number']}" if s.get("phone_number") else "\n📞 (hali kiritmagan)"
+
+        branch_label = "Bosh filial"
+        if s.get("branch_id"):
+            branch = await db.get_branch(shop_id, s["branch_id"])
+            if branch:
+                branch_label = branch["name"]
+
+        await message.answer(
+            f"{name_line}{phone_line}\n🏢 Filial: {branch_label}\nTelegram: {telegram_label}\nID: {s['telegram_id']}",
+            reply_markup=kb.seller_action_kb(s["telegram_id"]),
+        )
+
+
+@router.callback_query(F.data.startswith("seller_branch_menu_"))
+async def seller_branch_menu_cb(callback: CallbackQuery):
+    shop_id = callback.from_user.id
+    if not await db.is_owner(shop_id):
+        await callback.answer("Bu bo'lim faqat do'kon egasi uchun.", show_alert=True)
+        return
+
+    seller_telegram_id = int(callback.data.replace("seller_branch_menu_", ""))
+    seller = await db.get_seller(seller_telegram_id)
+    if not seller or seller.get("shop_id") != shop_id:
+        await callback.answer("Sotuvchi topilmadi.", show_alert=True)
+        return
+
     branches = await db.get_branches(shop_id)
-    branch_map = {b["id"]: b["name"] for b in branches}
-    branch_name = branch_map.get(seller.get("branch_id"), "Bosh filial")
-    return web.json_response({"seller": _seller_payload(seller, branch_name)})
+    await callback.message.answer(
+        "Sotuvchini qaysi filialga o'tkazishni tanlang:",
+        reply_markup=kb.seller_branch_choice_kb(seller_telegram_id, branches, seller.get("branch_id")),
+    )
+    await callback.answer()
 
 
-async def api_sellers_remove(request: web.Request):
-    """POST /api/webapp/sellers/remove - body: {"telegram_id": ...}.
-    db.remove_seller shop_id bilan birga tekshiradi - do'kon egasi faqat
-    O'Z sotuvchisini o'chira oladi (xuddi bot tarafidagi remove_seller_cb
-    kabi)."""
-    auth, err = await _require_owner_auth(request)
-    if err:
-        return err
-    shop_id = auth["shop_id"]
+@router.callback_query(F.data.startswith("seller_branch_set_"))
+async def seller_branch_set_cb(callback: CallbackQuery):
+    shop_id = callback.from_user.id
+    if not await db.is_owner(shop_id):
+        await callback.answer("Bu bo'lim faqat do'kon egasi uchun.", show_alert=True)
+        return
 
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    parts = callback.data.split("_")
+    seller_telegram_id = int(parts[-2])
+    branch_val = parts[-1]
+    branch_id = None if branch_val == "0" else int(branch_val)
 
-    try:
-        target_id = int(str(body.get("telegram_id")).strip())
-    except (TypeError, ValueError, AttributeError):
-        return web.json_response({"error": "invalid_telegram_id"}, status=400)
-
-    removed = await db.remove_seller(shop_id, target_id)
-    if not removed:
-        return web.json_response({"error": "not_found"}, status=404)
-    return web.json_response({"ok": True})
-
-
-async def api_sellers_set_branch(request: web.Request):
-    """POST /api/webapp/sellers/branch - body: {"telegram_id": ..,
-    "branch_id": .. YOKI null}. Bot tarafidagi seller_branch_set_cb bilan
-    bir xil: branch_id=null -> "Bosh filial", aks holda shu do'konga
-    tegishli filial ekani tekshiriladi."""
-    auth, err = await _require_owner_auth(request)
-    if err:
-        return err
-    shop_id = auth["shop_id"]
-
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    try:
-        target_id = int(str(body.get("telegram_id")).strip())
-    except (TypeError, ValueError, AttributeError):
-        return web.json_response({"error": "invalid_telegram_id"}, status=400)
-
-    branch_id = body.get("branch_id")
-    branch_name = "Bosh filial"
+    # branch_id belgilangan bo'lsa, shu do'konga tegishli ekanini tekshiramiz -
+    # boshqa do'kon egasining filial id'sini taxmin qilib yubormasin.
     if branch_id is not None:
-        try:
-            branch_id = int(branch_id)
-        except (TypeError, ValueError):
-            return web.json_response({"error": "invalid_branch_id"}, status=400)
         branch = await db.get_branch(shop_id, branch_id)
         if not branch:
-            return web.json_response({"error": "branch_not_found"}, status=404)
-        branch_name = branch["name"]
+            await callback.answer("Filial topilmadi.", show_alert=True)
+            return
+        branch_label = branch["name"]
+    else:
+        branch_label = "Bosh filial"
 
-    moved = await db.set_seller_branch(shop_id, target_id, branch_id)
+    moved = await db.set_seller_branch(shop_id, seller_telegram_id, branch_id)
     if not moved:
-        return web.json_response({"error": "not_found"}, status=404)
+        await callback.answer("Sotuvchi topilmadi.", show_alert=True)
+        return
 
-    return web.json_response({"ok": True, "branch_id": branch_id, "branch_name": branch_name})
+    await callback.answer(f"✅ \"{branch_label}\" filialiga ko'chirildi.")
+    try:
+        await callback.message.edit_text(f"🏢 Sotuvchi endi: {branch_label}")
+    except Exception:
+        pass
 
 
-def register_routes(app: web.Application) -> None:
-    """webapp.py'ning create_web_app() ichidan chaqiriladi - shu modulning
-    barcha route'larini bitta joyda ro'yxatdan o'tkazadi."""
-    app.router.add_get("/api/webapp/sellers", api_sellers_list)
-    app.router.add_post("/api/webapp/sellers", api_sellers_add)
-    app.router.add_post("/api/webapp/sellers/remove", api_sellers_remove)
-    app.router.add_post("/api/webapp/sellers/branch", api_sellers_set_branch)
+# ---------- 8-BOSQICH: MINI APP "SKLAD" BO'LIMI UCHUN RUXSAT ----------
+# Do'kon egasi shu orqali sotuvchilariga Mini App'dagi "📦 Sklad" bo'limi
+# orqali tovar miqdori qo'shishga ruxsat berish/bermaslikni belgilaydi.
+# Standart holat - ruxsat berilgan (eski xatti-harakat bilan mos).
+
+@router.message(F.text == "🔐 Sklad ruxsati")
+async def sklad_permission_menu(message: Message):
+    shop_id = await _require_owner(message)
+    if shop_id is None:
+        return
+
+    allowed = await db.get_sellers_can_add_stock(shop_id)
+    status = "🔓 Sotuvchiga ruxsat berilgan" if allowed else "🚫 Faqat egaga (sotuvchiga taqiqlangan)"
+    await message.answer(
+        "🔐 <b>Sklad ruxsati</b>\n\n"
+        "Mini App'dagi \"📦 Sklad\" bo'limi orqali sotuvchi tovar miqdorini "
+        "qo'sha oladimi-yo'qmi, shuni belgilaydi (do'kon egasi bunga har doim "
+        "ruxsatli).\n\n"
+        f"Hozirgi holat: <b>{status}</b>",
+        parse_mode="HTML",
+        reply_markup=kb.sklad_permission_kb(allowed),
+    )
+
+
+@router.callback_query(F.data.in_({"sklad_perm_on", "sklad_perm_off"}))
+async def sklad_permission_set_cb(callback: CallbackQuery):
+    shop_id = callback.from_user.id
+    if not await db.is_owner(shop_id):
+        await callback.answer("Bu bo'lim faqat do'kon egasi uchun.", show_alert=True)
+        return
+
+    allowed = callback.data == "sklad_perm_on"
+    await db.set_sellers_can_add_stock(shop_id, allowed)
+
+    status = "🔓 Sotuvchiga ruxsat berilgan" if allowed else "🚫 Faqat egaga (sotuvchiga taqiqlangan)"
+    try:
+        await callback.message.edit_text(
+            "🔐 <b>Sklad ruxsati</b>\n\n"
+            "Mini App'dagi \"📦 Sklad\" bo'limi orqali sotuvchi tovar miqdorini "
+            "qo'sha oladimi-yo'qmi, shuni belgilaydi (do'kon egasi bunga har doim "
+            "ruxsatli).\n\n"
+            f"Hozirgi holat: <b>{status}</b>",
+            parse_mode="HTML",
+            reply_markup=kb.sklad_permission_kb(allowed),
+        )
+    except Exception:
+        pass
+    await callback.answer("✅ Saqlandi.")
+
+
+@router.callback_query(F.data.startswith("remove_seller_"))
+async def remove_seller_cb(callback: CallbackQuery):
+    if not await db.is_owner(callback.from_user.id):
+        await callback.answer()
+        return
+
+    target_id = int(callback.data.replace("remove_seller_", ""))
+    removed = await db.remove_seller(callback.from_user.id, target_id)
+    if removed:
+        await callback.message.edit_text(f"❌ O'chirildi. ID: {target_id}")
+    else:
+        await callback.answer("Topilmadi (avval o'chirilgan bo'lishi mumkin).", show_alert=True)
+    await callback.answer()
