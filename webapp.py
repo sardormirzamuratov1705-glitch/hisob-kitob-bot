@@ -198,11 +198,14 @@ async def api_profile(request: web.Request):
     if auth["role"] == "owner":
         sellers = await db.get_sellers(shop_id)
         products = await db.get_all_products(shop_id)
+        current_branch_id = (owner or {}).get("current_branch_id")
+        current_branch = next((b for b in branches if b["id"] == current_branch_id), None)
         payload.update({
             "owner_name": (owner or {}).get("owner_name"),
             "phone_number": (owner or {}).get("phone_number"),
             "sellers_count": len(sellers),
             "products_count": len(products),
+            "branch_name": current_branch["name"] if current_branch else "Bosh filial",
         })
     else:  # seller
         seller = await db.get_seller(auth["telegram_id"])
@@ -220,6 +223,56 @@ async def api_profile(request: web.Request):
         })
 
     return web.json_response(payload)
+
+
+async def api_branches_list(request: web.Request):
+    """MINI APP ICHIDAN FILIALGA O'TISH: filiallar ro'yxati + joriy filial.
+    Faqat HAQIQIY do'kon egasi uchun - sotuvchi o'z filialini o'zi
+    almashtira olmaydi (qarang: access_control.get_branch_id izohi,
+    handlers/branches.py bilan bir xil qoida)."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] != "owner":
+        return web.json_response({"error": "not_applicable"}, status=404)
+
+    shop_id = auth["shop_id"]
+    owner = await db.get_owner(shop_id)
+    branches = await db.get_branches(shop_id)
+    current_branch_id = (owner or {}).get("current_branch_id")
+    return web.json_response({
+        "branches": [{"id": b["id"], "name": b["name"]} for b in branches],
+        "current_branch_id": current_branch_id,
+    })
+
+
+async def api_branches_switch(request: web.Request):
+    """handlers/branches.py'dagi branch_switch_cb bilan AYNAN BIR XIL amal -
+    faqat mini app'dan chaqirilishi uchun. branch_id=null yuborilsa -
+    "Bosh filial" (filialga bog'lanmagan holat)ga qaytaradi."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] != "owner":
+        return web.json_response({"error": "not_applicable"}, status=404)
+
+    shop_id = auth["shop_id"]
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    branch_id = body.get("branch_id")
+
+    branch_name = "Bosh filial"
+    if branch_id is not None:
+        branch = await db.get_branch(shop_id, int(branch_id))
+        if not branch:
+            return web.json_response({"error": "not_found"}, status=404)
+        branch_name = branch["name"]
+        branch_id = branch["id"]
+
+    await db.set_owner_current_branch(shop_id, branch_id)
+    return web.json_response({"ok": True, "branch_id": branch_id, "branch_name": branch_name})
 
 
 async def api_products(request: web.Request):
@@ -1319,6 +1372,8 @@ def create_web_app(bot) -> web.Application:
 
     app.router.add_get("/api/webapp/me", api_me)
     app.router.add_get("/api/webapp/profile", api_profile)
+    app.router.add_get("/api/webapp/branches", api_branches_list)
+    app.router.add_post("/api/webapp/branches/switch", api_branches_switch)
     app.router.add_get("/api/webapp/products", api_products)
     app.router.add_get("/api/webapp/products/by-barcode", api_product_by_barcode)
     app.router.add_get("/api/webapp/cross_sell", api_cross_sell)
