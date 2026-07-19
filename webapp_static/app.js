@@ -47,6 +47,24 @@ const API = {
   skladCreateProduct: "/api/webapp/sklad/create-product",
   skladUpdateProduct: "/api/webapp/sklad/update-product",
   skladHistory: "/api/webapp/sklad/history",
+
+  // 11-BOSQICH: BOSH ADMIN PANELI
+  adminStats: "/api/webapp/admin/stats",
+  adminOwners: "/api/webapp/admin/owners",
+  adminOwnerInviteLink: "/api/webapp/admin/owners/invite-link",
+  adminOwner: (id) => `/api/webapp/admin/owners/${id}`,
+  adminOwnerExtend: (id) => `/api/webapp/admin/owners/${id}/extend`,
+  adminOwnerBlock: (id) => `/api/webapp/admin/owners/${id}/block`,
+  adminOwnerUnblock: (id) => `/api/webapp/admin/owners/${id}/unblock`,
+  adminAdmins: "/api/webapp/admin/admins",
+  adminAdminsInviteLink: "/api/webapp/admin/admins/invite-link",
+  adminAdmin: (id) => `/api/webapp/admin/admins/${id}`,
+  adminPayments: "/api/webapp/admin/payments",
+  adminPaymentPhoto: (id) => `/api/webapp/admin/payments/${id}/photo`,
+  adminPaymentApprove: (id) => `/api/webapp/admin/payments/${id}/approve`,
+  adminPaymentReject: (id) => `/api/webapp/admin/payments/${id}/reject`,
+  adminSettings: "/api/webapp/admin/settings",
+  adminBroadcast: "/api/webapp/admin/broadcast",
 };
 
 let cart = []; // [{id, name, qty, price, stock}]
@@ -78,7 +96,10 @@ async function loadMe() {
 const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
-  ["loading", "error", "products", "cart", "sklad"].forEach((s) => {
+  [
+    "loading", "error", "products", "cart", "sklad",
+    "admin-stats", "admin-owners", "admin-payments", "admin-settings",
+  ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
   });
 }
@@ -1560,10 +1581,665 @@ el("sklad-search-input").addEventListener("keydown", async (e) => {
   await handleSkladBarcodeScan(code);
 });
 
+// ============================================================
+// 11-BOSQICH: BOSH ADMIN PANELI
+// ============================================================
+// Bu bo'lim faqat currentUser.role === "admin" bo'lsa ishga tushadi
+// (qarang: eng pastdagi init()). Do'kon egasi/sotuvchi uchun mutlaqo
+// yashirin - hech qanday admin so'rovi ularning sessiyasida bajarilmaydi.
+
+let currentAdminSection = "stats"; // "stats" | "owners" | "payments" | "settings"
+let currentAdminOwner = null; // hozir modal-admin-owner-detail'da ochiq turgan ega
+
+const STATUS_LABELS = {
+  active: "✅ Faol",
+  trial: "🎁 Sinov muddati",
+  expired: "⌛ Muddati tugagan",
+  blocked: "⛔ Bloklangan",
+  pending_trial: "⏳ Tasdiqlanmagan",
+  unknown: "❔ Noma'lum",
+};
+
+function statusBadgeHtml(status) {
+  const label = STATUS_LABELS[status] || STATUS_LABELS.unknown;
+  return `<span class="status-badge status-${escapeHtml(status || "unknown")}">${label}</span>`;
+}
+
+// Havolani (taklif linki) nusxalashga urinadi, muvaffaqiyatsiz bo'lsa ham
+// linkning o'zi tg.showAlert orqali ko'rsatiladi - foydalanuvchi baribir
+// qo'lda nusxalay oladi.
+async function copyLinkAndShow(link, title) {
+  try {
+    await navigator.clipboard.writeText(link);
+    tg.showAlert(`${title}\n\n${link}\n\n(havola nusxalandi)`);
+  } catch (e) {
+    tg.showAlert(`${title}\n\n${link}`);
+  }
+}
+
+function switchAdminSection(section) {
+  currentAdminSection = section;
+  document.querySelectorAll(".admin-nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.adminSection === section);
+  });
+  showScreen(`admin-${section}`);
+  if (section === "stats") loadAdminStats();
+  else if (section === "owners") loadAdminOwners(el("admin-owners-search-input").value.trim());
+  else if (section === "payments") loadAdminPayments();
+  else if (section === "settings") loadAdminSettings();
+}
+
+document.querySelectorAll(".admin-nav-btn").forEach((btn) => {
+  btn.addEventListener("click", () => switchAdminSection(btn.dataset.adminSection));
+});
+
+// ---------- 1) STATISTIKA ----------
+
+async function loadAdminStats() {
+  const grid = el("admin-stats-grid");
+  grid.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.adminStats);
+    if (!res.ok) throw new Error("Statistikani yuklab bo'lmadi.");
+    const data = await res.json();
+    renderAdminStats(data);
+  } catch (e) {
+    grid.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderAdminStats(data) {
+  const grid = el("admin-stats-grid");
+  const cards = [
+    ["🏪", data.owners_count, "Do'kon egalari"],
+    ["🧑‍💼", data.sellers_count, "Sotuvchilar"],
+    ["⛔", data.blocked_count, "Bloklangan", data.blocked_count > 0],
+    ["💳", data.pending_payments_count, "Kutilayotgan to'lovlar", data.pending_payments_count > 0],
+    ["👑", data.extra_admins_count, "Qo'shimcha adminlar"],
+  ];
+  grid.innerHTML = cards.map(([icon, value, label, warn]) => `
+    <div class="admin-stat-card${warn ? " stat-warning" : ""}">
+      <div class="admin-stat-value">${icon} ${formatNum(value)}</div>
+      <div class="admin-stat-label">${escapeHtml(label)}</div>
+    </div>
+  `).join("");
+}
+
+// ---------- 2) DO'KON EGALARI ----------
+
+async function loadAdminOwners(query = "") {
+  const list = el("admin-owners-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(`${API.adminOwners}?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error("Ro'yxatni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderAdminOwners(data.owners || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderAdminOwners(owners) {
+  const list = el("admin-owners-list");
+  list.innerHTML = "";
+  if (owners.length === 0) {
+    list.innerHTML = '<p class="muted">Hech narsa topilmadi.</p>';
+    return;
+  }
+  owners.forEach((o) => {
+    const card = document.createElement("div");
+    card.className = "product-card owner-card";
+    const title = o.shop_name || o.owner_name || o.full_name || String(o.telegram_id);
+    const sub = [o.owner_name, o.phone_number].filter(Boolean).join(" · ") || `ID: ${o.telegram_id}`;
+    const daysText = o.days_left != null
+      ? (o.days_left >= 0 ? `${o.days_left} kun qoldi` : `${Math.abs(o.days_left)} kun oldin tugagan`)
+      : "";
+    card.innerHTML = `
+      <div class="owner-card-top">
+        <div>
+          <div class="name">${escapeHtml(title)}</div>
+          <div class="sub">${escapeHtml(sub)}</div>
+        </div>
+        ${statusBadgeHtml(o.status)}
+      </div>
+      ${daysText ? `<div class="sub">📅 ${escapeHtml(daysText)}</div>` : ""}
+    `;
+    card.addEventListener("click", () => openOwnerDetail(o));
+    list.appendChild(card);
+  });
+}
+
+let adminOwnersSearchTimeout = null;
+el("admin-owners-search-input").addEventListener("input", (e) => {
+  clearTimeout(adminOwnersSearchTimeout);
+  const q = e.target.value;
+  adminOwnersSearchTimeout = setTimeout(() => loadAdminOwners(q.trim()), 300);
+});
+
+function openOwnerDetail(owner) {
+  currentAdminOwner = owner;
+  renderOwnerDetail(owner);
+  el("admin-owner-extend-days").value = "";
+  el("modal-admin-owner-detail").classList.remove("hidden");
+}
+
+function renderOwnerDetail(o) {
+  el("admin-owner-detail-title").textContent = o.shop_name || o.owner_name || o.full_name || String(o.telegram_id);
+  const rows = [
+    ["Telegram ID", o.telegram_id],
+    ["Ega F.I.Sh.", o.owner_name || "—"],
+    ["Telefon", o.phone_number || "—"],
+    ["Holat", STATUS_LABELS[o.status] || STATUS_LABELS.unknown],
+    ["Obuna muddati", o.subscription_until || "—"],
+  ];
+  el("admin-owner-detail-body").innerHTML = rows.map(([k, v]) => `
+    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
+  `).join("");
+  const blockBtn = el("admin-owner-block-btn");
+  blockBtn.textContent = o.blocked ? "✅ Blokdan chiqarish" : "⛔ Bloklash";
+}
+
+el("admin-owner-detail-close-btn").addEventListener("click", () => {
+  el("modal-admin-owner-detail").classList.add("hidden");
+  currentAdminOwner = null;
+});
+
+el("admin-owner-extend-btn").addEventListener("click", async () => {
+  if (!currentAdminOwner) return;
+  const days = parseInt(el("admin-owner-extend-days").value, 10);
+  if (!days) {
+    tg.showAlert("Kunlar sonini kiriting (masalan: 30 yoki -7).");
+    return;
+  }
+  const btn = el("admin-owner-extend-btn");
+  btn.disabled = true;
+  try {
+    const res = await apiFetch(API.adminOwnerExtend(currentAdminOwner.telegram_id), {
+      method: "POST",
+      body: JSON.stringify({ days }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert("Amalni bajarib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    currentAdminOwner = data.owner;
+    renderOwnerDetail(data.owner);
+    el("admin-owner-extend-days").value = "";
+    loadAdminOwners(el("admin-owners-search-input").value.trim());
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+el("admin-owner-block-btn").addEventListener("click", async () => {
+  if (!currentAdminOwner) return;
+  const blocking = !currentAdminOwner.blocked;
+  const url = blocking
+    ? API.adminOwnerBlock(currentAdminOwner.telegram_id)
+    : API.adminOwnerUnblock(currentAdminOwner.telegram_id);
+  try {
+    const res = await apiFetch(url, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert("Amalni bajarib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    currentAdminOwner = data.owner;
+    renderOwnerDetail(data.owner);
+    loadAdminOwners(el("admin-owners-search-input").value.trim());
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+el("admin-owner-remove-btn").addEventListener("click", async () => {
+  if (!currentAdminOwner) return;
+  const ok = await confirmAsync(
+    `"${currentAdminOwner.shop_name || currentAdminOwner.owner_name || currentAdminOwner.telegram_id}" butunlay o'chirilsinmi? Bu amalni ortga qaytarib bo'lmaydi.`
+  );
+  if (!ok) return;
+  try {
+    const res = await apiFetch(API.adminOwner(currentAdminOwner.telegram_id), { method: "DELETE" });
+    if (!res.ok) {
+      tg.showAlert("O'chirib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-admin-owner-detail").classList.add("hidden");
+    currentAdminOwner = null;
+    loadAdminOwners(el("admin-owners-search-input").value.trim());
+    loadAdminStats();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+el("admin-owner-add-btn").addEventListener("click", () => {
+  el("admin-owner-add-id-input").value = "";
+  el("modal-admin-owner-add").classList.remove("hidden");
+});
+
+el("admin-owner-add-cancel-btn").addEventListener("click", () => {
+  el("modal-admin-owner-add").classList.add("hidden");
+});
+
+el("admin-owner-add-save-btn").addEventListener("click", async () => {
+  const raw = el("admin-owner-add-id-input").value.trim();
+  if (!raw || !/^\d+$/.test(raw)) {
+    tg.showAlert("Telegram ID faqat raqamlardan iborat bo'lishi kerak.");
+    return;
+  }
+  const btn = el("admin-owner-add-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Qo'shilmoqda...";
+  try {
+    const res = await apiFetch(API.adminOwners, {
+      method: "POST",
+      body: JSON.stringify({ telegram_id: raw }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        already_admin: "Bu odam allaqachon bosh admin.",
+        already_owner: "Bu odam allaqachon do'kon egasi.",
+        invalid_telegram_id: "Telegram ID noto'g'ri.",
+      };
+      tg.showAlert(map[data.error] || "Qo'shib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-admin-owner-add").classList.add("hidden");
+    loadAdminOwners();
+    loadAdminStats();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Qo'shish";
+  }
+});
+
+el("admin-owner-invite-btn").addEventListener("click", async () => {
+  try {
+    const res = await apiFetch(API.adminOwnerInviteLink);
+    if (!res.ok) throw new Error("Taklif linkini olib bo'lmadi.");
+    const data = await res.json();
+    await copyLinkAndShow(data.link, "🔗 Do'kon egasi uchun taklif linki:");
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+// ---------- 3) KUTILAYOTGAN TO'LOVLAR ----------
+
+async function loadAdminPayments() {
+  const list = el("admin-payments-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.adminPayments);
+    if (!res.ok) throw new Error("To'lovlarni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderAdminPayments(data.payments || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderAdminPayments(payments) {
+  const list = el("admin-payments-list");
+  list.innerHTML = "";
+  if (payments.length === 0) {
+    list.innerHTML = '<p class="muted">Hozircha kutilayotgan to\'lov yo\'q.</p>';
+    return;
+  }
+  payments.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "product-card payment-card";
+    card.innerHTML = `
+      <div class="payment-card-top">
+        <div>
+          <div class="name">${escapeHtml(p.owner_label)}</div>
+          <div class="plan">${escapeHtml(p.plan_label)}</div>
+          <div class="amount">${formatNum(p.amount)} so'm${p.days ? ` · ${p.days} kun` : ""}</div>
+        </div>
+      </div>
+      <div class="sub">${escapeHtml(p.created_at || "")}</div>
+      <div class="payment-card-actions">
+        ${p.has_photo ? `<button type="button" class="pay-photo-btn" data-id="${p.id}">📷</button>` : ""}
+        <button type="button" class="pay-approve-btn" data-id="${p.id}">✅ Tasdiqlash</button>
+        <button type="button" class="pay-reject-btn" data-id="${p.id}">❌ Rad etish</button>
+      </div>
+    `;
+    if (p.has_photo) {
+      card.querySelector(".pay-photo-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openPaymentPhoto(p.id);
+      });
+    }
+    card.querySelector(".pay-approve-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      decidePayment(p.id, "approve");
+    });
+    card.querySelector(".pay-reject-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      decidePayment(p.id, "reject");
+    });
+    list.appendChild(card);
+  });
+}
+
+function openPaymentPhoto(paymentId) {
+  el("admin-payment-photo-img").src = API.adminPaymentPhoto(paymentId);
+  el("modal-admin-payment-photo").classList.remove("hidden");
+}
+
+el("admin-payment-photo-close-btn").addEventListener("click", () => {
+  el("modal-admin-payment-photo").classList.add("hidden");
+  el("admin-payment-photo-img").src = "";
+});
+
+async function decidePayment(paymentId, action) {
+  const verb = action === "approve" ? "tasdiqlansinmi" : "rad etilsinmi";
+  const ok = await confirmAsync(`Bu to'lov ${verb}?`);
+  if (!ok) return;
+  const url = action === "approve" ? API.adminPaymentApprove(paymentId) : API.adminPaymentReject(paymentId);
+  try {
+    const res = await apiFetch(url, { method: "POST" });
+    if (!res.ok) {
+      tg.showAlert("Bu to'lov bo'yicha allaqachon qaror qabul qilingan.");
+      loadAdminPayments();
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    loadAdminPayments();
+    loadAdminStats();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+// ---------- 4) ADMINLAR / TO'LOV SOZLAMALARI / OMMAVIY XABAR ----------
+
+async function loadAdminSettings() {
+  el("admin-admins-list").innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  el("admin-payment-settings-list").innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const [adminsRes, settingsRes] = await Promise.all([
+      apiFetch(API.adminAdmins),
+      apiFetch(API.adminSettings),
+    ]);
+    if (adminsRes.ok) {
+      const data = await adminsRes.json();
+      renderAdminAdmins(data.admins || [], data.env_admin_ids || []);
+    }
+    if (settingsRes.ok) {
+      const data = await settingsRes.json();
+      renderAdminPaymentSettings(data.plans || {}, data.requisites || {});
+    }
+  } catch (e) {
+    // Ikkala ro'yxat mustaqil - biri xato bersa ham ikkinchisi ko'rinishda qoladi.
+  }
+}
+
+function renderAdminAdmins(admins, envIds) {
+  const list = el("admin-admins-list");
+  const envRows = envIds.map((id) => `
+    <div class="admin-settings-row">
+      <div>
+        <div class="value">👑 ${id}</div>
+        <div class="env-tag">🔒 .env orqali qo'shilgan</div>
+      </div>
+    </div>
+  `);
+  const dbRows = admins.map((a) => `
+    <div class="admin-settings-row" data-admin-id="${a.telegram_id}">
+      <div>
+        <div class="value">👑 ${escapeHtml(a.full_name || a.username || String(a.telegram_id))}</div>
+        <div class="env-tag">ID: ${a.telegram_id}</div>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="admin-remove-admin-btn" data-id="${a.telegram_id}">🗑</button>
+      </div>
+    </div>
+  `);
+  const all = envRows.concat(dbRows).join("");
+  list.innerHTML = all || '<p class="muted">Hozircha qo\'shimcha admin yo\'q.</p>';
+  list.querySelectorAll(".admin-remove-admin-btn").forEach((btn) => {
+    btn.addEventListener("click", () => removeAdmin(btn.dataset.id));
+  });
+}
+
+async function removeAdmin(adminId) {
+  const ok = await confirmAsync("Bu odamning bosh admin huquqi olib tashlansinmi?");
+  if (!ok) return;
+  try {
+    const res = await apiFetch(API.adminAdmin(adminId), { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(data.message || "O'chirib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    loadAdminSettings();
+    loadAdminStats();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+el("admin-admin-add-btn").addEventListener("click", () => {
+  el("admin-admin-add-id-input").value = "";
+  el("modal-admin-admin-add").classList.remove("hidden");
+});
+
+el("admin-admin-add-cancel-btn").addEventListener("click", () => {
+  el("modal-admin-admin-add").classList.add("hidden");
+});
+
+el("admin-admin-add-save-btn").addEventListener("click", async () => {
+  const raw = el("admin-admin-add-id-input").value.trim();
+  if (!raw || !/^\d+$/.test(raw)) {
+    tg.showAlert("Telegram ID faqat raqamlardan iborat bo'lishi kerak.");
+    return;
+  }
+  const btn = el("admin-admin-add-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Qo'shilmoqda...";
+  try {
+    const res = await apiFetch(API.adminAdmins, {
+      method: "POST",
+      body: JSON.stringify({ telegram_id: raw }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        already_admin: "Bu odam allaqachon bosh admin.",
+        is_owner: "Bu odam do'kon egasi - avval uni olib tashlang.",
+        is_seller: "Bu odam sotuvchi - avval uni olib tashlang.",
+        invalid_telegram_id: "Telegram ID noto'g'ri.",
+      };
+      tg.showAlert(map[data.error] || "Qo'shib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-admin-admin-add").classList.add("hidden");
+    loadAdminSettings();
+    loadAdminStats();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Qo'shish";
+  }
+});
+
+el("admin-admin-invite-btn").addEventListener("click", async () => {
+  try {
+    const res = await apiFetch(API.adminAdminsInviteLink);
+    if (!res.ok) throw new Error("Taklif linkini olib bo'lmadi.");
+    const data = await res.json();
+    await copyLinkAndShow(data.link, "🔗 Bosh admin uchun taklif linki:");
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+// To'lov sozlamalari: narx maydonlari (price_1m/3m/12m) va rekvizitlar
+// (card_number/card_holder/click_number/payme_number) bitta xil
+// ro'yxat ko'rinishida - har birining yonida ✏️ tugmasi orqali
+// modal-admin-setting-edit ochiladi.
+const PAYMENT_SETTING_LABELS = {
+  price_1m: "1 oylik obuna narxi",
+  price_3m: "3 oylik obuna narxi",
+  price_12m: "12 oylik obuna narxi",
+  card_number: "Karta raqami",
+  card_holder: "Karta egasi (F.I.Sh.)",
+  click_number: "Click raqami",
+  payme_number: "Payme raqami",
+};
+let currentSettingEditKey = null;
+
+function renderAdminPaymentSettings(plans, requisites) {
+  const list = el("admin-payment-settings-list");
+  const rows = [];
+  [["1m", "price_1m"], ["3m", "price_3m"], ["12m", "price_12m"]].forEach(([planKey, settingKey]) => {
+    const plan = plans[planKey];
+    if (!plan) return;
+    rows.push([settingKey, `${formatNum(plan.price)} so'm`]);
+  });
+  [
+    ["card_number", requisites.card_number],
+    ["card_holder", requisites.card_holder],
+    ["click_number", requisites.click_number],
+    ["payme_number", requisites.payme_number],
+  ].forEach(([key, value]) => rows.push([key, value || "—"]));
+
+  list.innerHTML = rows.map(([key, displayValue]) => `
+    <div class="admin-settings-row">
+      <div>
+        <div class="label">${escapeHtml(PAYMENT_SETTING_LABELS[key])}</div>
+        <div class="value">${escapeHtml(String(displayValue))}</div>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="admin-edit-setting-btn" data-key="${key}">✏️</button>
+      </div>
+    </div>
+  `).join("");
+
+  list.querySelectorAll(".admin-edit-setting-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openSettingEdit(btn.dataset.key));
+  });
+}
+
+function openSettingEdit(key) {
+  currentSettingEditKey = key;
+  el("admin-setting-edit-title").textContent = `✏️ ${PAYMENT_SETTING_LABELS[key] || key}`;
+  const input = el("admin-setting-edit-input");
+  input.value = "";
+  input.inputMode = key.startsWith("price_") ? "numeric" : "text";
+  el("modal-admin-setting-edit").classList.remove("hidden");
+}
+
+el("admin-setting-edit-cancel-btn").addEventListener("click", () => {
+  el("modal-admin-setting-edit").classList.add("hidden");
+  currentSettingEditKey = null;
+});
+
+el("admin-setting-edit-save-btn").addEventListener("click", async () => {
+  if (!currentSettingEditKey) return;
+  const value = el("admin-setting-edit-input").value.trim();
+  if (!value) {
+    tg.showAlert("Qiymatni kiriting.");
+    return;
+  }
+  if (currentSettingEditKey.startsWith("price_") && (!/^\d+$/.test(value) || parseInt(value, 10) <= 0)) {
+    tg.showAlert("Narx musbat butun son bo'lishi kerak (masalan: 60000).");
+    return;
+  }
+  const btn = el("admin-setting-edit-save-btn");
+  btn.disabled = true;
+  try {
+    const res = await apiFetch(API.adminSettings, {
+      method: "POST",
+      body: JSON.stringify({ key: currentSettingEditKey, value }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert("Saqlab bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-admin-setting-edit").classList.add("hidden");
+    currentSettingEditKey = null;
+    renderAdminPaymentSettings(data.plans || {}, data.requisites || {});
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------- OMMAVIY XABAR ----------
+
+el("admin-broadcast-send-btn").addEventListener("click", async () => {
+  const text = el("admin-broadcast-text").value.trim();
+  if (!text) {
+    tg.showAlert("Xabar matnini kiriting.");
+    return;
+  }
+  const ok = await confirmAsync("Xabar BARCHA do'kon egalari va sotuvchilarga yuborilsin?");
+  if (!ok) return;
+
+  const btn = el("admin-broadcast-send-btn");
+  btn.disabled = true;
+  btn.textContent = "Yuborilmoqda...";
+  try {
+    const res = await apiFetch(API.adminBroadcast, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert("Xabarni yuborib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("admin-broadcast-text").value = "";
+    tg.showAlert(`✅ Yuborildi: ${data.sent} ta. Muvaffaqiyatsiz: ${data.failed} ta.`);
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "📢 Yuborish";
+  }
+});
+
+// ---------- ADMIN REJIMINI ISHGA TUSHIRISH ----------
+// currentUser.role === "admin" bo'lganda chaqiriladi (qarang: init()) -
+// oddiy do'kon egasi/sotuvchi ekranlarini (Savdo/Sklad) butunlay
+// yashiradi va statistika ekranidan boshlaydi.
+function startAdminMode() {
+  document.body.classList.add("admin-mode");
+  el("app-header").classList.add("hidden");
+  el("admin-header").classList.remove("hidden");
+  el("admin-bottom-nav").classList.remove("hidden");
+  switchAdminSection("stats");
+}
+
 // ---------- BOSHLASH ----------
 
 (async function init() {
   showScreen("loading");
   await loadMe();
+  if (currentUser.role === "admin") {
+    startAdminMode();
+    return;
+  }
   await loadProducts();
 })();
