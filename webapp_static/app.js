@@ -167,8 +167,14 @@ function escapeHtml(text) {
   return d.innerHTML;
 }
 
+// O'QISHGA QULAY BO'LISHI UCHUN: minglik xonalarni bo'sh joy bilan
+// ajratamiz (masalan 1000000 -> "1 000 000", 10000 -> "10 000"). Bu
+// funksiya BUTUN ilova bo'ylab (narx, miqdor, summalar) yagona joydan
+// ishlatiladi, shuning uchun o'zgartirish har yerda avtomatik qo'llanadi.
 function formatNum(n) {
-  return Number(n).toFixed(0);
+  const num = Math.round(Number(n) || 0);
+  const sign = num < 0 ? "-" : "";
+  return sign + Math.abs(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
 // YANGI: mahsulot qoldig'i do'kon egasi belgilagan "ogohlantirish
@@ -1163,6 +1169,7 @@ function openSkladNewProductModal(prefilledBarcode = "") {
   el("sklad-new-sell-price-input").value = "";
   el("sklad-new-min-price-input").value = "";
   el("sklad-new-quantity-input").value = 1;
+  el("sklad-new-alert-input").value = "";
   el("sklad-new-barcode-input").value = prefilledBarcode;
   el("modal-sklad-new").classList.remove("hidden");
 }
@@ -1235,6 +1242,7 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
   const price = parseFloat(el("sklad-new-price-input").value);
   const sellPriceRaw = el("sklad-new-sell-price-input").value;
   const minPriceRaw = el("sklad-new-min-price-input").value;
+  const alertQtyRaw = el("sklad-new-alert-input").value;
   const quantity = parseFloat(el("sklad-new-quantity-input").value);
 
   if (!name) {
@@ -1274,6 +1282,15 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
       return;
     }
     body.min_price = minPrice;
+  }
+
+  if (alertQtyRaw !== "") {
+    const alertQty = parseFloat(alertQtyRaw);
+    if (isNaN(alertQty) || alertQty < 0) {
+      tg.showAlert("Ogohlantirish sonini to'g'ri kiriting.");
+      return;
+    }
+    body.alert_quantity = alertQty;
   }
 
   // 5-BOSQICH: sotish narxi tannarxdan PAST kiritilsa - bu ko'pincha
@@ -1355,6 +1372,7 @@ function openSkladEditModal(product) {
   el("sklad-edit-price-input").value = product.price ?? "";
   el("sklad-edit-sell-price-input").value = product.sell_price ?? "";
   el("sklad-edit-min-price-input").value = product.min_price ?? "";
+  el("sklad-edit-alert-input").value = product.alert_quantity ?? "";
   el("sklad-edit-barcode-input").value = product.barcode || "";
   el("modal-sklad-edit").classList.remove("hidden");
 }
@@ -1388,6 +1406,7 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
 
   const sellPriceRaw = el("sklad-edit-sell-price-input").value;
   const minPriceRaw = el("sklad-edit-min-price-input").value;
+  const alertQtyRaw = el("sklad-edit-alert-input").value;
   const barcodeRaw = el("sklad-edit-barcode-input").value.trim();
 
   if (sellPriceRaw !== "" && (isNaN(parseFloat(sellPriceRaw)) || parseFloat(sellPriceRaw) < 0)) {
@@ -1398,6 +1417,10 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
     tg.showAlert("Eng past narxni to'g'ri kiriting.");
     return;
   }
+  if (alertQtyRaw !== "" && (isNaN(parseFloat(alertQtyRaw)) || parseFloat(alertQtyRaw) < 0)) {
+    tg.showAlert("Ogohlantirish sonini to'g'ri kiriting.");
+    return;
+  }
 
   const body = {
     product_id: currentEditProduct.id,
@@ -1405,6 +1428,7 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
     price,
     sell_price: sellPriceRaw === "" ? "" : parseFloat(sellPriceRaw),
     min_price: minPriceRaw === "" ? "" : parseFloat(minPriceRaw),
+    alert_quantity: alertQtyRaw === "" ? "" : parseFloat(alertQtyRaw),
     barcode: barcodeRaw,
   };
 
