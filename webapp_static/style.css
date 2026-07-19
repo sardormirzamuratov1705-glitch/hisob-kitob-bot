@@ -40,6 +40,68 @@ body[data-theme="default"] {
   --hint: var(--tg-theme-hint-color, #8a8f98);
 }
 
+/* 2-BOSQICH: 4 ta YANGI mavzu - foydalanuvchi taqdim etgan 5 ta
+   variantga mos ranglar (rasm/robotsiz, faqat CSS ranglar - shu bilan
+   ilova yengil qolaveradi). Hozircha bularni tanlash tugmasi YO'Q
+   (3-bosqichda qo'shiladi) - lekin brauzer konsolida sinab ko'rish
+   uchun: document.body.dataset.theme = "purple" (yoki "teal",
+   "midnight", "nature", "gold") deb yozib ko'rish mumkin.
+
+   DIQQAT: sayt bo'ylab ba'zi joylarda soya/chegara ranglari qattiq
+   qora rangga (rgba(0,0,0,...)) yozilgan - och fonda yaxshi ko'rinadi,
+   lekin to'q fonli mavzularda unchalik bilinmasligi mumkin. Buni
+   5-bosqichda (sinov/nozik sozlash) alohida ko'rib chiqamiz. */
+
+/* 1-VARIANT: to'q binafsha (dark purple) */
+body[data-theme="purple"] {
+  --accent: #8b5cf6;
+  --accent-text: #ffffff;
+  --bg: #150f20;
+  --card-bg: #211a30;
+  --text: #f2eefb;
+  --hint: #9c93b5;
+}
+
+/* 2-VARIANT: yashil-moviy (teal), och fon */
+body[data-theme="teal"] {
+  --accent: #12b8a6;
+  --accent-text: #ffffff;
+  --bg: #f1f7f6;
+  --card-bg: #ffffff;
+  --text: #16302c;
+  --hint: #75948e;
+}
+
+/* 3-VARIANT: to'q ko'k (dark navy / AI uslubi) */
+body[data-theme="midnight"] {
+  --accent: #3b82f6;
+  --accent-text: #ffffff;
+  --bg: #0a1626;
+  --card-bg: #122238;
+  --text: #edf3fb;
+  --hint: #7d93b6;
+}
+
+/* 4-VARIANT: och, tabiiy yashil (light) */
+body[data-theme="nature"] {
+  --accent: #2f9e58;
+  --accent-text: #ffffff;
+  --bg: #f5f8f4;
+  --card-bg: #ffffff;
+  --text: #17251b;
+  --hint: #7b9082;
+}
+
+/* 5-VARIANT: to'q qora + oltin (dark gold) */
+body[data-theme="gold"] {
+  --accent: #e0ab2e;
+  --accent-text: #1a1408;
+  --bg: #0f0d0a;
+  --card-bg: #1d1811;
+  --text: #f6ecd9;
+  --hint: #a89877;
+}
+
 html, body {
   height: 100%;
   overflow-x: hidden;
@@ -1202,3 +1264,49 @@ body.admin-mode .screen {
 }
 .plan-row:active { opacity: 0.8; transform: scale(0.98); }
 .plan-row.current { box-shadow: 0 0 0 1.5px var(--accent), 0 1px 3px rgba(0, 0, 0, 0.06); }
+
+/* MAVZULAR TANLAGICHI - 3-BOSQICH (Profil ekranida) */
+
+.theme-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.theme-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  width: 78px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.theme-swatch:active { transform: scale(0.96); }
+
+.theme-swatch.active {
+  border-color: var(--accent);
+}
+
+.theme-swatch-dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.theme-dot-default { background: linear-gradient(135deg, #5b8def, #f4f6fb); }
+.theme-dot-purple { background: linear-gradient(135deg, #8b5cf6, #150f20); }
+.theme-dot-teal { background: linear-gradient(135deg, #12b8a6, #f1f7f6); }
+.theme-dot-midnight { background: linear-gradient(135deg, #3b82f6, #0a1626); }
+.theme-dot-nature { background: linear-gradient(135deg, #2f9e58, #f5f8f4); }
+.theme-dot-gold { background: linear-gradient(135deg, #e0ab2e, #0f0d0a); }
