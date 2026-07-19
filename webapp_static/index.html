@@ -266,6 +266,14 @@
     </div>
     <div class="section-title">ℹ️ Ma'lumotlar</div>
     <div id="profile-detail-body" class="admin-detail-body profile-detail-card"></div>
+    <!-- 6-BLOK, 12-BOSQICH: SOZLAMALAR - "Ma'lumotlar" kartasidagi F.I.Sh./
+         do'kon nomi/telefonni tahrirlash (qarang: app.js openSettingsEdit(),
+         backend: webapp_handlers/settings.py, 11-bosqich). Alohida tab
+         emas - Profil ekraniga "qo'shimcha amal" sifatida qo'shildi, chunki
+         xuddi shu ma'lumotlarni Profil allaqachon ko'rsatib turibdi. -->
+    <div class="sklad-toolbar">
+      <button id="settings-edit-btn" type="button" class="secondary-btn">✏️ Sozlamalarni tahrirlash</button>
+    </div>
   </div>
 
   <!-- 9-BOSQICH: SKLAD TARIXI oynasi -->
@@ -568,6 +576,33 @@
       <div class="modal-actions">
         <button id="branch-edit-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
         <button id="branch-edit-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       6-BLOK, 12-BOSQICH: SOZLAMALAR oynasi - rolga qarab maydonlar
+       ko'rsatiladi/yashiriladi (app.js openSettingsEdit()), backend:
+       webapp_handlers/settings.py (11-bosqich). -->
+  <div id="modal-settings-edit" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>✏️ Sozlamalar</h3>
+      <div id="settings-owner-fields">
+        <label>F.I.Sh.</label>
+        <input id="settings-owner-name-input" type="text" placeholder="Ismingiz">
+        <label>Do'kon nomi</label>
+        <input id="settings-shop-name-input" type="text" placeholder="Do'kon nomi yoki turi">
+      </div>
+      <div id="settings-seller-fields">
+        <label>F.I.Sh.</label>
+        <input id="settings-seller-name-input" type="text" placeholder="Ismingiz">
+      </div>
+      <label>Telefon raqami</label>
+      <input id="settings-phone-input" type="text" placeholder="Masalan: +998901234567">
+      <div class="modal-actions">
+        <button id="settings-edit-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="settings-edit-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
       </div>
     </div>
   </div>
