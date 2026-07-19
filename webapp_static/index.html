@@ -22,6 +22,13 @@
     <div id="header-cart-badge" class="header-cart-badge hidden">0</div>
   </div>
 
+  <!-- 11-BOSQICH: BOSH ADMIN sarlavhasi - do'kon egasi/sotuvchining
+       "Savdo/Sklad" almashtirgichi o'rniga, faqat role==="admin" bo'lsa
+       ko'rinadi (qarang: app.js init()). -->
+  <div id="admin-header" class="app-header admin-header hidden">
+    <span class="admin-header-title">👑 Admin panel</span>
+  </div>
+
   <div id="screen-loading" class="screen">
     <div class="loading-spinner"></div>
     <p class="loading-text">Yuklanmoqda...</p>
@@ -242,6 +249,142 @@
       <div class="modal-actions">
         <button id="sklad-edit-cancel-btn" class="secondary-btn">Bekor qilish</button>
         <button id="sklad-edit-save-btn" class="primary-btn">✅ Saqlash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       11-BOSQICH: BOSH ADMIN PANELI (mini app)
+       ================================================================== -->
+
+  <!-- 1-EKRAN: statistika -->
+  <div id="screen-admin-stats" class="screen hidden">
+    <div class="section-title">📊 Statistika</div>
+    <div id="admin-stats-grid" class="admin-stats-grid"></div>
+  </div>
+
+  <!-- 2-EKRAN: do'kon egalari -->
+  <div id="screen-admin-owners" class="screen hidden">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input id="admin-owners-search-input" type="text" placeholder="Ism, do'kon, telefon yoki ID...">
+    </div>
+    <div class="sklad-toolbar">
+      <button id="admin-owner-add-btn" type="button" class="secondary-btn">➕ Qo'shish</button>
+      <button id="admin-owner-invite-btn" type="button" class="secondary-btn">🔗 Taklif linki</button>
+    </div>
+    <div id="admin-owners-list" class="product-list"></div>
+  </div>
+
+  <!-- 3-EKRAN: kutilayotgan to'lovlar -->
+  <div id="screen-admin-payments" class="screen hidden">
+    <div class="section-title">💳 Kutilayotgan to'lovlar</div>
+    <div id="admin-payments-list" class="product-list"></div>
+  </div>
+
+  <!-- 4-EKRAN: adminlar / to'lov sozlamalari / ommaviy xabar -->
+  <div id="screen-admin-settings" class="screen hidden">
+    <div class="section-title">👑 Bosh adminlar</div>
+    <div class="sklad-toolbar">
+      <button id="admin-admin-add-btn" type="button" class="secondary-btn">➕ Qo'shish</button>
+      <button id="admin-admin-invite-btn" type="button" class="secondary-btn">🔗 Taklif linki</button>
+    </div>
+    <div id="admin-admins-list" class="admin-settings-list"></div>
+
+    <div class="section-title">💳 To'lov sozlamalari</div>
+    <div id="admin-payment-settings-list" class="admin-settings-list"></div>
+
+    <div class="section-title">📢 Ommaviy xabar</div>
+    <p class="muted">Barcha do'kon egalari va sotuvchilarga yuboriladi.</p>
+    <textarea id="admin-broadcast-text" class="admin-textarea" placeholder="Xabar matnini kiriting..."></textarea>
+    <button id="admin-broadcast-send-btn" class="primary-btn full-width">📢 Yuborish</button>
+  </div>
+
+  <!-- PASTKI NAVIGATSIYA - faqat role==="admin" bo'lsa ko'rinadi. -->
+  <div id="admin-bottom-nav" class="admin-bottom-nav hidden">
+    <button type="button" class="admin-nav-btn active" data-admin-section="stats">
+      <span class="admin-nav-icon">📊</span><span>Statistika</span>
+    </button>
+    <button type="button" class="admin-nav-btn" data-admin-section="owners">
+      <span class="admin-nav-icon">🏪</span><span>Do'konlar</span>
+    </button>
+    <button type="button" class="admin-nav-btn" data-admin-section="payments">
+      <span class="admin-nav-icon">💳</span><span>To'lovlar</span>
+    </button>
+    <button type="button" class="admin-nav-btn" data-admin-section="settings">
+      <span class="admin-nav-icon">⚙️</span><span>Sozlamalar</span>
+    </button>
+  </div>
+
+  <!-- Do'kon egasi tafsiloti + amallar oynasi -->
+  <div id="modal-admin-owner-detail" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="admin-owner-detail-title"></h3>
+      <div id="admin-owner-detail-body" class="admin-detail-body"></div>
+
+      <label>Necha kunga uzaytirish?</label>
+      <div class="admin-extend-row">
+        <input id="admin-owner-extend-days" type="number" inputmode="numeric" placeholder="30">
+        <button id="admin-owner-extend-btn" type="button" class="secondary-btn admin-extend-btn">➕ Uzaytirish</button>
+      </div>
+
+      <div class="modal-actions">
+        <button id="admin-owner-block-btn" type="button" class="secondary-btn">⛔ Bloklash</button>
+        <button id="admin-owner-remove-btn" type="button" class="secondary-btn admin-danger-btn">🗑 O'chirish</button>
+      </div>
+      <button id="admin-owner-detail-close-btn" type="button" class="secondary-btn">Yopish</button>
+    </div>
+  </div>
+
+  <!-- Yangi do'kon egasi qo'shish oynasi -->
+  <div id="modal-admin-owner-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi do'kon egasi</h3>
+      <p class="muted">Telegram ID orqali qo'shiladi (foydalanuvchi hali botga /start bosmagan bo'lsa ham bo'ladi).</p>
+      <label>Telegram ID</label>
+      <input id="admin-owner-add-id-input" type="text" inputmode="numeric" placeholder="Masalan: 123456789">
+      <div class="modal-actions">
+        <button id="admin-owner-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="admin-owner-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Yangi bosh admin qo'shish oynasi -->
+  <div id="modal-admin-admin-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi bosh admin</h3>
+      <label>Telegram ID</label>
+      <input id="admin-admin-add-id-input" type="text" inputmode="numeric" placeholder="Masalan: 123456789">
+      <div class="modal-actions">
+        <button id="admin-admin-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="admin-admin-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- To'lov chekini ko'rish oynasi -->
+  <div id="modal-admin-payment-photo" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>🧾 To'lov cheki</h3>
+      <img id="admin-payment-photo-img" class="admin-payment-photo" alt="Chek">
+      <button id="admin-payment-photo-close-btn" type="button" class="secondary-btn">Yopish</button>
+    </div>
+  </div>
+
+  <!-- To'lov sozlamasi qiymatini tahrirlash oynasi -->
+  <div id="modal-admin-setting-edit" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="admin-setting-edit-title"></h3>
+      <input id="admin-setting-edit-input" type="text">
+      <div class="modal-actions">
+        <button id="admin-setting-edit-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="admin-setting-edit-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
       </div>
     </div>
   </div>
