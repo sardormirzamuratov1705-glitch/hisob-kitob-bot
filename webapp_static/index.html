@@ -16,7 +16,13 @@
   <!-- 6-BOSQICH: "Savdo" / "Sklad" bo'limlari orasida almashtirgich -->
   <div id="app-header" class="app-header">
     <div class="section-tabs">
-      <button id="tab-sale" type="button" class="section-tab active" data-section="sale">🛒 Savdo</button>
+      <!-- YANGI: BOSH SAHIFA - foydalanuvchi taqdim etgan 5 ta dizayn
+           namunasidagi kirish ekrani, endi ENDILIKDA standart (default)
+           bo'lim (qarang: app.js currentSection, init()). Qarang:
+           #screen-home, app.js loadDashboard()/renderDashboard(),
+           backend: webapp_handlers/dashboard.py. -->
+      <button id="tab-home" type="button" class="section-tab active" data-section="home">🏠 Bosh sahifa</button>
+      <button id="tab-sale" type="button" class="section-tab" data-section="sale">🛒 Savdo</button>
       <button id="tab-sklad" type="button" class="section-tab" data-section="sklad">📦 Sklad</button>
       <!-- YANGI: "Olinishi kerak bo'lgan tovarlar" - bot tarafidagi
            "🧾 Olinishi kerak bo'lgan tovarlar" bo'limi bilan bir xil
@@ -75,6 +81,70 @@
       <div class="error-icon">⚠️</div>
       <p id="error-text">Xatolik yuz berdi.</p>
     </div>
+  </div>
+
+  <!-- YANGI: BOSH SAHIFA - foydalanuvchi taqdim etgan 5 ta dizayn
+       namunasi asosidagi yangi kirish ekrani. CSS ranglari mavjud 5 ta
+       mavzu o'zgaruvchisidan (--accent/--bg/--card-bg/--text/--hint,
+       qarang: style.css ":root" va "MAVZULAR" bo'limi) foydalanadi -
+       shuning uchun Profil ekranida qaysi mavzu tanlansa
+       (binafsha/teal/midnight/nature/gold), bu ekran ham AVTOMATIK
+       o'sha uslubga moslashadi - 5 ta rasmning hammasi shu YAGONA
+       joylashuvning boshqa-boshqa rang mavzusi, xolos.
+       Qarang: app.js loadDashboard()/renderDashboard(),
+       backend: webapp_handlers/dashboard.py. -->
+  <div id="screen-home" class="screen hidden">
+    <div class="home-greeting-row">
+      <div>
+        <div class="home-greeting" id="home-greeting">Salom! 👋</div>
+        <div class="home-subgreeting">Bugun ham biznesingizni birga rivojlantiramiz.</div>
+      </div>
+      <button type="button" class="home-bell-btn" id="home-bell-btn" title="Bildirishnomalar">🔔</button>
+    </div>
+
+    <div class="home-sales-card">
+      <div class="home-sales-label">Bugungi savdo</div>
+      <div class="home-sales-amount"><span id="home-sales-amount">0</span> <span class="sum-label">so'm</span></div>
+      <div class="home-sales-growth" id="home-sales-growth">—</div>
+    </div>
+
+    <div class="home-stats-grid">
+      <div class="home-stat-box">
+        <div class="home-stat-icon">🛍</div>
+        <div class="home-stat-value" id="home-stat-sold">0</div>
+        <div class="home-stat-label">Sotilgan mahsulot</div>
+      </div>
+      <div class="home-stat-box">
+        <div class="home-stat-icon">💳</div>
+        <div class="home-stat-value" id="home-stat-debts">0</div>
+        <div class="home-stat-label">Qarzdorlar</div>
+      </div>
+      <div class="home-stat-box">
+        <div class="home-stat-icon">📦</div>
+        <div class="home-stat-value" id="home-stat-stock">0</div>
+        <div class="home-stat-label">Ombordagi mahsulot</div>
+      </div>
+      <div class="home-stat-box home-stat-danger">
+        <div class="home-stat-icon">⚠️</div>
+        <div class="home-stat-value" id="home-stat-lowstock">0</div>
+        <div class="home-stat-label">Kamayib borayotgan</div>
+      </div>
+    </div>
+
+    <div class="home-menu-grid">
+      <button type="button" class="home-menu-item" data-home-action="sale"><span class="home-menu-icon">🧾</span>Kassa</button>
+      <button type="button" class="home-menu-item" data-home-action="sklad"><span class="home-menu-icon">📦</span>Ombor</button>
+      <button type="button" class="home-menu-item" data-home-action="branches"><span class="home-menu-icon">🏢</span>Filiallar</button>
+      <button type="button" class="home-menu-item" data-home-action="debts"><span class="home-menu-icon">👥</span>Qarzdorlar</button>
+      <button type="button" class="home-menu-item" data-home-action="reports"><span class="home-menu-icon">📊</span>Hisobotlar</button>
+      <button type="button" class="home-menu-item" data-home-action="ai"><span class="home-menu-icon">🤖</span>AI Tavsiyalar</button>
+      <button type="button" class="home-menu-item" data-home-action="restock"><span class="home-menu-icon">🛒</span>Sotib olish</button>
+      <button type="button" class="home-menu-item" data-home-action="settings"><span class="home-menu-icon">⚙️</span>Sozlamalar</button>
+    </div>
+
+    <button type="button" class="home-daily-report-bar" id="home-daily-report-btn">
+      <span>📋 Kunlik hisobot tayyor</span><span class="home-daily-report-link">Ko'rish ›</span>
+    </button>
   </div>
 
   <!-- 1-EKRAN: mahsulot tanlash -->
