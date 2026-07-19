@@ -693,6 +693,23 @@ async def clear_product_discount(shop_id: int, product_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+async def rename_product(shop_id: int, product_id: int, new_name: str) -> bool:
+    """7-BOSQICH (VEB-ILOVA): mahsulot nomini o'zgartiradi. update_product_field()
+    faqat narx ustunlariga ruxsat beradi (SQL in'ektsiyadan himoya uchun
+    whitelist), shuning uchun "name" uchun alohida, xuddi shunday xavfsiz
+    (parametrlashtirilgan) funksiya."""
+    new_name = (new_name or "").strip()
+    if not new_name:
+        return False
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "UPDATE products SET name = ? WHERE id = ? AND shop_id = ?",
+            (new_name, product_id, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def update_product_field(shop_id: int, product_id: int, field: str, value: float) -> bool:
     """Mahsulotning bitta narx ustunini (tannarx/sotuv narxi/eng past narx)
     qo'lda tahrirlash uchun - miqdorga va boshqa ustunlarga tegmaydi (bu
