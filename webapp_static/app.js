@@ -46,6 +46,7 @@ const API = {
   skladAddQuantity: "/api/webapp/sklad/add-quantity",
   skladCreateProduct: "/api/webapp/sklad/create-product",
   skladUpdateProduct: "/api/webapp/sklad/update-product",
+  skladHistory: "/api/webapp/sklad/history",
 };
 
 let cart = []; // [{id, name, qty, price, stock}]
@@ -1053,6 +1054,50 @@ el("sklad-new-product-btn").addEventListener("click", () => openSkladNewProductM
 
 el("sklad-new-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-new").classList.add("hidden");
+});
+
+// 9-BOSQICH: SKLAD TARIXI - "kim, qachon, qancha mahsulot qo'shgani".
+// Server allaqachon filtrlab (faqat sklad turdagi amallar) va oxirgi
+// 50 tasini yuborgani uchun bu yerda faqat ro'yxatni chizamiz.
+async function openSkladHistory() {
+  el("modal-sklad-history").classList.remove("hidden");
+  const list = el("sklad-history-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.skladHistory);
+    if (!res.ok) throw new Error("history_failed");
+    const data = await res.json();
+    renderSkladHistory(data.history || []);
+  } catch (e) {
+    list.innerHTML = '<p class="muted">Tarixni yuklab bo\'lmadi. Qayta urinib ko\'ring.</p>';
+  }
+}
+
+function renderSkladHistory(items) {
+  const list = el("sklad-history-list");
+  list.innerHTML = "";
+  if (items.length === 0) {
+    list.innerHTML = '<p class="muted">Hozircha sklad tarixi bo\'sh.</p>';
+    return;
+  }
+  items.forEach((h) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    row.innerHTML = `
+      <div class="history-row-top">
+        <span class="history-action">${escapeHtml(h.action)}</span>
+        <span class="history-time">${escapeHtml(h.created_at || "")}</span>
+      </div>
+      <div class="history-details">${escapeHtml(h.details || "")}</div>
+      <div class="history-actor">👤 ${escapeHtml(h.actor_name || "Noma'lum")}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+el("sklad-history-btn").addEventListener("click", () => openSkladHistory());
+el("sklad-history-close-btn").addEventListener("click", () => {
+  el("modal-sklad-history").classList.add("hidden");
 });
 
 // YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi 📷 tugmasi -
