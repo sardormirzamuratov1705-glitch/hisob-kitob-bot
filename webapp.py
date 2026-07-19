@@ -1515,6 +1515,25 @@ def create_web_app(bot) -> web.Application:
     from webapp_handlers.sellers import register_routes as _register_sellers_routes
     _register_sellers_routes(app)
 
+    # 2-BLOK, 3-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI (mini app) - alohida
+    # modulga chiqarilgan (qarang: webapp_handlers/branches.py). DIQQAT: bu
+    # chaqiruv 3-bosqichda yozilishi kerak edi, lekin o'sha paytda shu yerga
+    # ULANMAY qolib ketgan edi (create/rename/delete route'lari ro'yxatdan
+    # o'tmagan holda qolgan) - shu sababli 4-bosqichda (frontend) shu yerda
+    # TUZATILDI, aks holda yangi UI hech narsaga ulanmasdi.
+    from webapp_handlers.branches import register_routes as _register_branches_routes
+    _register_branches_routes(app)
+
+    # 3-BLOK, 5-BOSQICH: QARZLAR (mini app) - alohida modulga chiqarilgan
+    # (qarang: webapp_handlers/debts.py).
+    from webapp_handlers.debts import register_routes as _register_debts_routes
+    _register_debts_routes(app)
+
+    # 4-BLOK, 7-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR (mini app) - alohida
+    # modulga chiqarilgan (qarang: webapp_handlers/transactions.py).
+    from webapp_handlers.transactions import register_routes as _register_transactions_routes
+    _register_transactions_routes(app)
+
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
     app.router.add_get("/api/webapp/admin/owners", api_admin_owners_list)
