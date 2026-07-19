@@ -275,6 +275,27 @@ async def api_branches_switch(request: web.Request):
     return web.json_response({"ok": True, "branch_id": branch_id, "branch_name": branch_name})
 
 
+async def api_sklad_permission_set(request: web.Request):
+    """MINI APP ICHIDAN SKLAD RUXSATINI YOQISH/O'CHIRISH: handlers/sellers.py
+    dagi sklad_permission_set_cb (bot'dagi "🔐 Sklad ruxsati") bilan AYNAN
+    BIR XIL amal - faqat mini app Profil ekranidan chaqirilishi uchun.
+    Faqat HAQIQIY do'kon egasi o'zgartira oladi."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] != "owner":
+        return web.json_response({"error": "not_applicable"}, status=404)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    allowed = bool(body.get("allowed"))
+
+    await db.set_sellers_can_add_stock(auth["shop_id"], allowed)
+    return web.json_response({"ok": True, "allowed": allowed})
+
+
 async def api_products(request: web.Request):
     auth = await _authenticate(request)
     if not auth:
@@ -1374,6 +1395,7 @@ def create_web_app(bot) -> web.Application:
     app.router.add_get("/api/webapp/profile", api_profile)
     app.router.add_get("/api/webapp/branches", api_branches_list)
     app.router.add_post("/api/webapp/branches/switch", api_branches_switch)
+    app.router.add_post("/api/webapp/sklad-permission", api_sklad_permission_set)
     app.router.add_get("/api/webapp/products", api_products)
     app.router.add_get("/api/webapp/products/by-barcode", api_product_by_barcode)
     app.router.add_get("/api/webapp/cross_sell", api_cross_sell)
