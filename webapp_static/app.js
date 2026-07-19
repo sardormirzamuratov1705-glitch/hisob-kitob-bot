@@ -1002,6 +1002,24 @@ el("search-input").addEventListener("input", (e) => {
   searchTimeout = setTimeout(() => loadProducts(q), 300);
 });
 
+// LAZERLI SKANER: fizik USB/Bluetooth barkod-skanerlar odatda
+// "klaviatura" sifatida ishlaydi - barkodni tez terib, oxirida Enter
+// yuboradi. Foydalanuvchi shu maydonga fokus qo'yib skanerlasa, to'liq
+// barkod kelgach (Enter) kamera bilan skanerlangandagi BILAN BIR XIL
+// oqim (handleSaleBarcodeScan) ishga tushadi - qidiruv natijalari
+// ro'yxatidan qo'lda bosib qidirish shart bo'lmaydi.
+el("search-input").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const code = e.target.value.trim();
+  if (!code) return;
+  clearTimeout(searchTimeout);
+  tg.HapticFeedback.impactOccurred("light");
+  e.target.value = "";
+  loadProducts("");
+  await handleSaleBarcodeScan(code);
+});
+
 // ---------- 6/7-BOSQICH: "SKLAD" BO'LIMI ----------
 // "Savdo" bo'limidan mustaqil ekran: mahsulotni skanerlab yoki qidirib
 // topib, kelgan tovar sonini kiritish orqali skladni to'ldirish.
@@ -1523,6 +1541,23 @@ el("sklad-search-input").addEventListener("input", (e) => {
   clearTimeout(skladSearchTimeout);
   const q = e.target.value;
   skladSearchTimeout = setTimeout(() => loadSkladProducts(q.trim()), 300);
+});
+
+// LAZERLI SKANER: yuqoridagi (Savdo) qidiruv maydonidagi bilan bir xil
+// mantiq - fizik skaner bilan skanerlanganda (Enter yuboriladi) kamera
+// bilan skanerlangandagi oqim (handleSkladBarcodeScan) ishga tushadi;
+// ruxsat tekshiruvi handleSkladBarcodeScan → openSkladAddModal ichida
+// allaqachon bor.
+el("sklad-search-input").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const code = e.target.value.trim();
+  if (!code) return;
+  clearTimeout(skladSearchTimeout);
+  tg.HapticFeedback.impactOccurred("light");
+  e.target.value = "";
+  loadSkladProducts("");
+  await handleSkladBarcodeScan(code);
 });
 
 // ---------- BOSHLASH ----------
