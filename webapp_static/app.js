@@ -8,6 +8,14 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+// 1-BOSQICH: MAVZULAR (THEMES) POYDEVORI - hozircha faqat "default"
+// mavzu bor (qarang: style.css'dagi body[data-theme="default"]) - bu
+// AYNAN hozirgi ko'rinishni takrorlaydi. Keyingi bosqichlarda shu yerga
+// applyTheme() funksiyasi va tanlangan mavzuni serverdan o'qish/saqlash
+// qo'shiladi - hozircha faqat CSS o'zgaruvchilar tizimi ishga tayyor
+// bo'lishi uchun standart qiymat o'rnatiladi.
+document.body.dataset.theme = "default";
+
 // ZAXIRA (FALLBACK): ba'zi Telegram Desktop versiyalarida WebApp haqiqiy
 // "web_app" tugmasi orqali ochilsa ham (URL fragmentida #tgWebAppData=...
 // bo'ladi), Telegram.WebApp.initData bo'sh qolib ketadi - bu Telegramning
@@ -2650,22 +2658,31 @@ function renderSkladProducts(products) {
 }
 
 let currentSkladProduct = null;
+let skladAddFromRestock = false;
 
-function openSkladAddModal(product) {
+function openSkladAddModal(product, fromRestock = false) {
   if (!currentUser.canAddStock) {
     tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
     return;
   }
   currentSkladProduct = product;
+  skladAddFromRestock = fromRestock;
   el("sklad-modal-product-name").textContent = product.name;
   applyStockWarning(el("sklad-modal-product-stock"), `Hozir skladda ${formatNum(product.quantity)} dona bor`, product);
   el("sklad-modal-qty-input").value = 1;
+  el("sklad-modal-cost-input").value = "";
+  // "Kerak" (olinishi kerak bo'lgan tovarlar) ro'yxatidan ochilganda -
+  // bu HAQIQIY xarid, shuning uchun narx so'raladi va moliyaga "Chiqim"
+  // yoziladi. Oddiy "Sklad" bo'limidan ochilganda esa narx so'ralmaydi,
+  // moliyaga tegilmaydi (masalan miqdorni to'g'irlash uchun).
+  el("sklad-modal-cost-row").classList.toggle("hidden", !fromRestock);
   el("modal-sklad-add").classList.remove("hidden");
 }
 
 el("sklad-modal-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-add").classList.add("hidden");
   currentSkladProduct = null;
+  skladAddFromRestock = false;
   if (openedViaScan) stopScanner();
   openedViaScan = false;
 });
@@ -2678,6 +2695,17 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     return;
   }
 
+  // "Kerak" ro'yxatidan ochilgan bo'lsa - bu haqiqiy xarid, shuning uchun
+  // narx MAJBURIY (moliyaga "Chiqim" shu narxdan yoziladi).
+  let unitCost = null;
+  if (skladAddFromRestock) {
+    unitCost = parseFloat(el("sklad-modal-cost-input").value);
+    if (!unitCost || unitCost <= 0) {
+      tg.showAlert("Sotib olingan narxini kiriting.");
+      return;
+    }
+  }
+
   const btn = el("sklad-modal-add-btn");
   const productId = currentSkladProduct.id;
   const productName = currentSkladProduct.name;
@@ -2686,9 +2714,11 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
   btn.textContent = "Yuborilmoqda...";
 
   try {
+    const body = { product_id: productId, qty };
+    if (unitCost) body.unit_cost = unitCost;
     const res = await apiFetch(API.skladAddQuantity, {
       method: "POST",
-      body: JSON.stringify({ product_id: productId, qty }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -2699,6 +2729,7 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     tg.HapticFeedback.notificationOccurred("success");
     el("modal-sklad-add").classList.add("hidden");
     currentSkladProduct = null;
+    skladAddFromRestock = false;
     loadSkladProducts(el("sklad-search-input").value.trim());
     // "Olinishi kerak" ro'yxatidan ("📉 Skladda kamayib qolgan") ochilgan
     // bo'lsa - tovar endi to'ldirilgani uchun ro'yxatni yangilaymiz.
@@ -2709,6 +2740,7 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     // natijani skaner oynasining o'zida (yashil status) ko'rsatamiz -
     // shunda ketma-ket skanerlash to'xtamaydi. Qo'lda (ro'yxatdan
     // bosib) qo'shilgan bo'lsa - odatdagidek to'liq xabar chiqadi.
+    const costLine = unitCost ? `\n💸 Xarajat: ${formatNum(unitCost * qty)} so'm (Tranzaksiyalarga yozildi)` : "";
     if (viaScan) {
       openedViaScan = false;
       continueScanning(
@@ -2716,7 +2748,7 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
         `✅ ${productName}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona`
       );
     } else {
-      tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.`);
+      tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.${costLine}`);
     }
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
@@ -2729,6 +2761,7 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
 function skladErrorText(data) {
   const map = {
     invalid_quantity: "Miqdor noto'g'ri.",
+    invalid_unit_cost: "Sotib olingan narxi noto'g'ri.",
     invalid_item: "Mahsulot ma'lumoti noto'g'ri.",
     missing_product: "Mahsulot tanlanmagan.",
     product_not_found: "Mahsulot topilmadi (ehtimol o'chirilgan).",
@@ -2968,6 +3001,15 @@ async function saveSkladNewProduct(body) {
   btn.disabled = true;
   btn.textContent = "Saqlanmoqda...";
 
+  // YANGI: "Kerak" ro'yxatidagi qo'lda qo'shilgan tovarni "✅ olindi" deb
+  // belgilashdan ochilgan bo'lsa (pendingManualRestockId bor) - bu HAQIQIY
+  // xarid, shuning uchun backend narx*miqdor bo'yicha moliyaga "Chiqim"
+  // yozishi uchun belgi yuboramiz. Oddiy "+ Yangi mahsulot" tugmasidan
+  // (pendingManualRestockId yo'q) ochilganda esa moliyaga tegilmaydi.
+  if (pendingManualRestockId != null) {
+    body.is_purchase = true;
+  }
+
   try {
     const res = await apiFetch(API.skladCreateProduct, {
       method: "POST",
@@ -2981,7 +3023,10 @@ async function saveSkladNewProduct(body) {
 
     tg.HapticFeedback.notificationOccurred("success");
     el("modal-sklad-new").classList.add("hidden");
-    tg.showAlert(`✅ "${data.product.name}" mahsuloti qo'shildi.`);
+    const costLine = body.is_purchase && body.price > 0
+      ? `\n💸 Xarajat: ${formatNum(body.price * body.quantity)} so'm (Tranzaksiyalarga yozildi)`
+      : "";
+    tg.showAlert(`✅ "${data.product.name}" mahsuloti qo'shildi.${costLine}`);
     loadSkladProducts(el("sklad-search-input").value.trim());
 
     // YANGI: agar bu oyna "Olinishi kerak" ro'yxatidagi qo'lda qo'shilgan
@@ -3089,7 +3134,7 @@ function renderRestockList(data) {
         </div>
       `;
       if (manage) {
-        card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p); });
+        card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p, true); });
       }
       lowList.appendChild(card);
     });
