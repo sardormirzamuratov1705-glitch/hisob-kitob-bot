@@ -489,6 +489,7 @@ const BARCODE_FORMATS = window.Html5QrcodeSupportedFormats
 
 let html5QrCode = null;
 let scanHandled = false;
+let torchFeature = null; // 4-BOSQICH: fonar (torch) - qo'llab-quvvatlansa shu yerga saqlanadi
 // YANGI REJA - 6-BOSQICH: endi UCHALA rejim ham ("sale", "sklad",
 // "sklad_new") bitta-bittalab ishlaydi - skanerlandi -> kamera
 // to'xtaydi -> tegishli oyna ochiladi -> keyingisi uchun foydalanuvchi
@@ -532,12 +533,49 @@ async function openScanner(mode = "sale") {
       onBarcodeDecoded,
       () => {} // har bir kadrda "topilmadi" - bu normal holat, e'tiborsiz qoldiramiz
     );
+    await setupTorchButton();
   } catch (err) {
     setScannerStatus("Kameraga ruxsat berilmadi. Telegram sozlamalaridan ruxsat bering.", "error");
   }
 }
 
+// 4-BOSQICH: FONAR (TORCH). Har bir qurilma/brauzer buni qo'llab-
+// quvvatlavermaydi (ayniqsa old kamera yoki ba'zi Android WebView'lar) -
+// shuning uchun qo'llab-quvvatlanmasa tugma shunchaki YASHIRIN qoladi,
+// xatolik chiqarilmaydi.
+async function setupTorchButton() {
+  const btn = el("scanner-torch-btn");
+  btn.classList.add("hidden");
+  btn.classList.remove("torch-on");
+  torchFeature = null;
+  try {
+    const capabilities = html5QrCode.getRunningTrackCameraCapabilities();
+    const feature = capabilities.torchFeature();
+    if (feature && feature.isSupported && feature.isSupported()) {
+      torchFeature = feature;
+      btn.classList.remove("hidden");
+    }
+  } catch (e) {
+    // Fonar bu qurilmada qo'llab-quvvatlanmaydi - tugma yashirin qoladi.
+  }
+}
+
+el("scanner-torch-btn").addEventListener("click", async () => {
+  if (!torchFeature) return;
+  const btn = el("scanner-torch-btn");
+  const turnOn = !btn.classList.contains("torch-on");
+  try {
+    await torchFeature.apply(turnOn);
+    btn.classList.toggle("torch-on", turnOn);
+  } catch (e) {
+    tg.showAlert("Fonarni yoqib bo'lmadi.");
+  }
+});
+
 async function stopScanner() {
+  el("scanner-torch-btn").classList.add("hidden");
+  el("scanner-torch-btn").classList.remove("torch-on");
+  torchFeature = null;
   if (!html5QrCode) return;
   try {
     if (html5QrCode.isScanning) {
@@ -588,15 +626,43 @@ async function onBarcodeDecoded(decodedText) {
     return;
   }
 
-  // YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi barkod
-  // maydonini skanerlangan qiymat bilan to'ldirish - bu yerda hech
-  // qanday qidiruv/tekshiruv QILINMAYDI (u faqat "✅ Qo'shish"
-  // bosilganda, backendda amalga oshadi - qarang: skladCreateErrorText
-  // "barcode_exists"), chunki foydalanuvchi hali boshqa maydonlarni
-  // (nom/narx/miqdor) to'ldirib ulgurmagan bo'lishi mumkin.
+  // 3/9-BOSQICH (YANGILANDI): "Yangi mahsulot" oynasidan skanerlanganda
+  // ENDI ham "sklad" rejimidagi kabi AVVAL barkod bo'yicha qidiruv
+  // qilinadi - agar bu barkod allaqachon boshqa mahsulotga tegishli
+  // bo'lsa, foydalanuvchi "yangi mahsulot" formasini bekorga to'ldirib
+  // o'tirmasin deb, to'g'ridan-to'g'ri O'SHA MAHSULOTGA miqdor qo'shish
+  // oynasi (modal-sklad-add) ochiladi. Faqat HAQIQATAN topilmasa, eski
+  // xatti-harakat (barkodni "Yangi mahsulot" formasiga to'ldirib qo'yish)
+  // ishlaydi.
   if (scannerMode === "sklad_new") {
+    setScannerStatus("Qidirilmoqda...");
     await stopScanner();
     el("modal-scanner").classList.add("hidden");
+    try {
+      const res = await apiFetch(`${API.productByBarcode}?code=${encodeURIComponent(decodedText)}`);
+      const data = await res.json();
+      if (res.ok) {
+        // Mahsulot TOPILDI - "Yangi mahsulot" oynasi ENDI ochilmaydi,
+        // o'rniga shu mahsulotga miqdor qo'shish oynasi ochiladi.
+        tg.showAlert(`Bu mahsulot allaqachon bor: "${data.product.name}". Nechta qo'shasiz?`);
+        openSkladAddModal(data.product);
+        scanHandled = false;
+        return;
+      }
+      if (data.error !== "not_found") {
+        tg.showAlert("Barkod bo'yicha qidirishda xatolik yuz berdi.");
+        el("modal-sklad-new").classList.remove("hidden");
+        scanHandled = false;
+        return;
+      }
+    } catch (e) {
+      tg.showAlert(e.message || "Xatolik yuz berdi.");
+      el("modal-sklad-new").classList.remove("hidden");
+      scanHandled = false;
+      return;
+    }
+    // Topilmadi - bu HAQIQATAN yangi mahsulot, barkodni formaga
+    // to'ldirib, "Yangi mahsulot" oynasini qayta ko'rsatamiz.
     el("sklad-new-barcode-input").value = decodedText;
     el("modal-sklad-new").classList.remove("hidden");
     scanHandled = false;
@@ -857,6 +923,7 @@ function openSkladNewProductModal(prefilledBarcode = "") {
   el("sklad-new-name-input").value = "";
   el("sklad-new-price-input").value = "";
   el("sklad-new-sell-price-input").value = "";
+  el("sklad-new-min-price-input").value = "";
   el("sklad-new-quantity-input").value = 1;
   el("sklad-new-barcode-input").value = prefilledBarcode;
   el("modal-sklad-new").classList.remove("hidden");
@@ -881,6 +948,7 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
   const name = el("sklad-new-name-input").value.trim();
   const price = parseFloat(el("sklad-new-price-input").value);
   const sellPriceRaw = el("sklad-new-sell-price-input").value;
+  const minPriceRaw = el("sklad-new-min-price-input").value;
   const quantity = parseFloat(el("sklad-new-quantity-input").value);
 
   if (!name) {
@@ -910,6 +978,34 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
     body.sell_price = sellPrice;
   }
 
+  let minPrice = null;
+  if (minPriceRaw !== "") {
+    minPrice = parseFloat(minPriceRaw);
+    if (isNaN(minPrice) || minPrice < 0) {
+      tg.showAlert("Eng past narxni to'g'ri kiriting.");
+      return;
+    }
+    body.min_price = minPrice;
+  }
+
+  // 2-BOSQICH: agar "eng past narx" umuman kiritilmasa - buni indamay
+  // o'tkazib yubormaymiz, chunki bu maydon sotuvchilarning narxni juda
+  // pastga tushirib yuborishining OLDINI OLADI. Shuning uchun kiritilmasa
+  // ANIQ OGOHLANTIRIB, davom etish/qaytib kiritishni so'raymiz.
+  if (minPrice === null) {
+    tg.showConfirm(
+      "Eng past narx kiritilmadi. Bunday holda sotuvchilar bu mahsulotni istalgan (hatto juda past) narxda sotib yuborishi mumkin.\n\nShunday davom etamizmi?",
+      (confirmed) => {
+        if (confirmed) saveSkladNewProduct(body);
+      }
+    );
+    return;
+  }
+
+  await saveSkladNewProduct(body);
+});
+
+async function saveSkladNewProduct(body) {
   const btn = el("sklad-new-save-btn");
   btn.disabled = true;
   btn.textContent = "Saqlanmoqda...";
@@ -935,13 +1031,14 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
     btn.disabled = false;
     btn.textContent = "✅ Qo'shish";
   }
-});
+}
 
 function skladCreateErrorText(data) {
   const map = {
     missing_name: "Mahsulot nomini kiriting.",
     invalid_price: "Tannarx noto'g'ri.",
     invalid_sell_price: "Sotish narxi noto'g'ri.",
+    invalid_min_price: "Eng past narx noto'g'ri.",
     invalid_quantity: "Miqdor noto'g'ri.",
     forbidden: "🔒 Sizga skladga mahsulot qo'shishga ruxsat berilmagan.",
     barcode_exists: `Bu barkod allaqachon "${data.product ? data.product.name : ""}" mahsulotida bor.`,
