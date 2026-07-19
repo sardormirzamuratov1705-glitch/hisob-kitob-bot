@@ -34,6 +34,11 @@
            ruxsat qoidasi: "Kirim" qo'shish FAQAT do'kon egasiga, "Chiqim"
            qo'shish va ro'yxatni ko'rish ikkalasiga ham). -->
       <button id="tab-transactions" type="button" class="section-tab" data-section="transactions">💰 Tranzaksiyalar</button>
+      <!-- 5-BLOK, 10-BOSQICH: HISOBOTLAR - do'kon egasi HAM, sotuvchi HAM
+           ko'radi (bot tarafidagi handlers/reports.py._require_shop() bilan
+           bir xil - qarang: app.js loadReports(), backend:
+           webapp_handlers/reports.py, 9-bosqich). -->
+      <button id="tab-reports" type="button" class="section-tab" data-section="reports">📊 Hisobotlar</button>
       <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat HAQIQIY do'kon
            egasiga ko'rinadi (standart holatda "hidden", app.js loadMe()
            ichida role==="owner" bo'lsa ko'rsatiladi - xuddi sotuvchi
@@ -176,6 +181,56 @@
     <div id="tx-list" class="history-list"></div>
   </div>
 
+  <!-- 5-BLOK, 10-BOSQICH: HISOBOTLAR - do'kon egasi HAM, sotuvchi HAM ko'radi
+       (qarang: app.js loadReports(), backend: webapp_handlers/reports.py,
+       9-bosqich). Bot tarafidagi "📊 Umumiy hisobot" / "🏢 Filial bo'yicha
+       hisobot" / "🆚 Filiallar solishtiruvi" / "🆚 Sotuvchilar solishtiruvi" /
+       "📈 Oylik prognoz" / "📉 Trend tahlili" / "🏆 Top mahsulotlar" /
+       "🔔 Kunlik hisobot" / "🚨 Shubhali holatlar" / "🗂 Audit jurnali"
+       bo'limlarining HAMMASI shu bitta ekranda. -->
+  <div id="screen-reports" class="screen hidden">
+    <!-- Filial bo'yicha kesim tanlash - faqat filial qo'shilgan bo'lsa
+         ko'rinadi (qarang: renderReportsScopeChips). Faqat summary va
+         top-products shu kesimga bog'liq - qolgan bo'limlar (solishtiruv,
+         prognoz, trend, audit) doim BUTUN do'kon bo'yicha (bot tarafida
+         ham shunday). -->
+    <div id="reports-scope-chips" class="scope-chips hidden"></div>
+
+    <div id="reports-summary-grid" class="admin-stats-grid"></div>
+
+    <div class="section-title">🏆 Top mahsulotlar</div>
+    <div class="admin-detail-body">
+      <div class="muted" style="margin: 4px 0 2px;">Eng ko'p sotilgan</div>
+      <div id="reports-top-selling-list" class="history-list"></div>
+      <div class="muted" style="margin: 10px 0 2px;">Eng ko'p foyda keltirgan</div>
+      <div id="reports-top-profit-list" class="history-list"></div>
+    </div>
+
+    <div id="reports-branches-comparison-section" class="hidden">
+      <div class="section-title">🆚 Filiallar solishtiruvi</div>
+      <div id="reports-branches-comparison-list" class="history-list"></div>
+    </div>
+
+    <div class="section-title">🆚 Sotuvchilar solishtiruvi</div>
+    <div id="reports-sellers-comparison-list" class="history-list"></div>
+
+    <div class="section-title">📈 Oylik prognoz</div>
+    <div id="reports-forecast-body" class="admin-detail-body"></div>
+
+    <div class="section-title">📉 Trend tahlili</div>
+    <div id="reports-trend-body" class="admin-detail-body"></div>
+
+    <div class="section-title">⚙️ Sozlamalar</div>
+    <div class="admin-settings-list">
+      <div id="reports-daily-toggle-row" class="admin-settings-row"></div>
+      <div id="reports-suspicious-toggle-row" class="admin-settings-row"></div>
+    </div>
+
+    <div class="sklad-toolbar">
+      <button id="reports-audit-btn" type="button" class="secondary-btn">🗂 Audit jurnali</button>
+    </div>
+  </div>
+
   <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat do'kon egasi ko'radi
        (qarang: app.js loadSellers()/renderSellers(), backend:
        webapp_handlers/sellers.py). Bot tarafidagi "🧑‍💼 Sotuvchilar"
@@ -221,6 +276,19 @@
       <div id="sklad-history-list" class="history-list"></div>
       <div class="modal-actions">
         <button id="sklad-history-close-btn" class="secondary-btn">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5-BLOK, 10-BOSQICH: AUDIT JURNALI oynasi - .history-list bilan bir
+       xil asosga qurilgan (qarang: app.js renderReportsAudit()). -->
+  <div id="modal-reports-audit" class="modal hidden">
+    <div class="modal-content">
+      <h3>🗂 Audit jurnali</h3>
+      <p class="muted">Kim, qachon nima qilgani - oxirgi 30 ta yozuv, yangisidan boshlab.</p>
+      <div id="reports-audit-list" class="history-list"></div>
+      <div class="modal-actions">
+        <button id="reports-audit-close-btn" class="secondary-btn">Yopish</button>
       </div>
     </div>
   </div>
