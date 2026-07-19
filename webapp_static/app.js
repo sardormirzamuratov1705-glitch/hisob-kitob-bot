@@ -2232,6 +2232,72 @@ function startAdminMode() {
   switchAdminSection("stats");
 }
 
+// ---------- ENTER TUGMASI: MAYDONDAN MAYDONGA O'TISH ----------
+// Narx/miqdor kiritiladigan oynalarda (savatga qo'shish, sklad - yangi
+// mahsulot/tahrirlash/miqdor qo'shish) foydalanuvchi telefon
+// klaviaturasidagi "Enter"/"Next" tugmasini bossa - keyingi maydonga
+// avtomatik o'tadi, RO'YXATNING ENG OXIRGI maydonida esa fokus o'tkazish
+// o'rniga asosiy tugmani (masalan "✅ Qo'shish"/"✅ Savdoni yakunlash")
+// bosgandek ishlaydi. Shu orqali butun oynani ekranga bir necha marta
+// tegmasdan, faqat ketma-ket Enter bosib to'ldirib chiqish mumkin bo'ladi.
+function wireEnterToNext(inputIds, submitBtnId) {
+  inputIds.forEach((id, idx) => {
+    const input = el(id);
+    if (!input) return;
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const nextId = inputIds[idx + 1];
+      const nextInput = nextId ? el(nextId) : null;
+      if (nextInput) {
+        nextInput.focus();
+        try { nextInput.select(); } catch (err) { /* type="number" ba'zi brauzerlarda select()ni qo'llamaydi */ }
+      } else {
+        const btn = el(submitBtnId);
+        if (btn && !btn.disabled) btn.click();
+      }
+    });
+  });
+}
+
+// SAVATGA QO'SHISH: "Nechta sotildi?" -> "Qancha so'mga sotildi?" -> Enter = "Savatga qo'shish"
+wireEnterToNext(["modal-qty-input", "modal-price-input"], "modal-add-btn");
+
+// SAVAT / TO'LOV: "aralash" tanlanganda naqd summasi maydonida Enter = "Savdoni yakunlash"
+wireEnterToNext(["mixed-cash-input"], "finalize-btn");
+
+// SKLAD - miqdor qo'shish: yagona maydon, Enter = "➕ Skladga qo'shish"
+wireEnterToNext(["sklad-modal-qty-input"], "sklad-modal-add-btn");
+
+// SKLAD - yangi mahsulot: nomi -> barkod -> tannarx -> sotish narxi -> eng
+// past narx -> boshlang'ich miqdor -> ogohlantirish soni -> Enter = "✅ Qo'shish"
+wireEnterToNext(
+  [
+    "sklad-new-name-input",
+    "sklad-new-barcode-input",
+    "sklad-new-price-input",
+    "sklad-new-sell-price-input",
+    "sklad-new-min-price-input",
+    "sklad-new-quantity-input",
+    "sklad-new-alert-input",
+  ],
+  "sklad-new-save-btn"
+);
+
+// SKLAD - mahsulotni tahrirlash: nomi -> tannarx -> sotish narxi -> eng
+// past narx -> ogohlantirish soni -> barkod -> Enter = "✅ Saqlash"
+wireEnterToNext(
+  [
+    "sklad-edit-name-input",
+    "sklad-edit-price-input",
+    "sklad-edit-sell-price-input",
+    "sklad-edit-min-price-input",
+    "sklad-edit-alert-input",
+    "sklad-edit-barcode-input",
+  ],
+  "sklad-edit-save-btn"
+);
+
 // ---------- BOSHLASH ----------
 
 (async function init() {
