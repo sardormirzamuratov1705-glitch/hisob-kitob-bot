@@ -55,6 +55,11 @@ const API = {
   branchesSwitch: "/api/webapp/branches/switch",
   skladPermission: "/api/webapp/sklad-permission",
 
+  // 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI
+  sellers: "/api/webapp/sellers",
+  sellersRemove: "/api/webapp/sellers/remove",
+  sellersBranch: "/api/webapp/sellers/branch",
+
   // 11-BOSQICH: BOSH ADMIN PANELI
   adminStats: "/api/webapp/admin/stats",
   adminOwners: "/api/webapp/admin/owners",
@@ -99,6 +104,10 @@ async function loadMe() {
     currentUser.role = data.role;
     currentUser.canAddStock = data.can_add_stock !== false;
     updateSkladPermissionUI();
+    // 1-BLOK, 2-BOSQICH: "Sotuvchilar" tugmasi FAQAT haqiqiy do'kon egasiga
+    // ko'rinadi - sotuvchi o'zi boshqa sotuvchi qo'sha olmaydi (bot
+    // tarafidagi handlers/sellers.py'dagi qoida bilan bir xil).
+    el("tab-sellers").classList.toggle("hidden", data.role !== "owner");
   } catch (e) {
     // Jim o'tkazamiz - bu faqat UI'ni yaxshilash uchun, savdo oqimini
     // to'xtatib qo'ymasligi kerak (asosiy 401 tekshiruvi baribir
@@ -110,7 +119,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad", "restock", "profile",
+    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -1073,6 +1082,9 @@ function switchSection(section) {
   } else if (section === "restock") {
     showScreen("restock");
     loadRestockList();
+  } else if (section === "sellers") {
+    showScreen("sellers");
+    loadSellers();
   } else if (section === "profile") {
     showScreen("profile");
     loadProfile();
@@ -1106,6 +1118,7 @@ function updateSkladPermissionUI() {
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
 el("tab-restock").addEventListener("click", () => switchSection("restock"));
+el("tab-sellers").addEventListener("click", () => switchSection("sellers"));
 el("tab-profile").addEventListener("click", () => switchSection("profile"));
 
 // ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
@@ -1294,11 +1307,209 @@ async function toggleSkladPermission(nextAllowed) {
     tg.showAlert(nextAllowed
       ? "🔓 Sotuvchilarga skladga tovar qo'shishga ruxsat berildi."
       : "🚫 Sotuvchilarga skladga tovar qo'shish taqiqlandi (faqat ega qo'sha oladi).");
-    loadProfile();
+    // 1-BLOK, 2-BOSQICH: shu tugma endi "Sotuvchilar" ekranidan ham
+    // bosilishi mumkin (qarang: renderSellersPerm) - shuning uchun qaysi
+    // ekran joriy bo'lsa, o'shani yangilaymiz.
+    if (currentSection === "sellers") {
+      loadSellers();
+    } else {
+      loadProfile();
+    }
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   }
 }
+
+// ---------- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI ----------
+// Faqat do'kon egasiga ko'rinadi (qarang: loadMe() dagi tab-sellers
+// hidden/toggle). Har bir amal handlers/sellers.py (bot tarafi) bilan bir
+// xil natijaga olib keladi - qarang: webapp_handlers/sellers.py.
+
+let sellersBranchesCache = [];
+let currentSellerDetail = null;
+
+async function loadSellers() {
+  const list = el("sellers-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  el("sellers-perm-section").innerHTML = "";
+  try {
+    const res = await apiFetch(API.sellers);
+    if (!res.ok) throw new Error("Sotuvchilarni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderSellersPerm(data.sellers_can_add_stock);
+    renderSellers(data.sellers || [], data.branches || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+// Sklad huquqi hozircha FAQAT do'kon darajasida (barcha sotuvchiga birdek) -
+// qarang: webapp_handlers/sellers.py boshidagi izoh. Shu qator xuddi shu
+// mavjud /api/webapp/sklad-permission endpointiga murojaat qiladi (Profil
+// ekranidagi bilan bir xil - qarang: toggleSkladPermission).
+function renderSellersPerm(allowed) {
+  const section = el("sellers-perm-section");
+  section.innerHTML = `
+    <div class="admin-settings-row sellers-perm-row">
+      <div>
+        <div class="value">🔐 Sklad ruxsati: ${allowed ? "🔓 Yoqilgan" : "🚫 O'chirilgan"}</div>
+        <div class="env-tag">Barcha sotuvchilarga birdek qo'llanadi - bosib o'zgartiring</div>
+      </div>
+    </div>
+  `;
+  section.querySelector(".sellers-perm-row").addEventListener("click", () => toggleSkladPermission(!allowed));
+}
+
+function renderSellers(sellers, branches) {
+  sellersBranchesCache = branches;
+  const list = el("sellers-list");
+  list.innerHTML = "";
+  if (sellers.length === 0) {
+    list.innerHTML = '<p class="muted">Hozircha sotuvchilar qo\'shilmagan.</p>';
+    return;
+  }
+  sellers.forEach((s) => {
+    const card = document.createElement("div");
+    card.className = "product-card owner-card";
+    const sub = [s.phone_number, `🏢 ${s.branch_name}`].filter(Boolean).join(" · ");
+    card.innerHTML = `
+      <div class="owner-card-top">
+        <div>
+          <div class="name">${escapeHtml(s.display_name)}</div>
+          <div class="sub">${escapeHtml(sub)}</div>
+        </div>
+      </div>
+    `;
+    card.addEventListener("click", () => openSellerDetail(s));
+    list.appendChild(card);
+  });
+}
+
+function openSellerDetail(seller) {
+  currentSellerDetail = seller;
+  el("seller-detail-title").textContent = seller.display_name;
+  const rows = [
+    ["Telegram ID", seller.telegram_id],
+    ["Ism", seller.seller_name || "—"],
+    ["Telefon", seller.phone_number || "—"],
+    ["Filial", seller.branch_name || "—"],
+  ];
+  el("seller-detail-body").innerHTML = rows.map(([k, v]) => `
+    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
+  `).join("");
+  renderSellerDetailBranches(seller);
+  el("modal-seller-detail").classList.remove("hidden");
+}
+
+// Profil ekranidagi "🏢 Filiallar (bosib almashtiring)" bilan bir xil
+// ko'rinish/g'oya (qarang: renderProfileBranches) - faqat bu yerda o'zi
+// emas, tanlangan SOTUVCHINI boshqa filialga ko'chiradi.
+function renderSellerDetailBranches(seller) {
+  const list = el("seller-detail-branches-list");
+  list.innerHTML = "";
+  const rows = [{ id: null, name: "🏠 Bosh filial" }, ...sellersBranchesCache.map((b) => ({ id: b.id, name: `🏢 ${b.name}` }))];
+  rows.forEach((b) => {
+    const isCurrent = (b.id || null) === (seller.branch_id || null);
+    const row = document.createElement("div");
+    row.className = `admin-settings-row branch-row${isCurrent ? " current" : ""}`;
+    row.innerHTML = `
+      <div class="value">${escapeHtml(b.name)}</div>
+      ${isCurrent ? '<span class="branch-check">✅</span>' : ""}
+    `;
+    if (!isCurrent) {
+      row.addEventListener("click", () => setSellerBranch(b.id, b.name));
+    }
+    list.appendChild(row);
+  });
+}
+
+async function setSellerBranch(branchId, branchLabel) {
+  if (!currentSellerDetail) return;
+  try {
+    const res = await apiFetch(API.sellersBranch, {
+      method: "POST",
+      body: JSON.stringify({ telegram_id: currentSellerDetail.telegram_id, branch_id: branchId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error("Filialni o'zgartirib bo'lmadi.");
+    tg.HapticFeedback.notificationOccurred("success");
+    currentSellerDetail.branch_id = data.branch_id;
+    currentSellerDetail.branch_name = data.branch_name;
+    openSellerDetail(currentSellerDetail);
+    loadSellers();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+el("seller-detail-close-btn").addEventListener("click", () => {
+  el("modal-seller-detail").classList.add("hidden");
+  currentSellerDetail = null;
+});
+
+el("seller-detail-remove-btn").addEventListener("click", async () => {
+  if (!currentSellerDetail) return;
+  const ok = await confirmAsync(`"${currentSellerDetail.display_name}" o'chirilsinmi?`);
+  if (!ok) return;
+  try {
+    const res = await apiFetch(API.sellersRemove, {
+      method: "POST",
+      body: JSON.stringify({ telegram_id: currentSellerDetail.telegram_id }),
+    });
+    if (!res.ok) throw new Error("O'chirib bo'lmadi.");
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-seller-detail").classList.add("hidden");
+    currentSellerDetail = null;
+    loadSellers();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+});
+
+el("sellers-add-btn").addEventListener("click", () => {
+  el("seller-add-id-input").value = "";
+  el("modal-seller-add").classList.remove("hidden");
+});
+
+el("seller-add-cancel-btn").addEventListener("click", () => {
+  el("modal-seller-add").classList.add("hidden");
+});
+
+el("seller-add-save-btn").addEventListener("click", async () => {
+  const raw = el("seller-add-id-input").value.trim();
+  if (!raw || !/^\d+$/.test(raw)) {
+    tg.showAlert("Telegram ID faqat raqamlardan iborat bo'lishi kerak.");
+    return;
+  }
+  const btn = el("seller-add-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Qo'shilmoqda...";
+  try {
+    const res = await apiFetch(API.sellers, {
+      method: "POST",
+      body: JSON.stringify({ telegram_id: raw }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        already_admin: "Bu odam bosh admin - sotuvchi qila olmaysiz.",
+        already_owner: "Bu odam allaqachon bir do'konning egasi - sotuvchi qila olmaysiz.",
+        already_seller: "Bu odam allaqachon (sizning yoki boshqa) do'konga sotuvchi sifatida qo'shilgan.",
+        invalid_telegram_id: "Telegram ID noto'g'ri.",
+      };
+      tg.showAlert(map[data.error] || "Qo'shib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-seller-add").classList.add("hidden");
+    loadSellers();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Qo'shish";
+  }
+});
 
 async function loadSkladProducts(query = "") {
   try {
@@ -2706,6 +2917,9 @@ wireEnterToNext(["mixed-cash-input"], "finalize-btn");
 
 // SKLAD - miqdor qo'shish: yagona maydon, Enter = "➕ Skladga qo'shish"
 wireEnterToNext(["sklad-modal-qty-input"], "sklad-modal-add-btn");
+
+// SOTUVCHILAR - yangi sotuvchi qo'shish: yagona maydon, Enter = "✅ Qo'shish"
+wireEnterToNext(["seller-add-id-input"], "seller-add-save-btn");
 
 // SKLAD - yangi mahsulot: nomi -> barkod -> tannarx -> sotish narxi -> eng
 // past narx -> boshlang'ich miqdor -> ogohlantirish soni -> Enter = "✅ Qo'shish"
