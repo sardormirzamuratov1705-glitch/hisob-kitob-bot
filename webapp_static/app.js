@@ -588,7 +588,23 @@ async function openScanner(mode = "sale") {
     await setupTorchButton();
     await setupContinuousFocus();
   } catch (err) {
-    setScannerStatus("Kameraga ruxsat berilmadi. Telegram sozlamalaridan ruxsat bering.", "error");
+    // Xato turiga qarab aniqroq maslahat beramiz - "ruxsat berilmadi" bilan
+    // "kamera band"/"kamera topilmadi" sabablari butunlay boshqa yechim
+    // talab qiladi, shuning uchun bittasiga umumlashtirmaymiz. Har holatda
+    // ham qidiruv orqali barkodni QO'LDA kiritish - kamera holatidan
+    // qat'i nazar doim ishlaydigan zaxira yo'l ekanini eslatamiz.
+    const name = err && err.name;
+    let msg;
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      msg = "Kameraga ruxsat berilmagan. Telefon sozlamalaridan Telegram ilovasiga kamera ruxsatini bering (odatda: Sozlamalar → Ilovalar → Telegram → Ruxsatlar → Kamera), so'ng Telegramni TO'LIQ yopib qayta oching.";
+    } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      msg = "Bu qurilmada kamera topilmadi.";
+    } else if (name === "NotReadableError" || name === "TrackStartError") {
+      msg = "Kamera band - boshqa ilova ishlatayotgan bo'lishi mumkin. Boshqa kamera ilovalarini yopib qayta urinib ko'ring.";
+    } else {
+      msg = "Kamerani ochib bo'lmadi.";
+    }
+    setScannerStatus(`${msg} Yoki qidiruv maydoniga barkod raqamini qo'lda kiriting.`, "error");
   }
 }
 
