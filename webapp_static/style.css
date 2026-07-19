@@ -590,11 +590,13 @@ input:focus {
 .sklad-toolbar {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .sklad-toolbar .secondary-btn {
   width: auto;
   flex: 1;
+  min-width: 130px;
   margin-top: 0;
 }
 
