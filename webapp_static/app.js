@@ -547,10 +547,19 @@ function defaultScannerStatusText() {
 // yo'q) faqat "environment" (orqa) kamerani so'rasak, brauzer mos
 // kamera topa olmay xato qaytaradi - bu "ruxsat berilmadi"ga o'xshab
 // ko'rinadi, aslida esa shunchaki mos kamera yo'qligi. Shuning uchun
-// ketma-ket 3 usulda uriniladi: avval orqa kamera (telefon uchun eng
-// yaxshisi), keyin old kamera (noutbukda odatda FAQAT shu bor), va
-// oxirida - facingMode'ni butunlay chetlab o'tib, birinchi mavjud
-// kamerani ID orqali to'g'ridan-to'g'ri tanlash.
+// avval getCameras() orqali BARCHA kameralar ro'yxatga olinadi, so'ng
+// orqa kamera (label bo'yicha) birinchi navbatda, qolganlari keyin
+// sinab ko'riladi.
+//
+// MUHIM (bug tuzatildi): avval shu funksiya BITTA html5QrCode
+// obyektida .start()ni ketma-ket bir necha marta (facingMode:
+// "environment", keyin "user") chaqirar edi. Agar birinchi urinish
+// hali to'liq "chala" holatda bo'lsa (masalan ruxsat so'ralayotgan
+// vaqtda), ikkinchi .start() chaqiruvi kutubxonaning o'z ichki holat
+// mashinasidan "Cannot transition to a new state, already under
+// transition" xatosini qaytarardi - bu haqiqiy sababni (masalan
+// qaysi kamera ishlamayotganini) butunlay yashirar edi. Shuning uchun
+// endi HAR BIR urinish uchun YANGI Html5Qrcode obyekti yaratiladi.
 async function startCameraWithFallback() {
   const scanConfig = {
     // Kadr chastotasini biroz oshirdik (10 -> 15) - barkod tezroq
@@ -562,32 +571,45 @@ async function startCameraWithFallback() {
   // (qurilma qo'llab-quvvatlasa) - past yorug'likda yoki kichik/uzoqdagi
   // barkodlarda aniqlik sezilarli oshadi.
   const hdConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
-
-  try {
-    await html5QrCode.start(
-      { facingMode: "environment", ...hdConstraints },
-      scanConfig, onBarcodeDecoded, () => {}
-    );
-    return;
-  } catch (e) {
-    // Orqa kamera topilmadi/ishlamadi - keyingi usulga o'tamiz.
-  }
-
-  try {
-    await html5QrCode.start(
-      { facingMode: "user", ...hdConstraints },
-      scanConfig, onBarcodeDecoded, () => {}
-    );
-    return;
-  } catch (e) {
-    // Old kamera ham ishlamadi - oxirgi usulga o'tamiz.
-  }
+  const scannerOptions = {
+    formatsToSupport: BARCODE_FORMATS,
+    verbose: false,
+    // 8-BOSQICH: qurilma/brauzer qo'llab-quvvatlasa (ko'p zamonaviy
+    // Android Chrome'da bor), kutubxona OS/brauzerning O'ZINING tezroq
+    // va aniqroq (past yorug'likka ham chidamliroq) native
+    // BarcodeDetector API'sidan foydalanadi.
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+  };
 
   const cameras = await Html5Qrcode.getCameras();
   if (!cameras || cameras.length === 0) {
     throw new Error("no_camera_found");
   }
-  await html5QrCode.start(cameras[0].id, scanConfig, onBarcodeDecoded, () => {});
+
+  // Orqa kamerani label bo'yicha oldinga chiqaramiz (topilsa); qolgan
+  // kameralar (odatda noutbukda - yagona old kamera) navbat bilan
+  // zaxira sifatida sinaladi.
+  const backCamera = cameras.find((c) => /back|rear|environment/i.test(c.label || ""));
+  const orderedCameras = backCamera
+    ? [backCamera, ...cameras.filter((c) => c.id !== backCamera.id)]
+    : cameras;
+
+  let lastError = null;
+  for (const camera of orderedCameras) {
+    const instance = new Html5Qrcode("scanner-reader", scannerOptions);
+    try {
+      await instance.start(
+        { deviceId: { exact: camera.id }, ...hdConstraints },
+        scanConfig, onBarcodeDecoded, () => {}
+      );
+      html5QrCode = instance;
+      return;
+    } catch (e) {
+      lastError = e;
+      try { instance.clear(); } catch (_) { /* e'tiborsiz */ }
+    }
+  }
+  throw lastError || new Error("no_camera_found");
 }
 
 async function openScanner(mode = "sale") {
@@ -603,18 +625,9 @@ async function openScanner(mode = "sale") {
   }
 
   try {
-    html5QrCode = new Html5Qrcode("scanner-reader", {
-      formatsToSupport: BARCODE_FORMATS,
-      verbose: false,
-      // 8-BOSQICH: qurilma/brauzer qo'llab-quvvatlasa (ko'p zamonaviy
-      // Android Chrome'da bor), kutubxona OS/brauzerning O'ZINING tezroq
-      // va aniqroq (past yorug'likka ham chidamliroq) native
-      // BarcodeDetector API'sidan foydalanadi - JS orqali kadr-kadr
-      // tahlil qilishdan TEZROQ ishlaydi. Qo'llab-quvvatlanmasa,
-      // kutubxona o'zining odatdagi (eski) usuliga avtomatik qaytadi -
-      // xatolik chiqmaydi.
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-    });
+    // DIQQAT: html5QrCode obyekti endi startCameraWithFallback() ichida
+    // (har bir urinish uchun yangidan) yaratiladi - qarang: shu funksiya
+    // ustidagi izoh ("already under transition" xatosi tuzatildi).
     await startCameraWithFallback();
     await setupTorchButton();
     await setupContinuousFocus();
