@@ -23,6 +23,12 @@
            (qarang: app.js loadRestockList(), webapp.py api_restock_list).
            Do'kon egasi HAM, sotuvchi HAM ko'radi. -->
       <button id="tab-restock" type="button" class="section-tab" data-section="restock">🧾 Kerak</button>
+      <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat HAQIQIY do'kon
+           egasiga ko'rinadi (standart holatda "hidden", app.js loadMe()
+           ichida role==="owner" bo'lsa ko'rsatiladi - xuddi sotuvchi
+           o'zi bu tugmani boshqa yo'l bilan ochib qolmasligi uchun
+           backend (webapp_handlers/sellers.py) ham alohida tekshiradi). -->
+      <button id="tab-sellers" type="button" class="section-tab hidden" data-section="sellers">🧑‍💼 Sotuvchilar</button>
       <!-- YANGI: do'kon egasi/sotuvchi uchun "Admin panel"dagi kabi tartibli
            profil ekrani (qarang: app.js renderProfile(), webapp.py api_profile). -->
       <button id="tab-profile" type="button" class="section-tab" data-section="profile">👤 Profil</button>
@@ -126,6 +132,20 @@
       <div class="section-title">✍️ Qo'lda qo'shilgan</div>
       <div id="restock-manual-list" class="restock-manual-list"></div>
     </div>
+  </div>
+
+  <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat do'kon egasi ko'radi
+       (qarang: app.js loadSellers()/renderSellers(), backend:
+       webapp_handlers/sellers.py). Bot tarafidagi "🧑‍💼 Sotuvchilar"
+       bo'limi bilan bir xil amallar - shu yerda bitta ekranda. -->
+  <div id="screen-sellers" class="screen hidden">
+    <div class="sklad-toolbar">
+      <button id="sellers-add-btn" type="button" class="secondary-btn">➕ Sotuvchi qo'shish</button>
+    </div>
+    <!-- Sklad huquqi hozircha FAQAT do'kon darajasida (barcha sotuvchiga
+         birdek) - qarang: webapp_handlers/sellers.py boshidagi izoh. -->
+    <div id="sellers-perm-section" class="admin-settings-list"></div>
+    <div id="sellers-list" class="product-list"></div>
   </div>
 
   <!-- YANGI: PROFIL EKRANI - do'kon egasi/sotuvchi uchun "👑 Admin panel"
@@ -380,6 +400,42 @@
     <button type="button" class="admin-nav-btn" data-admin-section="settings">
       <span class="admin-nav-icon">⚙️</span><span>Sozlamalar</span>
     </button>
+  </div>
+
+  <!-- ==================================================================
+       1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI oynalari
+       ================================================================== -->
+
+  <!-- Sotuvchi tafsiloti + filialni o'zgartirish + o'chirish oynasi -->
+  <div id="modal-seller-detail" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="seller-detail-title"></h3>
+      <div id="seller-detail-body" class="admin-detail-body"></div>
+
+      <div class="section-title">🏢 Filialni o'zgartirish</div>
+      <div id="seller-detail-branches-list" class="admin-settings-list"></div>
+
+      <div class="modal-actions">
+        <button id="seller-detail-remove-btn" type="button" class="secondary-btn admin-danger-btn">🗑 O'chirish</button>
+      </div>
+      <button id="seller-detail-close-btn" type="button" class="secondary-btn">Yopish</button>
+    </div>
+  </div>
+
+  <!-- Yangi sotuvchi qo'shish oynasi -->
+  <div id="modal-seller-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi sotuvchi</h3>
+      <p class="muted">Telegram ID orqali qo'shiladi (masalan, @userinfobot orqali bilib olishi mumkin). Yangi sotuvchi hozirgi tanlangan filialingizga biriktiriladi.</p>
+      <label>Telegram ID</label>
+      <input id="seller-add-id-input" type="text" inputmode="numeric" placeholder="Masalan: 123456789">
+      <div class="modal-actions">
+        <button id="seller-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="seller-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
   </div>
 
   <!-- Do'kon egasi tafsiloti + amallar oynasi -->
