@@ -442,6 +442,14 @@ async def api_sklad_add_quantity(request: web.Request):
     if not result:
         return web.json_response({"error": "product_not_found"}, status=400)
 
+    # 18-BOSQICH: bot tarafidagi savdo oqimi kanaldagi postni avtomatik
+    # yangilaganidek (handlers/sales.py), Mini App orqali miqdor
+    # o'zgarganda ham kanal posti yangilanishi kerak - avval bu yerda
+    # BUTUNLAY yetishmas edi (qarang: webapp_handlers/sklad_extra.py).
+    from webapp_handlers.sklad_extra import sync_channel_post_quantity
+
+    await sync_channel_post_quantity(request.app["bot"], product, result["new_quantity"])
+
     return web.json_response({
         "ok": True,
         "product_id": product["id"],
@@ -552,8 +560,17 @@ async def api_sklad_create_product(request: web.Request):
                 "product": _product_payload(existing),
             }, status=409)
 
+    # 18-BOSQICH: Mini App orqali yaratilgan mahsulot ham (rasmsiz,
+    # matnli shaklda) kanalga post qilinadi - bot tarafidagi rasm bilan
+    # postlashga o'xshab, qarang: webapp_handlers/sklad_extra.py.
+    from webapp_handlers.sklad_extra import post_new_product_to_channel
+
+    channel_message_id = await post_new_product_to_channel(
+        request.app["bot"], name, price, sell_price, quantity
+    )
+
     product_id = await db.add_product(
-        shop_id, name, price, quantity, None,
+        shop_id, name, price, quantity, None, channel_message_id=channel_message_id,
         sell_price=sell_price, min_price=min_price, alert_quantity=alert_quantity, barcode=barcode,
     )
 
@@ -1562,6 +1579,12 @@ def create_web_app(bot) -> web.Application:
     # alohida modulga chiqarilgan (qarang: webapp_handlers/onboarding.py).
     from webapp_handlers.onboarding import register_routes as _register_onboarding_routes
     _register_onboarding_routes(app)
+
+    # 9-BLOK, 18-BOSQICH: SKLAD QO'SHIMCHALARI (AI buyurtma tavsiyasi,
+    # veb-ilova orqali yaratilgan mahsulotlar uchun kanal posti) - alohida
+    # modulga chiqarilgan (qarang: webapp_handlers/sklad_extra.py).
+    from webapp_handlers.sklad_extra import register_routes as _register_sklad_extra_routes
+    _register_sklad_extra_routes(app)
 
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
