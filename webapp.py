@@ -229,7 +229,13 @@ async def api_sklad_products(request: web.Request):
     query = request.query.get("q", "").strip().lower()
     products = await db.get_all_products(auth["shop_id"])
     if query:
-        products = [p for p in products if query in p["name"].lower()]
+        # Kamera ishlamay qolsa ham (masalan kamera ruxsati berilmagan),
+        # foydalanuvchi barkod raqamini qo'lda kiritib ham topa olishi
+        # uchun - nomi YOKI barkodi bo'yicha qidiramiz.
+        products = [
+            p for p in products
+            if query in p["name"].lower() or query in (p.get("barcode") or "").lower()
+        ]
     payload = [_product_payload(p) for p in products]
     return web.json_response({"products": payload})
 
