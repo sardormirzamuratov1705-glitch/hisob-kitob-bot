@@ -18,6 +18,11 @@
     <div class="section-tabs">
       <button id="tab-sale" type="button" class="section-tab active" data-section="sale">🛒 Savdo</button>
       <button id="tab-sklad" type="button" class="section-tab" data-section="sklad">📦 Sklad</button>
+      <!-- YANGI: "Olinishi kerak bo'lgan tovarlar" - bot tarafidagi
+           "🧾 Olinishi kerak bo'lgan tovarlar" bo'limi bilan bir xil
+           (qarang: app.js loadRestockList(), webapp.py api_restock_list).
+           Do'kon egasi HAM, sotuvchi HAM ko'radi. -->
+      <button id="tab-restock" type="button" class="section-tab" data-section="restock">🧾 Kerak</button>
       <!-- YANGI: do'kon egasi/sotuvchi uchun "Admin panel"dagi kabi tartibli
            profil ekrani (qarang: app.js renderProfile(), webapp.py api_profile). -->
       <button id="tab-profile" type="button" class="section-tab" data-section="profile">👤 Profil</button>
@@ -99,6 +104,28 @@
     </div>
     <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
     <div id="sklad-product-list" class="product-list"></div>
+  </div>
+
+  <!-- YANGI: OLINISHI KERAK BO'LGAN TOVARLAR - bot tarafidagi
+       "🧾 Olinishi kerak bo'lgan tovarlar" bo'limi bilan bir xil ma'lumot
+       (qarang: app.js loadRestockList(), webapp.py api_restock_list).
+       Do'kon egasi HAM, sotuvchi HAM ko'radi; faqat do'kon egasi
+       "✅ olindi" tugmalarini ko'radi (restock-manage klassi orqali). -->
+  <div id="screen-restock" class="screen hidden">
+    <div class="sklad-toolbar">
+      <button id="restock-add-btn" type="button" class="secondary-btn">➕ Qo'lda qo'shish</button>
+    </div>
+    <div id="restock-empty" class="muted hidden">✅ Hozircha olinishi kerak bo'lgan tovar yo'q.</div>
+
+    <div id="restock-lowstock-section" class="hidden">
+      <div class="section-title">📉 Skladda kamayib qolgan (avtomatik)</div>
+      <div id="restock-lowstock-list" class="product-list"></div>
+    </div>
+
+    <div id="restock-manual-section" class="hidden">
+      <div class="section-title">✍️ Qo'lda qo'shilgan</div>
+      <div id="restock-manual-list" class="restock-manual-list"></div>
+    </div>
   </div>
 
   <!-- YANGI: PROFIL EKRANI - do'kon egasi/sotuvchi uchun "👑 Admin panel"
@@ -183,6 +210,24 @@
       <div class="modal-actions">
         <button id="sklad-modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
         <button id="sklad-modal-add-btn" class="primary-btn">➕ Skladga qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shish oynasi
+       (bot tarafidagi restock_add_start/_name/_note bilan bir xil,
+       qarang: handlers/products.py). -->
+  <div id="modal-restock-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Olinishi kerak bo'lgan tovar</h3>
+      <label>Tovar nomi</label>
+      <input id="restock-add-name-input" type="text" placeholder="Masalan: Coca-Cola 0.5L">
+      <label>Izoh (ixtiyoriy)</label>
+      <input id="restock-add-note-input" type="text" placeholder="Masalan: 2 karobka kerak">
+      <div class="modal-actions">
+        <button id="restock-add-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="restock-add-save-btn" class="primary-btn">✅ Qo'shish</button>
       </div>
     </div>
   </div>
