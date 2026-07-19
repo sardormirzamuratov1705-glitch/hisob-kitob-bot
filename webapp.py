@@ -362,6 +362,15 @@ async def api_sklad_create_product(request: web.Request):
         if sell_price < 0:
             return web.json_response({"error": "invalid_sell_price"}, status=400)
 
+    min_price = None
+    if body.get("min_price") not in (None, ""):
+        try:
+            min_price = float(body.get("min_price"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid_min_price"}, status=400)
+        if min_price < 0:
+            return web.json_response({"error": "invalid_min_price"}, status=400)
+
     try:
         quantity = float(body.get("quantity"))
     except (TypeError, ValueError):
@@ -383,7 +392,7 @@ async def api_sklad_create_product(request: web.Request):
 
     product_id = await db.add_product(
         shop_id, name, price, quantity, None,
-        sell_price=sell_price, barcode=barcode,
+        sell_price=sell_price, min_price=min_price, barcode=barcode,
     )
 
     try:
