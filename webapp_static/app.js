@@ -177,6 +177,41 @@ function formatNum(n) {
   return sign + Math.abs(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
+// YOZISH JARAYONIDA FORMATLASH: summa maydonlariga (narx, naqd summasi va h.k.)
+// foydalanuvchi raqam terayotganda darhol "100 000" ko'rinishida bo'sh joy
+// bilan ajratib ko'rsatish uchun. Muhim: bu maydonlar HTML'da endi
+// type="text" (avval type="number" edi) - chunki <input type="number">
+// bo'sh joyni umuman qabul qilmaydi, brauzer uni tenglashtirib/o'chirib
+// tashlaydi va shu sababli formatlash ishlamay qolgan edi. Qiymatni
+// serverga/hisoblashga yuborishdan oldin har doim parseNum() bilan o'qish
+// kerak (u bo'sh joylarni olib tashlab, haqiqiy raqamga aylantiradi).
+function parseNum(value) {
+  const cleaned = String(value ?? "").replace(/[^\d-]/g, "");
+  if (cleaned === "" || cleaned === "-") return NaN;
+  return parseFloat(cleaned);
+}
+
+function attachThousandsFormatting(input) {
+  input.addEventListener("input", () => {
+    const cursorFromEnd = input.value.length - input.selectionStart;
+    const digitsOnly = input.value.replace(/[^\d]/g, "");
+    input.value = digitsOnly === "" ? "" : formatNum(digitsOnly);
+    const newPos = Math.max(0, input.value.length - cursorFromEnd);
+    input.setSelectionRange(newPos, newPos);
+  });
+}
+
+[
+  "mixed-cash-input",
+  "modal-price-input",
+  "sklad-new-price-input",
+  "sklad-new-sell-price-input",
+  "sklad-new-min-price-input",
+  "sklad-edit-price-input",
+  "sklad-edit-sell-price-input",
+  "sklad-edit-min-price-input",
+].forEach((id) => attachThousandsFormatting(el(id)));
+
 // YANGI: mahsulot qoldig'i do'kon egasi belgilagan "ogohlantirish
 // chegarasi" (alert_quantity)dan pastga tushgan bo'lsa - qoldiq matnini
 // qizil/qalin qilib, chegarani ham ko'rsatib qo'yamiz. Chegara
@@ -221,7 +256,8 @@ function openAddModal(product) {
   // tashlagan bo'lardik.
   const existing = cart.find((c) => c.id === product.id);
   el("modal-qty-input").value = existing ? existing.qty : 1;
-  el("modal-price-input").value = existing ? existing.price : (product.sell_price || product.price || "");
+  const initialPrice = existing ? existing.price : (product.sell_price || product.price || "");
+  el("modal-price-input").value = initialPrice === "" ? "" : formatNum(initialPrice);
 
   const hints = el("modal-price-hints");
   hints.innerHTML = "";
@@ -237,7 +273,7 @@ function openAddModal(product) {
       const suffix = key === "discount_price" ? ` (${discountDaysText(daysLeft)})` : "";
       btn.textContent = `${label}: ${formatNum(product[key])}${suffix}`;
       btn.addEventListener("click", () => {
-        el("modal-price-input").value = product[key];
+        el("modal-price-input").value = formatNum(product[key]);
       });
       hints.appendChild(btn);
     }
@@ -256,7 +292,7 @@ el("modal-cancel-btn").addEventListener("click", () => {
 el("modal-add-btn").addEventListener("click", () => {
   if (!currentModalProduct) return;
   const qty = parseFloat(el("modal-qty-input").value);
-  const price = parseFloat(el("modal-price-input").value);
+  const price = parseNum(el("modal-price-input").value);
   const product = currentModalProduct;
 
   const err = cartValidationError(product, qty, price);
@@ -445,7 +481,7 @@ el("finalize-btn").addEventListener("click", async () => {
   const total = cart.reduce((sum, c) => sum + c.qty * c.price, 0);
   let mixedCash = null;
   if (selectedPaymentMethod === "aralash") {
-    mixedCash = parseFloat(el("mixed-cash-input").value);
+    mixedCash = parseNum(el("mixed-cash-input").value);
     if (isNaN(mixedCash) || mixedCash < 0 || mixedCash > total) {
       tg.showAlert(`Naqd summasi 0 dan ${formatNum(total)} so'mgacha bo'lishi kerak.`);
       return;
@@ -1239,7 +1275,7 @@ function confirmAsync(message) {
 
 el("sklad-new-save-btn").addEventListener("click", async () => {
   const name = el("sklad-new-name-input").value.trim();
-  const price = parseFloat(el("sklad-new-price-input").value);
+  const price = parseNum(el("sklad-new-price-input").value);
   const sellPriceRaw = el("sklad-new-sell-price-input").value;
   const minPriceRaw = el("sklad-new-min-price-input").value;
   const alertQtyRaw = el("sklad-new-alert-input").value;
@@ -1266,7 +1302,7 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
 
   let sellPrice = null;
   if (sellPriceRaw !== "") {
-    sellPrice = parseFloat(sellPriceRaw);
+    sellPrice = parseNum(sellPriceRaw);
     if (isNaN(sellPrice) || sellPrice < 0) {
       tg.showAlert("Sotish narxini to'g'ri kiriting.");
       return;
@@ -1276,7 +1312,7 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
 
   let minPrice = null;
   if (minPriceRaw !== "") {
-    minPrice = parseFloat(minPriceRaw);
+    minPrice = parseNum(minPriceRaw);
     if (isNaN(minPrice) || minPrice < 0) {
       tg.showAlert("Eng past narxni to'g'ri kiriting.");
       return;
@@ -1369,9 +1405,9 @@ let currentEditProduct = null;
 function openSkladEditModal(product) {
   currentEditProduct = product;
   el("sklad-edit-name-input").value = product.name;
-  el("sklad-edit-price-input").value = product.price ?? "";
-  el("sklad-edit-sell-price-input").value = product.sell_price ?? "";
-  el("sklad-edit-min-price-input").value = product.min_price ?? "";
+  el("sklad-edit-price-input").value = product.price != null ? formatNum(product.price) : "";
+  el("sklad-edit-sell-price-input").value = product.sell_price != null ? formatNum(product.sell_price) : "";
+  el("sklad-edit-min-price-input").value = product.min_price != null ? formatNum(product.min_price) : "";
   el("sklad-edit-alert-input").value = product.alert_quantity ?? "";
   el("sklad-edit-barcode-input").value = product.barcode || "";
   el("modal-sklad-edit").classList.remove("hidden");
@@ -1394,7 +1430,7 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
   if (!currentEditProduct) return;
 
   const name = el("sklad-edit-name-input").value.trim();
-  const price = parseFloat(el("sklad-edit-price-input").value);
+  const price = parseNum(el("sklad-edit-price-input").value);
   if (!name) {
     tg.showAlert("Mahsulot nomini kiriting.");
     return;
@@ -1409,11 +1445,11 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
   const alertQtyRaw = el("sklad-edit-alert-input").value;
   const barcodeRaw = el("sklad-edit-barcode-input").value.trim();
 
-  if (sellPriceRaw !== "" && (isNaN(parseFloat(sellPriceRaw)) || parseFloat(sellPriceRaw) < 0)) {
+  if (sellPriceRaw !== "" && (isNaN(parseNum(sellPriceRaw)) || parseNum(sellPriceRaw) < 0)) {
     tg.showAlert("Sotish narxini to'g'ri kiriting.");
     return;
   }
-  if (minPriceRaw !== "" && (isNaN(parseFloat(minPriceRaw)) || parseFloat(minPriceRaw) < 0)) {
+  if (minPriceRaw !== "" && (isNaN(parseNum(minPriceRaw)) || parseNum(minPriceRaw) < 0)) {
     tg.showAlert("Eng past narxni to'g'ri kiriting.");
     return;
   }
@@ -1426,8 +1462,8 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
     product_id: currentEditProduct.id,
     name,
     price,
-    sell_price: sellPriceRaw === "" ? "" : parseFloat(sellPriceRaw),
-    min_price: minPriceRaw === "" ? "" : parseFloat(minPriceRaw),
+    sell_price: sellPriceRaw === "" ? "" : parseNum(sellPriceRaw),
+    min_price: minPriceRaw === "" ? "" : parseNum(minPriceRaw),
     alert_quantity: alertQtyRaw === "" ? "" : parseFloat(alertQtyRaw),
     barcode: barcodeRaw,
   };
