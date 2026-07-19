@@ -17,6 +17,25 @@ def _add_savdo_button(builder: ReplyKeyboardBuilder):
     builder.button(text="🛒 Savdo")
 
 
+def _add_admin_webapp_button(builder: ReplyKeyboardBuilder) -> bool:
+    """11-BOSQICH: BOSH ADMIN PANELI - "🖥 Mini App" tugmasi, to'g'ridan-to'g'ri
+    WebAppInfo bilan (Menu Button/Attach Menu'ga tayanmasdan) - shunda bosh
+    admin panelini ochish uchun alohida sozlash shart emas, tugma o'zi
+    ko'rinadi va bosilganda /webapp (11-bosqichdagi admin ekrani, qarang:
+    webapp_static/app.js -> startAdminMode) ochiladi.
+
+    DIQQAT: web_app tugmasi FAQAT https manzil bilan ishlaydi (Telegram
+    talabi) - shuning uchun config.WEBAPP_URL hali sozlanmagan bo'lsa
+    (masalan domensiz, polling rejimida ishlab chiqilayotganda) tugma
+    UMUMAN qo'shilmaydi, aks holda Telegram klaviaturani butunlay
+    ko'rsatmay qo'yishi mumkin edi. Qaytadi: tugma qo'shildimi (True/False) -
+    chaqiruvchi shu bo'yicha builder.adjust() ustunlar sonini moslaydi."""
+    if not config.WEBAPP_URL:
+        return False
+    builder.button(text="🖥 Mini App", web_app=WebAppInfo(url=config.WEBAPP_URL))
+    return True
+
+
 def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
     """role: "admin" | "owner" | "seller".
 
@@ -33,7 +52,8 @@ def main_menu(role: str = "owner") -> ReplyKeyboardMarkup:
         builder.button(text="👥 Foydalanuvchilar")
         builder.button(text="📢 E'lon yuborish")
         builder.button(text="🗄 Zaxira nusxa")
-        builder.adjust(1, 1, 1)
+        has_webapp_btn = _add_admin_webapp_button(builder)
+        builder.adjust(1, 1, 1, 1) if has_webapp_btn else builder.adjust(1, 1, 1)
     elif role == "seller":
         _add_savdo_button(builder)
         builder.button(text="📋 Mahsulotlar ro'yxati")
