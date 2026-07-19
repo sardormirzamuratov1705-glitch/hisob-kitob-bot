@@ -47,6 +47,9 @@ const API = {
   skladCreateProduct: "/api/webapp/sklad/create-product",
   skladUpdateProduct: "/api/webapp/sklad/update-product",
   skladHistory: "/api/webapp/sklad/history",
+  restockList: "/api/webapp/restock",
+  restockAdd: "/api/webapp/restock/add",
+  restockDeleteManual: "/api/webapp/restock/delete-manual",
   profile: "/api/webapp/profile",
   branches: "/api/webapp/branches",
   branchesSwitch: "/api/webapp/branches/switch",
@@ -82,6 +85,12 @@ let currentSection = "sale"; // 6-BOSQICH: "sale" (Savdo) | "sklad" (Sklad)
 // qo'ygan bo'lishi mumkin - qarang: handlers/sellers.py "🔐 Sklad ruxsati").
 let currentUser = { role: null, canAddStock: true };
 
+// YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shilgan tovar
+// "✅ olindi" deb ochilganda (yangi mahsulot yaratish oynasi orqali),
+// muvaffaqiyatli qo'shilgach qaysi restock_manual yozuvini o'chirish
+// kerakligini eslab turadi - qarang: openRestockBuyModal, saveSkladNewProduct.
+let pendingManualRestockId = null;
+
 async function loadMe() {
   try {
     const res = await apiFetch(API.me);
@@ -101,7 +110,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad", "profile",
+    "loading", "error", "products", "cart", "sklad", "restock", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -1061,6 +1070,9 @@ function switchSection(section) {
     showScreen("sklad");
     updateSkladPermissionUI();
     loadSkladProducts(el("sklad-search-input").value.trim());
+  } else if (section === "restock") {
+    showScreen("restock");
+    loadRestockList();
   } else if (section === "profile") {
     showScreen("profile");
     loadProfile();
@@ -1093,6 +1105,7 @@ function updateSkladPermissionUI() {
 
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
+el("tab-restock").addEventListener("click", () => switchSection("restock"));
 el("tab-profile").addEventListener("click", () => switchSection("profile"));
 
 // ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
@@ -1396,6 +1409,9 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     el("modal-sklad-add").classList.add("hidden");
     currentSkladProduct = null;
     loadSkladProducts(el("sklad-search-input").value.trim());
+    // "Olinishi kerak" ro'yxatidan ("📉 Skladda kamayib qolgan") ochilgan
+    // bo'lsa - tovar endi to'ldirilgani uchun ro'yxatni yangilaymiz.
+    if (currentSection === "restock") loadRestockList();
 
     // 6-BOSQICH: skanerlab qo'shilgan bo'lsa - tg.showAlert() (OK
     // bosishni talab qiladi) O'RNIGA kamerani darhol qayta ochamiz va
@@ -1434,12 +1450,12 @@ function skladErrorText(data) {
 // (bot bilan matnli yozishmasdan, to'g'ridan-to'g'ri mini-appdan).
 // Barkod bilan to'ldirish (skanerlash) 3-4-bosqichlarda shu yerga
 // qo'shiladi - hozircha faqat nom/narx/miqdor.
-function openSkladNewProductModal(prefilledBarcode = "") {
+function openSkladNewProductModal(prefilledBarcode = "", prefilledName = "") {
   if (!currentUser.canAddStock) {
     tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
     return;
   }
-  el("sklad-new-name-input").value = "";
+  el("sklad-new-name-input").value = prefilledName;
   el("sklad-new-price-input").value = "";
   el("sklad-new-sell-price-input").value = "";
   el("sklad-new-min-price-input").value = "";
@@ -1449,7 +1465,10 @@ function openSkladNewProductModal(prefilledBarcode = "") {
   el("modal-sklad-new").classList.remove("hidden");
 }
 
-el("sklad-new-product-btn").addEventListener("click", () => openSkladNewProductModal());
+el("sklad-new-product-btn").addEventListener("click", () => {
+  pendingManualRestockId = null;
+  openSkladNewProductModal();
+});
 
 el("sklad-new-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-new").classList.add("hidden");
@@ -1623,6 +1642,27 @@ async function saveSkladNewProduct(body) {
     el("modal-sklad-new").classList.add("hidden");
     tg.showAlert(`✅ "${data.product.name}" mahsuloti qo'shildi.`);
     loadSkladProducts(el("sklad-search-input").value.trim());
+
+    // YANGI: agar bu oyna "Olinishi kerak" ro'yxatidagi qo'lda qo'shilgan
+    // tovarni "✅ olindi" deb belgilashdan ochilgan bo'lsa (qarang:
+    // openRestockBuyModal) - endi mahsulot haqiqatan ham skladga
+    // qo'shilgani uchun, uni "olinishi kerak" ro'yxatidan olib tashlaymiz
+    // (bot tarafidagi _finalize_restock_purchase()dagi
+    // db.delete_manual_restock_item() bilan bir xil g'oya).
+    if (pendingManualRestockId != null) {
+      const doneId = pendingManualRestockId;
+      pendingManualRestockId = null;
+      try {
+        await apiFetch(API.restockDeleteManual, {
+          method: "POST",
+          body: JSON.stringify({ id: doneId }),
+        });
+      } catch (e) {
+        // Jim o'tkazamiz - mahsulot allaqachon qo'shildi, ro'yxatdagi
+        // eski yozuv esa keyingi ochilishda qo'lda ham o'chirilishi mumkin.
+      }
+    }
+    if (currentSection === "restock") loadRestockList();
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   } finally {
@@ -1642,6 +1682,165 @@ function skladCreateErrorText(data) {
     barcode_exists: `Bu barkod allaqachon "${data.product ? data.product.name : ""}" mahsulotida bor.`,
   };
   return map[data.error] || "Mahsulot qo'shishda xatolik yuz berdi.";
+}
+
+// ---------- YANGI: "OLINISHI KERAK BO'LGAN TOVARLAR" ----------
+// Bot tarafidagi "🧾 Olinishi kerak bo'lgan tovarlar" bo'limi bilan bir
+// xil ma'lumot (webapp.py api_restock_list): "📉 avtomatik" - ogohlantirish
+// chegarasidan kam qolgan mahsulotlar, va "✍️ qo'lda qo'shilgan" - hali
+// skladda umuman yo'q, lekin kerak bo'ladigan tovarlar ro'yxati.
+// Do'kon egasi HAM, sotuvchi HAM ko'radi; faqat do'kon egasi (manage=true)
+// "✅ olindi" tugmalarini ko'radi - keyboards.restock_kb(manage=...) bilan
+// bir xil qoida.
+
+async function loadRestockList() {
+  const lowSection = el("restock-lowstock-section");
+  const manualSection = el("restock-manual-section");
+  const emptyBox = el("restock-empty");
+  try {
+    const res = await apiFetch(API.restockList);
+    if (!res.ok) throw new Error("restock_failed");
+    const data = await res.json();
+    renderRestockList(data);
+  } catch (e) {
+    lowSection.classList.add("hidden");
+    manualSection.classList.add("hidden");
+    emptyBox.classList.remove("hidden");
+    emptyBox.textContent = "Yuklashda xatolik yuz berdi.";
+  }
+}
+
+function renderRestockList(data) {
+  const lowStock = data.low_stock || [];
+  const manualItems = data.manual_items || [];
+  const manage = !!data.manage;
+
+  const lowSection = el("restock-lowstock-section");
+  const manualSection = el("restock-manual-section");
+  const emptyBox = el("restock-empty");
+  const lowList = el("restock-lowstock-list");
+  const manualList = el("restock-manual-list");
+
+  lowList.innerHTML = "";
+  manualList.innerHTML = "";
+
+  if (lowStock.length === 0 && manualItems.length === 0) {
+    lowSection.classList.add("hidden");
+    manualSection.classList.add("hidden");
+    emptyBox.textContent = "✅ Hozircha olinishi kerak bo'lgan tovar yo'q.";
+    emptyBox.classList.remove("hidden");
+    return;
+  }
+  emptyBox.classList.add("hidden");
+
+  if (lowStock.length > 0) {
+    lowSection.classList.remove("hidden");
+    lowStock.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "product-card";
+      card.innerHTML = `
+        <div>
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="stock">${formatNum(p.quantity)} dona qoldi (chegara: ${formatNum(p.alert_quantity)})</div>
+        </div>
+        <div class="card-actions">
+          <div class="add-icon">${manage ? "✅" : "👁"}</div>
+        </div>
+      `;
+      if (manage) {
+        card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p); });
+      }
+      lowList.appendChild(card);
+    });
+  } else {
+    lowSection.classList.add("hidden");
+  }
+
+  if (manualItems.length > 0) {
+    manualSection.classList.remove("hidden");
+    manualItems.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "history-row restock-manual-row";
+      const note = item.note ? `<div class="history-actor">${escapeHtml(item.note)}</div>` : "";
+      row.innerHTML = `
+        <div class="history-row-top">
+          <div class="history-action">${escapeHtml(item.name)}</div>
+        </div>
+        ${note}
+        ${manage ? '<button type="button" class="secondary-btn restock-buy-btn">✅ Olindi</button>' : ""}
+      `;
+      if (manage) {
+        row.querySelector(".restock-buy-btn").addEventListener("click", () => openRestockBuyModal(item));
+      }
+      manualList.appendChild(row);
+    });
+  } else {
+    manualSection.classList.add("hidden");
+  }
+}
+
+// Qo'lda qo'shilgan tovar "✅ Olindi" bosilganda - bot tarafidagi
+// restock_done_cb bilan bir xil g'oya, lekin mini app'da mavjud "Yangi
+// mahsulot" oynasini (nomi oldindan to'ldirilgan holda) qayta ishlatamiz,
+// chunki narx/miqdor/ogohlantirish maydonlari aynan o'sha oynada bor.
+function openRestockBuyModal(item) {
+  pendingManualRestockId = item.id;
+  openSkladNewProductModal("", item.name);
+}
+
+el("restock-add-btn").addEventListener("click", () => {
+  el("restock-add-name-input").value = "";
+  el("restock-add-note-input").value = "";
+  el("modal-restock-add").classList.remove("hidden");
+});
+
+el("restock-add-cancel-btn").addEventListener("click", () => {
+  el("modal-restock-add").classList.add("hidden");
+});
+
+el("restock-add-save-btn").addEventListener("click", async () => {
+  const name = el("restock-add-name-input").value.trim();
+  if (!name) {
+    tg.showAlert("Tovar nomini kiriting.");
+    return;
+  }
+  const note = el("restock-add-note-input").value.trim();
+
+  const btn = el("restock-add-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Qo'shilmoqda...";
+
+  try {
+    const res = await apiFetch(API.restockAdd, {
+      method: "POST",
+      body: JSON.stringify({ name, note }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(restockAddErrorText(data));
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-restock-add").classList.add("hidden");
+    loadRestockList();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Qo'shish";
+  }
+});
+
+function restockAddErrorText(data) {
+  if (data.error === "product_exists") {
+    const p = data.product || {};
+    return `❗ Bunday mahsulot skladda mavjud: "${p.name || ""}" (hozir ${formatNum(p.quantity || 0)} dona bor).\n` +
+      "Agar shu mahsulotdan yana kerak bo'lsa, \"Sklad\" bo'limidan unga miqdor qo'shing.";
+  }
+  const map = {
+    missing_name: "Tovar nomini kiriting.",
+  };
+  return map[data.error] || "Qo'shishda xatolik yuz berdi.";
 }
 
 // 7-BOSQICH: mavjud mahsulotni tahrirlash (FAQAT do'kon egasi - qarang:
