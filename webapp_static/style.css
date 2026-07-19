@@ -15,6 +15,7 @@
 
 html, body {
   height: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -23,38 +24,66 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+#app {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .hidden { display: none !important; }
 
-/* ---------- HEADER ---------- */
+/* ---------- HEADER / PASTKI NAVIGATSIYA ----------
+   Avval bo'limlar tepada, sig'may qolganda butun sahifa yon tomonga
+   suriladigan sticky qator edi - shu "xunuk" holatni tuzatish uchun
+   endi bo'limlar PASTDA, alohida gorizontal aylantiriladigan (scroll)
+   qatorda, kattaroq tugmalar bilan ko'rsatiladi (mobil ilovalardagi
+   pastki tab-bar kabi). Shu tufayli sahifaning o'zi hech qachon yon
+   tomonga surilib ketmaydi - faqat shu qatorning ICHKI qismi
+   suriladi. */
 
 .app-header {
-  position: sticky;
-  top: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
   z-index: 20;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  background: var(--bg);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  gap: 10px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--card-bg);
+  border-bottom: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.08);
 }
 
 /* 6-BOSQICH: "Savdo"/"Sklad" tab-almashtirgich (avvalgi statik sarlavha o'rniga) */
 
 .section-tabs {
   display: flex;
-  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
 }
 
+.section-tabs::-webkit-scrollbar { display: none; }
+
 .section-tab {
-  padding: 7px 13px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 12px 20px;
   border-radius: 999px;
   border: none;
   background: transparent;
   color: var(--hint);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   transition: all 0.15s;
 }
@@ -66,6 +95,7 @@ body {
 }
 
 .header-cart-badge {
+  flex: 0 0 auto;
   background: var(--accent);
   color: var(--accent-text);
   font-size: 13px;
@@ -79,8 +109,10 @@ body {
 /* ---------- SCREENS ---------- */
 
 .screen {
-  padding: 14px 16px 100px;
+  padding: 14px 16px calc(110px + env(safe-area-inset-bottom, 0px));
   animation: fadeIn 0.18s ease-out;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 @keyframes fadeIn {
@@ -732,7 +764,7 @@ input:focus {
   position: fixed;
   left: 14px;
   right: 14px;
-  bottom: 16px;
+  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
   padding: 15px 18px;
   border-radius: 999px;
   background: var(--accent);
