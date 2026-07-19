@@ -598,9 +598,17 @@ async function startCameraWithFallback() {
   for (const camera of orderedCameras) {
     const instance = new Html5Qrcode("scanner-reader", scannerOptions);
     try {
+      // MUHIM (yana bir bug tuzatildi): cameraIdOrConfig (birinchi
+      // argument) OBYEKT bo'lsa, kutubxona uni FAQAT bitta kalit bilan
+      // qabul qiladi ({deviceId:{exact:...}} YOKI {facingMode:...} -
+      // ikkalasi birga emas, va hech qanday qo'shimcha kalit bilan
+      // ham emas). Shuning uchun kamerani oddiy ID satri (string)
+      // sifatida uzatamiz, HD o'lcham cheklovlarini esa alohida -
+      // ikkinchi argumentdagi "videoConstraints" maydoniga joylaymiz.
       await instance.start(
-        { deviceId: { exact: camera.id }, ...hdConstraints },
-        scanConfig, onBarcodeDecoded, () => {}
+        camera.id,
+        { ...scanConfig, videoConstraints: hdConstraints },
+        onBarcodeDecoded, () => {}
       );
       html5QrCode = instance;
       return;
