@@ -581,38 +581,52 @@ async function startCameraWithFallback() {
     experimentalFeatures: { useBarCodeDetectorIfSupported: true },
   };
 
-  const cameras = await Html5Qrcode.getCameras();
-  if (!cameras || cameras.length === 0) {
-    throw new Error("no_camera_found");
+  // MUHIM (yana bir bug tuzatildi - IKKI MARTA ruxsat so'ralishi):
+  // avval BU YERDA, urinishlar ro'yxatini tuzishdan oldin,
+  // Html5Qrcode.getCameras() darhol chaqirilar edi. Bu funksiyaning
+  // O'ZI ham kamera nomlarini (label) olish uchun ICHKI ravishda
+  // alohida getUserMedia so'rovi yuboradi - demak BIRINCHI ruxsat
+  // so'rovi shu yerda, IKKINCHISI esa keyinroq haqiqiy skanerlash
+  // uchun instance.start() chaqirilganda bo'lardi. Ba'zi WebView'larda
+  // ruxsat sessiya davomida eslab qolinmagani uchun foydalanuvchidan
+  // ketma-ket IKKI marta so'ralardi. Shuning uchun endi getCameras()
+  // OLDINDAN chaqirilmaydi - to'g'ridan-to'g'ri `facingMode:
+  // "environment"` bilan urinamiz (BITTA so'rov). getCameras() endi
+  // FAQAT shu urinish muvaffaqiyatsiz bo'lsa, zaxira sifatida
+  // (pastda) chaqiriladi.
+  let lastError = null;
+
+  const instance1 = new Html5Qrcode("scanner-reader", scannerOptions);
+  try {
+    // MUHIM: cameraIdOrConfig OBYEKT bo'lsa, kutubxona uni FAQAT
+    // bitta kalit bilan qabul qiladi ({facingMode:...} YOKI
+    // {deviceId:{exact:...}} - qo'shimcha kalit bilan emas). Shuning
+    // uchun HD o'lcham cheklovlarini alohida - ikkinchi argumentdagi
+    // "videoConstraints" maydoniga joylaymiz.
+    await instance1.start(
+      { facingMode: "environment" },
+      { ...scanConfig, videoConstraints: hdConstraints },
+      onBarcodeDecoded, () => {}
+    );
+    html5QrCode = instance1;
+    return;
+  } catch (e) {
+    lastError = e;
+    try { instance1.clear(); } catch (_) { /* e'tiborsiz */ }
   }
 
-  // MUHIM (yana bir bug tuzatildi): avval orqa kamerani label matnidan
-  // ("back"/"rear" so'zi bor-yo'qligidan) aniqlashga harakat qilingan
-  // edi - lekin ko'p qurilmalarda kamera labeli shunchaki "Camera 1",
-  // "Camera 2" kabi bo'ladi, hech qanday yo'nalish so'zisiz. Natijada
-  // "orqa kamera" aniqlanmay, ro'yxatdagi BIRINCHI (odatda OLD) kamera
-  // tanlanardi. Shuning uchun endi avval brauzerning o'zidan
-  // `facingMode: "environment"` orqali so'raymiz - bu labelga emas,
-  // kameraning haqiqiy fizik yo'nalishi (facing) metadatasiga qarab
-  // ishlaydi va ancha ishonchli. Faqat shu urinish muvaffaqiyatsiz
-  // bo'lsa (masalan noutbukda - orqa kamera umuman yo'q), keyin
-  // qurilmadagi barcha kameralar navbat bilan (ID orqali) sinaladi.
-  const attempts = [
-    { facingMode: "environment" },
-    ...cameras.map((c) => c.id),
-  ];
+  // Zaxira yo'l: qurilmadagi barcha kameralarni ID orqali navbat bilan
+  // sinaymiz (masalan noutbukda - orqa kamera umuman yo'q holat uchun).
+  const cameras = await Html5Qrcode.getCameras();
+  if (!cameras || cameras.length === 0) {
+    throw lastError || new Error("no_camera_found");
+  }
 
-  let lastError = null;
-  for (const cameraIdOrConfig of attempts) {
+  for (const camera of cameras) {
     const instance = new Html5Qrcode("scanner-reader", scannerOptions);
     try {
-      // MUHIM: cameraIdOrConfig OBYEKT bo'lsa, kutubxona uni FAQAT
-      // bitta kalit bilan qabul qiladi ({facingMode:...} YOKI
-      // {deviceId:{exact:...}} - qo'shimcha kalit bilan emas). Shuning
-      // uchun HD o'lcham cheklovlarini alohida - ikkinchi argumentdagi
-      // "videoConstraints" maydoniga joylaymiz.
       await instance.start(
-        cameraIdOrConfig,
+        camera.id,
         { ...scanConfig, videoConstraints: hdConstraints },
         onBarcodeDecoded, () => {}
       );
