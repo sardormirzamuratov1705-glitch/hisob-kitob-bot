@@ -1389,6 +1389,15 @@ el("sklad-new-save-btn").addEventListener("click", async () => {
       "Eng past narx kiritilmadi. Bunday holda sotuvchilar bu mahsulotni istalgan (hatto juda past) narxda sotib yuborishi mumkin.\n\nShunday davom etamizmi?"
     );
     if (!ok) return;
+  } else if (minPrice < price) {
+    // YANGI: eng past narx tannarxdan PAST kiritilsa ham, sotish narxidagi
+    // kabi jim o'tkazib yubormasdan ogohlantiramiz - aks holda sotuvchi shu
+    // "eng past narx"gacha tushib, baribir zararda sotib yuborishi mumkin.
+    const ok = await confirmAsync(
+      `Diqqat: eng past narx (${formatNum(minPrice)} so'm) tannarxdan (${formatNum(price)} so'm) PAST!\n\n` +
+      "Sotuvchilar shu narxgacha tushirib sotsa ham zarar ko'rasiz. Shunday davom etamizmi?"
+    );
+    if (!ok) return;
   }
 
   await saveSkladNewProduct(body);
@@ -1506,6 +1515,36 @@ el("sklad-edit-save-btn").addEventListener("click", async () => {
     alert_quantity: alertQtyRaw === "" ? "" : parseFloat(alertQtyRaw),
     barcode: barcodeRaw,
   };
+
+  // YANGI: "Yangi mahsulot" oynasidagi bilan BIR XIL ogohlantirishlar -
+  // avval bu yerda umuman yo'q edi, shuning uchun tannarxdan past sotish/
+  // eng past narx kiritilsa ham jim saqlanardi.
+  if (sellPriceRaw !== "") {
+    const sellPrice = parseNum(sellPriceRaw);
+    if (sellPrice < price) {
+      const ok = await confirmAsync(
+        `Diqqat: sotish narxi (${formatNum(sellPrice)} so'm) tannarxdan (${formatNum(price)} so'm) PAST!\n\n` +
+        "Shu narxda sotilsa, har bir donada zarar ko'rasiz. Shunday davom etamizmi?"
+      );
+      if (!ok) return;
+    }
+  }
+
+  if (minPriceRaw === "") {
+    const ok = await confirmAsync(
+      "Eng past narx kiritilmadi. Bunday holda sotuvchilar bu mahsulotni istalgan (hatto juda past) narxda sotib yuborishi mumkin.\n\nShunday davom etamizmi?"
+    );
+    if (!ok) return;
+  } else {
+    const minPrice = parseNum(minPriceRaw);
+    if (minPrice < price) {
+      const ok = await confirmAsync(
+        `Diqqat: eng past narx (${formatNum(minPrice)} so'm) tannarxdan (${formatNum(price)} so'm) PAST!\n\n` +
+        "Sotuvchilar shu narxgacha tushirib sotsa ham zarar ko'rasiz. Shunday davom etamizmi?"
+      );
+      if (!ok) return;
+    }
+  }
 
   const btn = el("sklad-edit-save-btn");
   btn.disabled = true;
