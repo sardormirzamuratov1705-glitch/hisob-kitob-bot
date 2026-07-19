@@ -74,6 +74,10 @@ const API = {
   reportsSuspiciousAlert: "/api/webapp/reports/suspicious-alert",
   reportsAuditLog: "/api/webapp/reports/audit-log",
   profile: "/api/webapp/profile",
+  // 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV (backend: 13-bosqich,
+  // webapp_handlers/subscription.py).
+  subscription: "/api/webapp/subscription",
+  subscriptionPay: "/api/webapp/subscription/pay",
   // 6-BLOK, 12-BOSQICH: SOZLAMALAR (backend: 11-bosqich,
   // webapp_handlers/settings.py). GET - joriy profil, POST - yangilash.
   settings: "/api/webapp/settings",
@@ -141,6 +145,10 @@ async function loadMe() {
     // ko'rinadi - sotuvchi o'zi boshqa sotuvchi qo'sha olmaydi (bot
     // tarafidagi handlers/sellers.py'dagi qoida bilan bir xil).
     el("tab-sellers").classList.toggle("hidden", data.role !== "owner");
+    // 7-BLOK, 14-BOSQICH: "Obuna" tugmasi FAQAT haqiqiy do'kon egasiga
+    // ko'rinadi (bot tarafidagi is_owner_level() qoidasi bilan bir xil -
+    // sotuvchi obunani uzaytira olmaydi).
+    el("tab-subscription").classList.toggle("hidden", data.role !== "owner");
     // 4-BLOK, 8-BOSQICH: "Kirim qo'shish" FAQAT haqiqiy do'kon egasiga -
     // backend ham qayta tekshiradi (owner_only), bu faqat UI qulayligi uchun.
     el("tx-add-income-btn").classList.toggle("hidden", data.role !== "owner");
@@ -155,7 +163,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "reports", "profile",
+    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "reports", "subscription", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -172,7 +180,7 @@ async function apiFetch(url, options = {}) {
   const headers = Object.assign({}, options.headers || {}, {
     "X-Telegram-Init-Data": initData,
   });
-  if (options.body) headers["Content-Type"] = "application/json";
+  if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
   const res = await fetch(url, Object.assign({}, options, { headers }));
   if (res.status === 401) {
     // VAQTINCHALIK DIAGNOSTIKA (401 sababini aniqlash uchun): Telegram
@@ -1130,6 +1138,9 @@ function switchSection(section) {
   } else if (section === "reports") {
     showScreen("reports");
     loadReports();
+  } else if (section === "subscription") {
+    showScreen("subscription");
+    loadSubscription();
   } else if (section === "profile") {
     showScreen("profile");
     loadProfile();
@@ -1167,6 +1178,7 @@ el("tab-sellers").addEventListener("click", () => switchSection("sellers"));
 el("tab-debts").addEventListener("click", () => switchSection("debts"));
 el("tab-transactions").addEventListener("click", () => switchSection("transactions"));
 el("tab-reports").addEventListener("click", () => switchSection("reports"));
+el("tab-subscription").addEventListener("click", () => switchSection("subscription"));
 el("tab-profile").addEventListener("click", () => switchSection("profile"));
 
 // ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
@@ -3966,6 +3978,125 @@ wireEnterToNext(
   ],
   "sklad-edit-save-btn"
 );
+
+// ---------- 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV ----------
+// Bot tarafidagi "💳 Obuna" bo'limi bilan bir xil - tarif tanlash, keyin
+// rekvizitlar ko'rsatilib, chek rasm fayl input orqali yuboriladi
+// (Telegram chatiga rasm yuborish o'rniga - backend:
+// webapp_handlers/subscription.py, 13-bosqich).
+let subscriptionSelectedPlan = null;
+let subscriptionPlansCache = null;
+
+async function loadSubscription() {
+  const card = el("subscription-status-card");
+  card.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  el("subscription-plans-list").innerHTML = "";
+  el("subscription-requisites-section").classList.add("hidden");
+  subscriptionSelectedPlan = null;
+  try {
+    const res = await apiFetch(API.subscription);
+    if (!res.ok) throw new Error("Obuna ma'lumotlarini yuklab bo'lmadi.");
+    const data = await res.json();
+    renderSubscription(data);
+  } catch (e) {
+    card.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderSubscription(data) {
+  subscriptionPlansCache = data.plans || {};
+
+  el("subscription-status-card").innerHTML = `
+    <div class="profile-header-icon">💳</div>
+    <div class="profile-header-info">
+      <div class="profile-header-title">Obuna holati</div>
+      <div class="profile-header-sub">${escapeHtml(profileDaysLeftText(data.days_left))}${data.subscription_until ? ` · ${escapeHtml(data.subscription_until)}gacha` : ""}</div>
+    </div>
+    <div class="profile-header-badge">${profileStatusBadgeHtml(data.status)}</div>
+  `;
+
+  const order = ["1m", "3m", "12m"];
+  const list = el("subscription-plans-list");
+  list.innerHTML = "";
+  order.filter((key) => subscriptionPlansCache[key]).forEach((key) => {
+    const plan = subscriptionPlansCache[key];
+    const priceText = formatNum(plan.price) + " so'm";
+    const row = document.createElement("div");
+    row.className = "admin-settings-row plan-row";
+    row.innerHTML = `
+      <div class="value">📦 ${escapeHtml(plan.label)}${plan.discount_note ? ` <span class="muted">(${escapeHtml(plan.discount_note)})</span>` : ""}</div>
+      <div>${escapeHtml(priceText)}</div>
+    `;
+    row.addEventListener("click", () => selectSubscriptionPlan(key, data.requisites));
+    list.appendChild(row);
+  });
+}
+
+function selectSubscriptionPlan(planKey, requisites) {
+  subscriptionSelectedPlan = planKey;
+  document.querySelectorAll("#subscription-plans-list .plan-row").forEach((row) => row.classList.remove("current"));
+  const rows = Array.from(el("subscription-plans-list").children);
+  const order = ["1m", "3m", "12m"].filter((key) => subscriptionPlansCache[key]);
+  const idx = order.indexOf(planKey);
+  if (rows[idx]) rows[idx].classList.add("current");
+
+  el("subscription-photo-input").value = "";
+  el("subscription-requisites-body").innerHTML = [
+    ["Karta", `${requisites.card_number} (${requisites.card_holder})`],
+    ["Click", requisites.click_number],
+    ["Payme", requisites.payme_number],
+  ].map(([k, v]) => `
+    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
+  `).join("");
+  el("subscription-requisites-section").classList.remove("hidden");
+}
+
+el("subscription-pay-cancel-btn").addEventListener("click", () => {
+  el("subscription-requisites-section").classList.add("hidden");
+  document.querySelectorAll("#subscription-plans-list .plan-row").forEach((row) => row.classList.remove("current"));
+  subscriptionSelectedPlan = null;
+});
+
+el("subscription-pay-send-btn").addEventListener("click", async () => {
+  const fileInput = el("subscription-photo-input");
+  const file = fileInput.files && fileInput.files[0];
+  if (!subscriptionSelectedPlan) {
+    tg.showAlert("Avval tarifni tanlang.");
+    return;
+  }
+  if (!file) {
+    tg.showAlert("Chek rasmini tanlang.");
+    return;
+  }
+
+  const btn = el("subscription-pay-send-btn");
+  btn.disabled = true;
+  btn.textContent = "Yuborilmoqda...";
+  try {
+    const formData = new FormData();
+    formData.append("plan", subscriptionSelectedPlan);
+    formData.append("photo", file);
+    const res = await apiFetch(API.subscriptionPay, { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      const map = {
+        invalid_plan: "Bu tarif topilmadi, ekranni qaytadan oching.",
+        missing_photo: "Chek rasmini tanlang.",
+        admin_unreachable: "Adminlarga yuborib bo'lmadi, birozdan keyin qaytadan urinib ko'ring.",
+      };
+      tg.showAlert(map[data.error] || "Yuborib bo'lmadi.");
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("subscription-requisites-section").classList.add("hidden");
+    tg.showAlert("✅ Chekingiz qabul qilindi va bosh adminga yuborildi. Tasdiqlangach obunangiz avtomatik uzaytiriladi.");
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Chekni yuborish";
+  }
+});
 
 // ---------- BOSHLASH ----------
 
