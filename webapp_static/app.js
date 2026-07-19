@@ -608,20 +608,41 @@ async function startCameraWithFallback() {
       { ...scanConfig, videoConstraints: hdConstraints },
       onBarcodeDecoded, () => {}
     );
-    html5QrCode = instance1;
-    return;
+    // MUHIM (yana bir bug tuzatildi): ba'zi arzon Android qurilmalar
+    // "environment" cheklovini E'TIBORSIZ qoldirib, xato chiqarmasdan
+    // baribir OLD kamerani berib yuboradi. Shuning uchun kamera
+    // ishga tushgach uning HAQIQIY yo'nalishini tekshiramiz. Agar old
+    // kamera kelib qolgan bo'lsa - RUXSATNI QAYTA SO'RAMASDAN (u
+    // allaqachon shu sessiyada berilgan) boshqa kamerani sinaymiz.
+    const settings1 = typeof instance1.getRunningTrackSettings === "function"
+      ? instance1.getRunningTrackSettings() : {};
+    if (!settings1.facingMode || settings1.facingMode !== "user") {
+      html5QrCode = instance1;
+      return;
+    }
+    try { await instance1.stop(); } catch (_) { /* e'tiborsiz */ }
+    try { instance1.clear(); } catch (_) { /* e'tiborsiz */ }
   } catch (e) {
     lastError = e;
     try { instance1.clear(); } catch (_) { /* e'tiborsiz */ }
   }
 
   // Zaxira yo'l: qurilmadagi barcha kameralarni ID orqali navbat bilan
-  // sinaymiz (masalan noutbukda - orqa kamera umuman yo'q holat uchun).
+  // sinaymiz. DIQQAT: ruxsat allaqachon (yuqorida) berilgani uchun bu
+  // yerdagi getCameras() va start() chaqiruvlari QAYTA SO'RAMAYDI -
+  // brauzer bir marta berilgan kamera ruxsatini shu sahifa/sessiya
+  // davomida eslab qoladi.
   const cameras = await Html5Qrcode.getCameras();
   if (!cameras || cameras.length === 0) {
     throw lastError || new Error("no_camera_found");
   }
 
+  // Old kamera (facingMode "user") bo'lmagan birinchi kamerani
+  // qidiramiz; agar hech qaysi kamerada aniq facingMode ma'lumoti
+  // bo'lmasa yoki barchasi "old" deb ko'ringan bo'lsa - hech bo'lmasa
+  // BIRON kamera ishlashi uchun oxirgi ishga tushgan kamerani zaxira
+  // sifatida saqlab qo'yamiz.
+  let fallbackInstance = null;
   for (const camera of cameras) {
     const instance = new Html5Qrcode("scanner-reader", scannerOptions);
     try {
@@ -630,12 +651,26 @@ async function startCameraWithFallback() {
         { ...scanConfig, videoConstraints: hdConstraints },
         onBarcodeDecoded, () => {}
       );
-      html5QrCode = instance;
-      return;
+      const settings = typeof instance.getRunningTrackSettings === "function"
+        ? instance.getRunningTrackSettings() : {};
+      if (settings.facingMode && settings.facingMode !== "user") {
+        html5QrCode = instance;
+        return;
+      }
+      if (fallbackInstance) {
+        try { await fallbackInstance.stop(); } catch (_) { /* e'tiborsiz */ }
+        try { fallbackInstance.clear(); } catch (_) { /* e'tiborsiz */ }
+      }
+      fallbackInstance = instance;
     } catch (e) {
       lastError = e;
       try { instance.clear(); } catch (_) { /* e'tiborsiz */ }
     }
+  }
+
+  if (fallbackInstance) {
+    html5QrCode = fallbackInstance;
+    return;
   }
   throw lastError || new Error("no_camera_found");
 }
