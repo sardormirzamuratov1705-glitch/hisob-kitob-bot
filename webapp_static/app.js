@@ -594,6 +594,7 @@ async function openScanner(mode = "sale") {
   scannerMode = mode;
   scanHandled = false;
   setScannerStatus(defaultScannerStatusText());
+  el("scanner-native-qr-btn").classList.add("hidden");
   el("modal-scanner").classList.remove("hidden");
 
   if (!window.Html5Qrcode) {
@@ -623,6 +624,12 @@ async function openScanner(mode = "sale") {
     // talab qiladi, shuning uchun bittasiga umumlashtirmaymiz. Har holatda
     // ham qidiruv orqali barkodni QO'LDA kiritish - kamera holatidan
     // qat'i nazar doim ishlaydigan zaxira yo'l ekanini eslatamiz.
+    // Diagnostika uchun: haqiqiy xatoni konsolga chiqaramiz - shunda
+    // "Kamerani ochib bo'lmadi" kabi umumiy xabar ortida NIMA sodir
+    // bo'lganini (masalan getCameras() bo'sh qaytdi, yoki kutubxona
+    // network orqali yuklanmadi) aniqlash mumkin bo'ladi.
+    console.error("Skaner kamerasini ochishda xatolik:", err);
+
     const name = err && err.name;
     let msg;
     if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -632,11 +639,40 @@ async function openScanner(mode = "sale") {
     } else if (name === "NotReadableError" || name === "TrackStartError") {
       msg = "Kamera band - boshqa ilova ishlatayotgan bo'lishi mumkin. Boshqa kamera ilovalarini yopib qayta urinib ko'ring.";
     } else {
-      msg = "Kamerani ochib bo'lmadi.";
+      // Texnik tafsilotni ham ko'rsatamiz (qavs ichida) - "no_camera_found"
+      // yoki boshqa noma'lum xato bo'lsa, keyingi safar buni ko'chirib
+      // yuborish orqali muammoni aniqroq tashxislash mumkin bo'ladi.
+      const detail = (err && (err.message || String(err))) || "noma'lum xato";
+      msg = `Kamerani ochib bo'lmadi (${detail}).`;
     }
     setScannerStatus(`${msg} Yoki qidiruv maydoniga barkod raqamini qo'lda kiriting.`, "error");
+
+    // Brauzer kamerasi ishlamasa - Telegram klientining O'Z ichki QR
+    // skaneridan foydalanish imkoniyatini taklif qilamiz (agar mavjud
+    // bo'lsa). Bu WebView'ning getUserMedia'siga BOG'LIQ EMAS, shuning
+    // uchun ba'zi qurilmalar/klientlarda (masalan noutbukdagi Telegram
+    // Desktop) brauzer kamerasi ishlamasa ham ishlashi mumkin. DIQQAT:
+    // faqat QR-kod formatini o'qiydi, oddiy shtrix-kod (EAN/UPC) emas.
+    if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.showScanQrPopup === "function") {
+      el("scanner-native-qr-btn").classList.remove("hidden");
+    }
   }
 }
+
+// Telegram ilovasining o'z (native) QR skaneridan foydalanish - faqat
+// oddiy brauzer kamerasi (getUserMedia) ishlamagan holatlar uchun
+// zaxira variant sifatida. Faqat QR-kod formatini o'qiy oladi.
+function openNativeQrScanner() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg || typeof tg.showScanQrPopup !== "function") return;
+  tg.showScanQrPopup({ text: "QR-kodni skanerlang" }, (text) => {
+    tg.closeScanQrPopup();
+    onBarcodeDecoded(text);
+    return true; // popupni yopish uchun
+  });
+}
+
+el("scanner-native-qr-btn").addEventListener("click", openNativeQrScanner);
 
 // 8-BOSQICH: "continuous" avtofokus - qo'llab-quvvatlansa, kamera
 // doimiy ravishda qayta fokuslanib turadi (masalan telefon harakatda
