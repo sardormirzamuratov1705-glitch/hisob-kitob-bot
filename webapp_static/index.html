@@ -182,6 +182,43 @@
     </div>
   </div>
 
+  <!-- 7-BOSQICH: SKLAD - mavjud mahsulotni tahrirlash oynasi (FAQAT
+       do'kon egasiga ko'rinadi - qarang: app.js renderSkladProducts). -->
+  <div id="modal-sklad-edit" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>✏️ Mahsulotni tahrirlash</h3>
+
+      <label>Mahsulot nomi</label>
+      <input id="sklad-edit-name-input" type="text">
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>Tannarx (so'mda)</label>
+          <input id="sklad-edit-price-input" type="number" inputmode="decimal">
+        </div>
+        <div class="form-col">
+          <label>Sotish narxi (ixtiyoriy)</label>
+          <input id="sklad-edit-sell-price-input" type="number" inputmode="decimal">
+        </div>
+      </div>
+
+      <label>Eng past narx (ixtiyoriy)</label>
+      <input id="sklad-edit-min-price-input" type="number" inputmode="decimal">
+
+      <label>Barkod (ixtiyoriy)</label>
+      <div class="barcode-input-box">
+        <input id="sklad-edit-barcode-input" class="barcode-text-input" type="text" placeholder="Qo'lda kiriting yoki skanerlang">
+        <button id="sklad-edit-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlang">📷</button>
+      </div>
+
+      <div class="modal-actions">
+        <button id="sklad-edit-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="sklad-edit-save-btn" class="primary-btn">✅ Saqlash</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 <script src="/webapp/app.js"></script>
 </body>
