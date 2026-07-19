@@ -1527,7 +1527,9 @@ async def lowstock_bought_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     await state.set_state(RestockPurchase.quantity)
-    await state.update_data(restock_type="product", product_id=product_id, name=product["name"])
+    await state.update_data(
+        restock_type="product", product_id=product_id, name=product["name"], via_restock_list=True
+    )
     await callback.message.answer(
         f"<b>{product['name']}</b> — necha dona sotib olindi?", parse_mode="HTML"
     )
@@ -1546,7 +1548,9 @@ async def restock_done_cb(callback: CallbackQuery, state: FSMContext):
         return
 
     await state.set_state(RestockPurchase.quantity)
-    await state.update_data(restock_type="manual", manual_id=item_id, name=item["name"])
+    await state.update_data(
+        restock_type="manual", manual_id=item_id, name=item["name"], via_restock_list=True
+    )
     await callback.message.answer(
         f"<b>{item['name']}</b> — necha dona sotib olindi?", parse_mode="HTML"
     )
@@ -1655,6 +1659,23 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
     alert_quantity = data.get("alert_quantity")
     alert_line = f"Ogohlantirish chegarasi: {alert_quantity:.0f} dona\n" if alert_quantity else ""
 
+    # YANGI: agar shu xarid "📉 Olinishi kerak bo'lgan tovarlar" ro'yxatidan
+    # ("✅ Sotib olindi" / "✅ olindi" tugmasi orqali) boshlangan bo'lsa - bu
+    # HAQIQIY xarid, shuning uchun narx*miqdor bo'yicha moliyaga
+    # (Tranzaksiyalar) avtomatik "Chiqim" yoziladi. Agar shu FSM oddiy
+    # "➕ Mahsulot qo'shish" orqali (Sklad'ning o'zidan, restock ro'yxatisiz)
+    # boshlangan bo'lsa - via_restock_list yo'q, moliyaga tegilmaydi.
+    via_restock_list = bool(data.get("via_restock_list"))
+    cost_line = ""
+    if via_restock_list and data["price"] > 0 and data["quantity"] > 0:
+        total_cost = data["price"] * data["quantity"]
+        await db.add_transaction(
+            shop_id, "expense", total_cost,
+            f"Sklad uchun xarid: {data['name']} — {data['quantity']:.0f} dona ({data['price']:.0f} so'mdan)",
+            performed_by=message.from_user.id, branch_id=await get_branch_id(message.from_user.id),
+        )
+        cost_line = f"💸 Xarajat: {total_cost:.0f} so'm (Tranzaksiyalarga yozildi)\n"
+
     if data["restock_type"] == "product":
         result = await db.update_product_purchase(
             shop_id, data["product_id"], data["quantity"], data["price"], data["sell_price"],
@@ -1682,7 +1703,7 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"Qo'shildi: {data['quantity']:.0f} dona ({data['price']:.0f} so'mdan)\n"
             f"Yangi umumiy miqdor: {new_quantity:.0f} dona\n"
             f"O'rtacha tannarx: {weighted_price:.0f} so'm\nSavdo narxi: {data['sell_price']:.0f} so'm\n"
-            f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}",
+            f"Eng past narx: {data['min_price']:.0f} so'm\n{alert_line}{cost_line}",
             parse_mode="HTML"
         )
         await _send_restock_list(message, shop_id)
@@ -1698,7 +1719,7 @@ async def _finalize_restock_purchase(message: Message, state: FSMContext):
             f"✅ <b>{data['name']}</b> yangi mahsulot sifatida skladga qo'shildi.\n"
             f"Miqdori: {data['quantity']:.0f} dona\nTannarx: {data['price']:.0f} so'm\n"
             f"Savdo narxi: {data['sell_price']:.0f} so'm\nEng past narx: {data['min_price']:.0f} so'm\n"
-            f"{alert_line}",
+            f"{alert_line}{cost_line}",
             parse_mode="HTML"
         )
         await _send_restock_list(message, shop_id)
