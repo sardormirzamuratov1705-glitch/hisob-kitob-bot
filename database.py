@@ -789,7 +789,7 @@ async def add_stock_quantity(shop_id: int, product_id: int, add_qty: float, perf
 
 async def update_product_purchase(shop_id: int, product_id: int, add_quantity: float,
                                     purchase_price: float, sell_price: float, min_price: float,
-                                    alert_quantity=None):
+                                    alert_quantity=None, performed_by: int = None):
     """Kam qolgan mahsulot qayta sotib olinganda: miqdorni qo'shadi.
 
     Tannarx (price) o'rtacha tannarx (weighted average) usulida hisoblanadi -
@@ -797,17 +797,24 @@ async def update_product_purchase(shop_id: int, product_id: int, add_quantity: f
     Masalan: skladda 5 dona 20 000 so'mdan bor edi, endi 10 dona 50 000 so'mdan
     qo'shilsa - yangi tannarx (5*20000 + 10*50000) / 15 = 40 000 so'm bo'ladi.
     Savdo narxi va eng past narx esa xodim kiritgan yangi qiymatga to'g'ridan-to'g'ri o'zgaradi.
+
+    9-BOSQICH (SKLAD TARIXI): performed_by berilsa, amal audit_log'ga
+    yoziladi ("Sklad to'ldirildi (qayta xarid)") - Excel orqali ommaviy
+    to'ldirishda (handlers/products.py) atayin performed_by berilmaydi,
+    aks holda har bir qator uchun alohida yozuv qo'shilib, jurnalni
+    keraksiz to'ldirib yuboradi (u yerda allaqachon bitta yig'ma yozuv bor).
     """
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT quantity, price FROM products WHERE id = ? AND shop_id = ?",
+            "SELECT name, quantity, price FROM products WHERE id = ? AND shop_id = ?",
             (product_id, shop_id),
         )
         row = await cursor.fetchone()
         if not row:
             return None
 
+        name = row["name"]
         old_quantity = row["quantity"]
         old_price = row["price"] or 0
         new_quantity = old_quantity + add_quantity
@@ -825,7 +832,14 @@ async def update_product_purchase(shop_id: int, product_id: int, add_quantity: f
             (new_quantity, weighted_price, sell_price, min_price, alert_quantity, product_id, shop_id),
         )
         await db.commit()
-        return new_quantity, weighted_price
+
+    if performed_by:
+        await log_action(
+            shop_id, performed_by, "Sklad to'ldirildi (qayta xarid)",
+            f"{name}: {old_quantity:.0f} → {new_quantity:.0f} dona (+{add_quantity:.0f}), "
+            f"tannarx: {weighted_price:.0f} so'm",
+        )
+    return new_quantity, weighted_price
 
 
 async def find_product_by_name(shop_id: int, name: str):
