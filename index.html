@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Savdo</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera orqali barkod o'qish uchun
+     html5-qrcode kutubxonasi (EAN/UPC/CODE-128 va h.k.ni qo'llab-quvvatlaydi). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<link rel="stylesheet" href="/webapp/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 6-BOSQICH: "Savdo" / "Sklad" bo'limlari orasida almashtirgich -->
+  <div id="app-header" class="app-header">
+    <div class="section-tabs">
+      <button id="tab-sale" type="button" class="section-tab active" data-section="sale">🛒 Savdo</button>
+      <button id="tab-sklad" type="button" class="section-tab" data-section="sklad">📦 Sklad</button>
+    </div>
+    <div id="header-cart-badge" class="header-cart-badge hidden">0</div>
+  </div>
+
+  <div id="screen-loading" class="screen">
+    <div class="loading-spinner"></div>
+    <p class="loading-text">Yuklanmoqda...</p>
+  </div>
+
+  <div id="screen-error" class="screen hidden">
+    <div class="error-box">
+      <div class="error-icon">⚠️</div>
+      <p id="error-text">Xatolik yuz berdi.</p>
+    </div>
+  </div>
+
+  <!-- 1-EKRAN: mahsulot tanlash -->
+  <div id="screen-products" class="screen hidden">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input id="search-input" type="text" placeholder="Nomi yoki barkod raqami...">
+      <button id="scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
+    </div>
+    <div id="cross-sell-bar" class="cross-sell-bar hidden"></div>
+    <div id="product-list" class="product-list"></div>
+  </div>
+
+  <!-- 2-EKRAN: savat / to'lov -->
+  <div id="screen-cart" class="screen hidden">
+    <div class="section-title">🧾 Savat</div>
+    <div id="cart-items" class="cart-items"></div>
+    <div class="cart-total">
+      <span>Jami</span>
+      <b id="cart-total-amount">0</b><span class="sum-label">so'm</span>
+    </div>
+
+    <div class="section-title">To'lov turi</div>
+    <div id="payment-methods" class="payment-methods">
+      <button class="pay-btn" data-method="naqd"><span class="pay-icon">💵</span>Naqd</button>
+      <button class="pay-btn" data-method="plastik"><span class="pay-icon">💳</span>Plastik</button>
+      <button class="pay-btn" data-method="aralash"><span class="pay-icon">🔀</span>Aralash</button>
+    </div>
+
+    <div id="mixed-box" class="mixed-box hidden">
+      <label>Naqd summasi (so'mda)</label>
+      <input id="mixed-cash-input" type="number" inputmode="decimal" placeholder="0">
+    </div>
+
+    <button id="finalize-btn" class="primary-btn full-width hidden">✅ Savdoni yakunlash</button>
+    <button id="back-to-products-btn" class="secondary-btn">⬅️ Mahsulot qo'shish</button>
+  </div>
+
+  <!-- 3-EKRAN (7-BOSQICH): SKLAD - skanerlab yoki qidirib miqdor kiritish -->
+  <div id="screen-sklad" class="screen hidden">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input id="sklad-search-input" type="text" placeholder="Nomi yoki barkod raqami...">
+      <button id="sklad-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
+    </div>
+    <!-- YANGI REJA - 2-BOSQICH: mavjud mahsulotlar ro'yxatida yo'q,
+         BUTUNLAY YANGI mahsulotni shu yerdan (bot bilan yozishmasdan)
+         qo'shish uchun tugma. -->
+    <div class="sklad-toolbar">
+      <button id="sklad-new-product-btn" type="button" class="secondary-btn">➕ Yangi mahsulot qo'shish</button>
+      <!-- 9-BOSQICH: SKLAD TARIXI - "kim, qachon, qancha mahsulot qo'shgani"
+           hozirgacha faqat botning ichki audit jurnalida ko'rinardi, endi
+           veb-ilovada ham ko'rish mumkin. -->
+      <button id="sklad-history-btn" type="button" class="secondary-btn">🗂 Tarix</button>
+    </div>
+    <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
+    <div id="sklad-product-list" class="product-list"></div>
+  </div>
+
+  <!-- 9-BOSQICH: SKLAD TARIXI oynasi -->
+  <div id="modal-sklad-history" class="modal hidden">
+    <div class="modal-content">
+      <h3>🗂 Sklad tarixi</h3>
+      <p class="muted">Oxirgi o'zgarishlar (kim, qachon, qancha) - eng yangisi tepada.</p>
+      <div id="sklad-history-list" class="history-list"></div>
+      <div class="modal-actions">
+        <button id="sklad-history-close-btn" class="secondary-btn">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera bilan barkod skanerlash oynasi -->
+  <div id="modal-scanner" class="modal hidden">
+    <div class="modal-content scanner-modal-content">
+      <div class="modal-handle"></div>
+      <div class="scanner-header">
+        <h3>📷 Barkodni skanerlang</h3>
+        <button id="scanner-close-btn" class="scanner-close-btn" type="button">✕</button>
+      </div>
+      <div class="scanner-viewport">
+        <div id="scanner-reader"></div>
+        <div class="scanner-frame"></div>
+        <button id="scanner-torch-btn" type="button" class="scanner-torch-btn hidden" title="Fonar">🔦</button>
+      </div>
+      <p id="scanner-status" class="muted scanner-status">Kamerani barkodga to'g'rilang...</p>
+      <button id="scanner-native-qr-btn" type="button" class="scanner-native-qr-btn hidden">Telegramning o'z skaneridan foydalanish (faqat QR-kod)</button>
+    </div>
+  </div>
+
+  <!-- Savatga qo'shish oynasi (miqdor/narx) -->
+  <div id="modal-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="modal-product-name"></h3>
+      <p id="modal-product-stock" class="muted"></p>
+
+      <label>Nechta sotildi?</label>
+      <input id="modal-qty-input" type="number" inputmode="decimal" value="1">
+
+      <label>Qancha so'mga sotildi?</label>
+      <input id="modal-price-input" type="number" inputmode="decimal">
+      <div id="modal-price-hints" class="price-hints"></div>
+
+      <div class="modal-actions">
+        <button id="modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="modal-add-btn" class="primary-btn">Savatga qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7-BOSQICH: SKLAD - miqdor kiritish oynasi (narx so'ramaydi) -->
+  <div id="modal-sklad-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="sklad-modal-product-name"></h3>
+      <p id="sklad-modal-product-stock" class="muted"></p>
+
+      <label>Nechta dona keldi?</label>
+      <input id="sklad-modal-qty-input" type="number" inputmode="decimal" value="1">
+
+      <div class="modal-actions">
+        <button id="sklad-modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="sklad-modal-add-btn" class="primary-btn">➕ Skladga qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- YANGI REJA - 2/9-BOSQICH: SKLAD - butunlay YANGI mahsulot
+       yaratish oynasi (nomi/barkodi/narxi/miqdori). -->
+  <div id="modal-sklad-new" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi mahsulot</h3>
+      <p class="muted">Barkodni qo'lda kiriting yoki 📷 orqali skanerlang.</p>
+
+      <label>Mahsulot nomi</label>
+      <input id="sklad-new-name-input" type="text" placeholder="Masalan: Coca-Cola 0.5L">
+
+      <label>Barkod (ixtiyoriy)</label>
+      <div class="barcode-input-box">
+        <input id="sklad-new-barcode-input" class="barcode-text-input" type="text" placeholder="Qo'lda kiriting yoki skanerlang">
+        <button id="sklad-new-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlash">📷</button>
+      </div>
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>Tannarx (so'mda)</label>
+          <input id="sklad-new-price-input" type="number" inputmode="decimal" placeholder="0">
+        </div>
+        <div class="form-col">
+          <label>Sotish narxi (ixtiyoriy)</label>
+          <input id="sklad-new-sell-price-input" type="number" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+
+      <label>Eng past narx (ixtiyoriy)</label>
+      <p class="muted">Sotuvchilar shu narxdan pastga sota olmaydi (chegirma bo'lmasa).</p>
+      <input id="sklad-new-min-price-input" type="number" inputmode="decimal" placeholder="0">
+
+      <label>Boshlang'ich miqdori</label>
+      <input id="sklad-new-quantity-input" type="number" inputmode="decimal" value="1">
+
+      <div class="modal-actions">
+        <button id="sklad-new-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="sklad-new-save-btn" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7-BOSQICH: SKLAD - mavjud mahsulotni tahrirlash oynasi (FAQAT
+       do'kon egasiga ko'rinadi - qarang: app.js renderSkladProducts). -->
+  <div id="modal-sklad-edit" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>✏️ Mahsulotni tahrirlash</h3>
+
+      <label>Mahsulot nomi</label>
+      <input id="sklad-edit-name-input" type="text">
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>Tannarx (so'mda)</label>
+          <input id="sklad-edit-price-input" type="number" inputmode="decimal">
+        </div>
+        <div class="form-col">
+          <label>Sotish narxi (ixtiyoriy)</label>
+          <input id="sklad-edit-sell-price-input" type="number" inputmode="decimal">
+        </div>
+      </div>
+
+      <label>Eng past narx (ixtiyoriy)</label>
+      <input id="sklad-edit-min-price-input" type="number" inputmode="decimal">
+
+      <label>Barkod (ixtiyoriy)</label>
+      <div class="barcode-input-box">
+        <input id="sklad-edit-barcode-input" class="barcode-text-input" type="text" placeholder="Qo'lda kiriting yoki skanerlang">
+        <button id="sklad-edit-scan-btn" type="button" class="scan-icon-btn" title="Barkodni skanerlang">📷</button>
+      </div>
+
+      <div class="modal-actions">
+        <button id="sklad-edit-cancel-btn" class="secondary-btn">Bekor qilish</button>
+        <button id="sklad-edit-save-btn" class="primary-btn">✅ Saqlash</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="/webapp/app.js"></script>
+</body>
+</html>
