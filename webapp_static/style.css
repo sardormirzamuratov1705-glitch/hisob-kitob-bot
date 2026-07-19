@@ -651,6 +651,35 @@ input:focus {
 .tx-amount-income { color: var(--success); }
 .tx-amount-expense { color: var(--danger); }
 
+/* 5-BLOK, 10-BOSQICH: HISOBOTLAR - filial bo'yicha kesim tanlash
+   (.section-tab bilan bir xil g'oyada, faqat gorizontal aylantiriladigan
+   qator sifatida - filiallar soni ko'p bo'lishi mumkin). */
+.scope-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+}
+
+.scope-chip {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(0, 0, 0, 0.08);
+  background: var(--card-bg);
+  color: var(--hint);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scope-chip.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+
 /* YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shilgan tovarlar
    ro'yxati (.history-row bilan bir xil asosga qurilgan). */
 .restock-manual-list {
