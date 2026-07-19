@@ -1539,6 +1539,11 @@ def create_web_app(bot) -> web.Application:
     from webapp_handlers.reports import register_routes as _register_reports_routes
     _register_reports_routes(app)
 
+    # 6-BLOK, 11-BOSQICH: SOZLAMALAR (mini app) - alohida modulga chiqarilgan
+    # (qarang: webapp_handlers/settings.py).
+    from webapp_handlers.settings import register_routes as _register_settings_routes
+    _register_settings_routes(app)
+
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
     app.router.add_get("/api/webapp/admin/owners", api_admin_owners_list)
