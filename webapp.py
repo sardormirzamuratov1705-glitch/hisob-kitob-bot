@@ -877,11 +877,20 @@ async def api_sale_submit(request: web.Request):
                 "available": product["quantity"],
             }, status=400)
 
-        has_discount = bool(db.product_discount_info(product))
-        if product.get("min_price") and price < product["min_price"] and not has_discount:
+        # 16-BOSQICH: CHEGIRMA TEKSHIRUVI TO'G'IRLANDI. Avval bu yerda
+        # "has_discount" FAQAT bool sifatida tekshirilar edi - ya'ni
+        # mahsulotda QANDAYDIR faol chegirma bo'lsa, narx tekshiruvi
+        # BUTUNLAY o'chib qolar edi (hatto chegirma narxidan ham PASTGA
+        # sotish mumkin bo'lib qolardi). Endi chegirma bo'lsa, "eng past
+        # narx" sifatida ANIQ chegirma narxining O'ZI ishlatiladi -
+        # sotuvchi chegirma narxidan pastga tusha olmaydi, faqat
+        # o'sha (yoki undan yuqori) narxda sota oladi.
+        discount = db.product_discount_info(product)
+        effective_min_price = discount["price"] if discount else product.get("min_price")
+        if effective_min_price and price < effective_min_price:
             return web.json_response({
                 "error": "price_below_min", "product_id": product_id,
-                "min_price": product["min_price"],
+                "min_price": effective_min_price,
             }, status=400)
         if price < product["price"]:
             return web.json_response({
