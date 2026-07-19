@@ -18,6 +18,9 @@
     <div class="section-tabs">
       <button id="tab-sale" type="button" class="section-tab active" data-section="sale">🛒 Savdo</button>
       <button id="tab-sklad" type="button" class="section-tab" data-section="sklad">📦 Sklad</button>
+      <!-- YANGI: do'kon egasi/sotuvchi uchun "Admin panel"dagi kabi tartibli
+           profil ekrani (qarang: app.js renderProfile(), webapp.py api_profile). -->
+      <button id="tab-profile" type="button" class="section-tab" data-section="profile">👤 Profil</button>
     </div>
     <div id="header-cart-badge" class="header-cart-badge hidden">0</div>
   </div>
@@ -96,6 +99,18 @@
     </div>
     <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
     <div id="sklad-product-list" class="product-list"></div>
+  </div>
+
+  <!-- YANGI: PROFIL EKRANI - do'kon egasi/sotuvchi uchun "👑 Admin panel"
+       (bosh admin Statistika ekrani)dagi bilan bir xil uslubdagi tartibli
+       ma'lumot ekrani. Ma'lumotlar app.js renderProfile() orqali
+       /api/webapp/profile'dan yuklanadi. -->
+  <div id="screen-profile" class="screen hidden">
+    <div id="profile-header-card" class="profile-header-card"></div>
+    <div class="section-title">📊 Statistika</div>
+    <div id="profile-stats-grid" class="admin-stats-grid"></div>
+    <div class="section-title">ℹ️ Ma'lumotlar</div>
+    <div id="profile-detail-body" class="admin-detail-body profile-detail-card"></div>
   </div>
 
   <!-- 9-BOSQICH: SKLAD TARIXI oynasi -->
