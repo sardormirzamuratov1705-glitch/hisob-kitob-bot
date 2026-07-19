@@ -313,6 +313,20 @@ body {
 .scanner-status-success { color: var(--success); font-weight: 600; }
 .scanner-status-error { color: var(--danger); font-weight: 600; }
 
+.scanner-native-qr-btn {
+  display: block;
+  width: 100%;
+  margin: 10px 0 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.scanner-native-qr-btn:active { opacity: 0.7; }
+
 .section-title {
   font-size: 13px;
   font-weight: 700;
