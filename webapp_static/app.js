@@ -47,6 +47,7 @@ const API = {
   skladCreateProduct: "/api/webapp/sklad/create-product",
   skladUpdateProduct: "/api/webapp/sklad/update-product",
   skladHistory: "/api/webapp/sklad/history",
+  skladAiSuggestions: "/api/webapp/sklad/ai-suggestions",
   restockList: "/api/webapp/restock",
   restockAdd: "/api/webapp/restock/add",
   restockDeleteManual: "/api/webapp/restock/delete-manual",
@@ -2788,6 +2789,56 @@ function renderSkladHistory(items) {
 el("sklad-history-btn").addEventListener("click", () => openSkladHistory());
 el("sklad-history-close-btn").addEventListener("click", () => {
   el("modal-sklad-history").classList.add("hidden");
+});
+
+// 19-BOSQICH: AI BUYURTMA TAVSIYASI - botdagi "🤖 AI buyurtma tavsiyasi"
+// bo'limining Mini App'dagi ko'rinishi (qarang: webapp_handlers/sklad_extra.py).
+// Server allaqachon hisoblab (30 kunlik sotilish tezligi + yetkazib berish
+// muddati asosida) tayyor ro'yxatni yuboradi - bu yerda faqat chizamiz.
+async function openSkladAi() {
+  el("modal-sklad-ai").classList.remove("hidden");
+  const list = el("sklad-ai-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.skladAiSuggestions);
+    if (!res.ok) throw new Error("ai_failed");
+    const data = await res.json();
+    el("sklad-ai-subtitle").textContent =
+      `Oxirgi ${data.lookback_days} kunlik sotilish tezligi + ${data.lead_time_days} kunlik ` +
+      "yetkazib berish muddati asosida hisoblanadi.";
+    renderSkladAi(data.suggestions || []);
+  } catch (e) {
+    list.innerHTML = '<p class="muted">Tavsiyani yuklab bo\'lmadi. Qayta urinib ko\'ring.</p>';
+  }
+}
+
+function renderSkladAi(items) {
+  const list = el("sklad-ai-list");
+  list.innerHTML = "";
+  if (items.length === 0) {
+    list.innerHTML = '<p class="muted">✅ Hozircha shoshilinch buyurtma kerak bo\'lgan mahsulot yo\'q.</p>';
+    return;
+  }
+  const urgencyIcon = { high: "🔴", medium: "🟠", low: "🟡" };
+  items.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    row.innerHTML = `
+      <div class="history-row-top">
+        <span class="history-action">${urgencyIcon[s.urgency] || "🟡"} ${escapeHtml(s.name)}</span>
+        <span class="history-time">${formatNum(s.quantity)} dona bor</span>
+      </div>
+      <div class="history-details">Kuniga ~${s.daily_sales_rate.toFixed(1)} dona sotiladi, taxminan
+        ${formatNum(s.days_left)} kunga yetadi</div>
+      <div class="history-actor">💡 Tavsiya: kamida ${formatNum(s.suggested_qty)} dona buyurtma bering</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+el("sklad-ai-btn").addEventListener("click", () => openSkladAi());
+el("sklad-ai-close-btn").addEventListener("click", () => {
+  el("modal-sklad-ai").classList.add("hidden");
 });
 
 // YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi 📷 tugmasi -
