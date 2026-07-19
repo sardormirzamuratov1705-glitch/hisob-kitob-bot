@@ -407,6 +407,99 @@ async def api_sklad_create_product(request: web.Request):
     return web.json_response({"ok": True, "product": _product_payload(product)})
 
 
+async def api_sklad_update_product(request: web.Request):
+    """7-BOSQICH: Sklad bo'limidan mavjud mahsulotni tahrirlash (nomi,
+    tannarxi, sotish narxi, eng past narxi, barkodi).
+
+    RUXSAT: FAQAT do'kon egasi (is_owner_level) - narx/tannarxni
+    o'zgartirish sotuvchiga berilgan "sklad ruxsati"dan (can_add_stock,
+    faqat miqdor qo'shish uchun) FARQLI, jiddiyroq huquq, shuning uchun
+    bu yerda alohida (qattiqroq) tekshiruv qilinadi.
+
+    Body (JSON): {"product_id": .., "name": .. (ixtiyoriy),
+    "price": .. (ixtiyoriy), "sell_price": .. (ixtiyoriy, "" bo'lsa olib
+    tashlanadi), "min_price": .. (ixtiyoriy, "" bo'lsa olib tashlanadi),
+    "barcode": .. (ixtiyoriy, "" bo'lsa olib tashlanadi)}.
+    Faqat body'da KELGAN maydonlar yangilanadi - kelmagan maydonlarga
+    tegilmaydi."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    if not await access_control.is_owner_level(auth["telegram_id"]):
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    shop_id = auth["shop_id"]
+
+    try:
+        product_id = int(body.get("product_id"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_item"}, status=400)
+
+    product = await db.get_product(shop_id, product_id)
+    if not product:
+        return web.json_response({"error": "product_not_found"}, status=400)
+
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name:
+            return web.json_response({"error": "missing_name"}, status=400)
+        await db.rename_product(shop_id, product_id, name)
+
+    if "price" in body:
+        try:
+            price = float(body.get("price"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid_price"}, status=400)
+        if price < 0:
+            return web.json_response({"error": "invalid_price"}, status=400)
+        await db.update_product_field(shop_id, product_id, "price", price)
+
+    if "sell_price" in body:
+        raw = body.get("sell_price")
+        if raw in (None, ""):
+            await db.update_product_field(shop_id, product_id, "sell_price", None)
+        else:
+            try:
+                sell_price = float(raw)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "invalid_sell_price"}, status=400)
+            if sell_price < 0:
+                return web.json_response({"error": "invalid_sell_price"}, status=400)
+            await db.update_product_field(shop_id, product_id, "sell_price", sell_price)
+
+    if "min_price" in body:
+        raw = body.get("min_price")
+        if raw in (None, ""):
+            await db.update_product_field(shop_id, product_id, "min_price", None)
+        else:
+            try:
+                min_price = float(raw)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "invalid_min_price"}, status=400)
+            if min_price < 0:
+                return web.json_response({"error": "invalid_min_price"}, status=400)
+            await db.update_product_field(shop_id, product_id, "min_price", min_price)
+
+    if "barcode" in body:
+        barcode = (body.get("barcode") or "").strip() or None
+        if barcode:
+            existing = await db.find_product_by_barcode(shop_id, barcode)
+            if existing and existing["id"] != product_id:
+                return web.json_response({
+                    "error": "barcode_exists", "product": _product_payload(existing),
+                }, status=409)
+        await db.set_product_barcode(shop_id, product_id, barcode, performed_by=auth["telegram_id"])
+
+    updated = await db.get_product(shop_id, product_id)
+    return web.json_response({"ok": True, "product": _product_payload(updated)})
+
+
 async def api_cross_sell(request: web.Request):
     """3-BOSQICH: matnli oqimdagi "💡 Odatda bu tovar(lar) bilan birga
     quyidagilar ham sotib olinadi" taklifi bilan AYNAN BIR XIL
@@ -593,6 +686,7 @@ def create_web_app(bot) -> web.Application:
     app.router.add_get("/api/webapp/sklad/products", api_sklad_products)
     app.router.add_post("/api/webapp/sklad/add-quantity", api_sklad_add_quantity)
     app.router.add_post("/api/webapp/sklad/create-product", api_sklad_create_product)
+    app.router.add_post("/api/webapp/sklad/update-product", api_sklad_update_product)
 
     # MUHIM: har bir statik fayl uchun ANIQ route (yuqoridagi izohga qarang -
     # add_static() o'rniga, 403 Forbidden xatosining oldini olish uchun).
