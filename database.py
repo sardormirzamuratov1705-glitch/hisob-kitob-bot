@@ -721,7 +721,7 @@ async def update_product_field(shop_id: int, product_id: int, field: str, value:
     field - albatta whitelist'dan bo'lishi shart (SQL in'ektsiyaning oldini
     olish uchun ustun nomi f-string orqali qo'yiladi) - chaqiruvchi
     tomonidan (handlers/products.py) tekshirilgan bo'lishi kerak."""
-    if field not in ("price", "sell_price", "min_price"):
+    if field not in ("price", "sell_price", "min_price", "alert_quantity"):
         raise ValueError(f"Noto'g'ri maydon: {field}")
     async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
         cursor = await db.execute(
