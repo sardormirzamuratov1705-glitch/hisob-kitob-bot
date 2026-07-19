@@ -2068,6 +2068,68 @@ async def get_daily_stats(shop_id: int, date_str: str = None, branch_id=None) ->
     }
 
 
+# ---------- YANGI: "BOSH SAHIFA" (mini app dashboard) ----------
+
+async def get_dashboard_stats(shop_id: int) -> dict:
+    """YANGI: Mini App'dagi yangi "🏠 Bosh sahifa" ekrani uchun bitta
+    joyda yig'ilgan qisqa statistika (qarang: webapp_handlers/dashboard.py,
+    webapp_static/app.js loadDashboard()). Mavjud get_daily_stats/
+    get_total_debt/get_low_stock_products funksiyalaridan foydalanadi -
+    bu yerda faqat dashboard uchun kerakli shaklga yig'iladi, hech qanday
+    YANGI hisoblash mantig'i qo'shilmaydi (bir xillik qoidasi).
+
+    Qaytaradi:
+        {
+            "today_sales_total": float,   - bugungi savdo summasi
+            "growth_percent": float|None, - kecha bilan solishtirilgan
+                                             o'sish foizi (kecha 0 bo'lsa -
+                                             va bugun ham 0 bo'lsa - None)
+            "sold_qty_today": float,      - bugun sotilgan mahsulot (dona)
+            "stock_qty_total": float,     - umumiy sklad qoldig'i (dona)
+            "total_debt": float,          - jami qarzdorlar summasi
+            "low_stock_count": int,       - kam qolgan mahsulotlar soni
+        }
+    """
+    today = await get_daily_stats(shop_id)
+    yesterday_date = (config.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = await get_daily_stats(shop_id, date_str=yesterday_date)
+
+    growth_percent = None
+    if yesterday["sales_total"]:
+        growth_percent = round(
+            (today["sales_total"] - yesterday["sales_total"]) / yesterday["sales_total"] * 100, 1
+        )
+    elif today["sales_total"]:
+        growth_percent = 100.0
+
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            """
+            SELECT COALESCE(SUM(si.quantity), 0)
+            FROM sale_items si
+            JOIN transactions t ON t.id = si.sale_id AND t.shop_id = si.shop_id
+            WHERE si.shop_id = ? AND date(t.created_at) = ?
+            """,
+            (shop_id, today["date"]),
+        )
+        sold_qty_today = (await cursor.fetchone())[0] or 0
+
+    products = await get_all_products(shop_id)
+    stock_qty_total = sum((p["quantity"] or 0) for p in products)
+
+    total_debt = await get_total_debt(shop_id)
+    low_stock = await get_low_stock_products(shop_id)
+
+    return {
+        "today_sales_total": today["sales_total"],
+        "growth_percent": growth_percent,
+        "sold_qty_today": sold_qty_today,
+        "stock_qty_total": stock_qty_total,
+        "total_debt": total_debt,
+        "low_stock_count": len(low_stock),
+    }
+
+
 # ---------- FOYDALANUVCHILAR (DO'KON EGALARI) ----------
 
 async def get_top_selling_products(shop_id: int, limit: int = 10, branch_id=None):
