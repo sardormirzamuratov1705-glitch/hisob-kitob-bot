@@ -80,9 +80,27 @@
     <!-- YANGI REJA - 2-BOSQICH: mavjud mahsulotlar ro'yxatida yo'q,
          BUTUNLAY YANGI mahsulotni shu yerdan (bot bilan yozishmasdan)
          qo'shish uchun tugma. -->
-    <button id="sklad-new-product-btn" type="button" class="secondary-btn">➕ Yangi mahsulot qo'shish</button>
+    <div class="sklad-toolbar">
+      <button id="sklad-new-product-btn" type="button" class="secondary-btn">➕ Yangi mahsulot qo'shish</button>
+      <!-- 9-BOSQICH: SKLAD TARIXI - "kim, qachon, qancha mahsulot qo'shgani"
+           hozirgacha faqat botning ichki audit jurnalida ko'rinardi, endi
+           veb-ilovada ham ko'rish mumkin. -->
+      <button id="sklad-history-btn" type="button" class="secondary-btn">🗂 Tarix</button>
+    </div>
     <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
     <div id="sklad-product-list" class="product-list"></div>
+  </div>
+
+  <!-- 9-BOSQICH: SKLAD TARIXI oynasi -->
+  <div id="modal-sklad-history" class="modal hidden">
+    <div class="modal-content">
+      <h3>🗂 Sklad tarixi</h3>
+      <p class="muted">Oxirgi o'zgarishlar (kim, qachon, qancha) - eng yangisi tepada.</p>
+      <div id="sklad-history-list" class="history-list"></div>
+      <div class="modal-actions">
+        <button id="sklad-history-close-btn" class="secondary-btn">Yopish</button>
+      </div>
+    </div>
   </div>
 
   <!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera bilan barkod skanerlash oynasi -->
