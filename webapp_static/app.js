@@ -145,7 +145,7 @@ function renderProducts(products) {
       </div>
       <div class="add-icon">➕</div>
     `;
-    card.addEventListener("click", () => openAddModal(p));
+    card.addEventListener("click", () => { openedViaScan = false; openAddModal(p); });
     list.appendChild(card);
   });
 
@@ -227,6 +227,7 @@ function openAddModal(product) {
 el("modal-cancel-btn").addEventListener("click", () => {
   el("modal-add").classList.add("hidden");
   currentModalProduct = null;
+  openedViaScan = false;
 });
 
 el("modal-add-btn").addEventListener("click", () => {
@@ -253,6 +254,13 @@ el("modal-add-btn").addEventListener("click", () => {
   currentModalProduct = null;
   renderCartBar();
   tg.HapticFeedback.notificationOccurred("success");
+
+  // 6-BOSQICH: barkod skanerlab qo'shilgan bo'lsa - kamerani DARHOL
+  // qayta ochamiz, foydalanuvchi 📷 tugmasini qayta bosishi shart emas.
+  if (openedViaScan) {
+    openedViaScan = false;
+    continueScanning("sale", `✅ ${product.name} savatga qo'shildi`);
+  }
 });
 
 // ---------- SAVAT PANELI (mahsulotlar ekrani ostida) ----------
@@ -339,7 +347,7 @@ function renderCrossSell(suggestions) {
     const chip = document.createElement("button");
     chip.className = "cross-sell-chip";
     chip.textContent = `➕ ${p.name}`;
-    chip.addEventListener("click", () => openAddModal(p));
+    chip.addEventListener("click", () => { openedViaScan = false; openAddModal(p); });
     chips.appendChild(chip);
   });
   bar.appendChild(chips);
@@ -490,6 +498,27 @@ const BARCODE_FORMATS = window.Html5QrcodeSupportedFormats
 let html5QrCode = null;
 let scanHandled = false;
 let torchFeature = null; // 4-BOSQICH: fonar (torch) - qo'llab-quvvatlansa shu yerga saqlanadi
+
+// 6-BOSQICH: KETMA-KET SKANERLASH. Mahsulot skanerlab (modal-add yoki
+// modal-sklad-add) ochilganda TRUE qilinadi; qo'lda ro'yxatdan bosib
+// tanlaganda FALSE. Shu bayroqqa qarab, "Qo'shish" tugmasi bosilgach
+// oynani shunchaki yopish o'rniga - kamerani DARHOL qayta ochib,
+// keyingi mahsulotni skanerlashga tayyor turadi (foydalanuvchi har
+// safar 📷 tugmasini qayta bosishiga hojat qolmaydi).
+let openedViaScan = false;
+
+// Skanerlab ketma-ket qo'shishda tg.showAlert() kabi TO'XTATUVCHI
+// (OK bosishni talab qiladigan) oyna oqimni sekinlashtiradi - shuning
+// uchun muvaffaqiyat xabari skaner oynasining o'zidagi status matnida
+// (yashil, ~1.4 soniya) ko'rsatiladi, keyin darhol keyingi skanerlashga
+// tayyor bo'ladi.
+async function continueScanning(mode, successMessage) {
+  await openScanner(mode);
+  setScannerStatus(successMessage, "success");
+  setTimeout(() => {
+    if (html5QrCode) setScannerStatus(defaultScannerStatusText());
+  }, 1400);
+}
 // YANGI REJA - 6-BOSQICH: endi UCHALA rejim ham ("sale", "sklad",
 // "sklad_new") bitta-bittalab ishlaydi - skanerlandi -> kamera
 // to'xtaydi -> tegishli oyna ochiladi -> keyingisi uchun foydalanuvchi
@@ -591,6 +620,7 @@ async function stopScanner() {
 async function closeScanner() {
   el("modal-scanner").classList.add("hidden");
   await stopScanner();
+  openedViaScan = false;
   // YANGI REJA - 3-BOSQICH: agar foydalanuvchi "Yangi mahsulot"
   // oynasidan skaner ochib, hech narsa skanerlamasdan ✕ bosib yopsa -
   // to'ldirilgan maydonlar (nom/narx/miqdor) yo'qolib qolmasligi uchun
@@ -645,6 +675,7 @@ async function onBarcodeDecoded(decodedText) {
         // Mahsulot TOPILDI - "Yangi mahsulot" oynasi ENDI ochilmaydi,
         // o'rniga shu mahsulotga miqdor qo'shish oynasi ochiladi.
         tg.showAlert(`Bu mahsulot allaqachon bor: "${data.product.name}". Nechta qo'shasiz?`);
+        openedViaScan = true;
         openSkladAddModal(data.product);
         scanHandled = false;
         return;
@@ -698,6 +729,7 @@ async function handleSaleBarcodeScan(decodedText) {
       return;
     }
     showScreen("products");
+    openedViaScan = true;
     openAddModal(data.product);
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
@@ -731,6 +763,7 @@ async function handleSkladBarcodeScan(decodedText) {
       tg.showAlert("Barkod bo'yicha qidirishda xatolik yuz berdi.");
       return;
     }
+    openedViaScan = true;
     openSkladAddModal(data.product);
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
@@ -839,7 +872,7 @@ function renderSkladProducts(products) {
       </div>
       <div class="add-icon">${actionIcon}</div>
     `;
-    card.addEventListener("click", () => openSkladAddModal(p));
+    card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p); });
     list.appendChild(card);
   });
 }
@@ -861,6 +894,7 @@ function openSkladAddModal(product) {
 el("sklad-modal-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-add").classList.add("hidden");
   currentSkladProduct = null;
+  openedViaScan = false;
 });
 
 el("sklad-modal-add-btn").addEventListener("click", async () => {
@@ -873,6 +907,8 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
 
   const btn = el("sklad-modal-add-btn");
   const productId = currentSkladProduct.id;
+  const productName = currentSkladProduct.name;
+  const viaScan = openedViaScan;
   btn.disabled = true;
   btn.textContent = "Yuborilmoqda...";
 
@@ -890,8 +926,22 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     tg.HapticFeedback.notificationOccurred("success");
     el("modal-sklad-add").classList.add("hidden");
     currentSkladProduct = null;
-    tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.`);
     loadSkladProducts(el("sklad-search-input").value.trim());
+
+    // 6-BOSQICH: skanerlab qo'shilgan bo'lsa - tg.showAlert() (OK
+    // bosishni talab qiladi) O'RNIGA kamerani darhol qayta ochamiz va
+    // natijani skaner oynasining o'zida (yashil status) ko'rsatamiz -
+    // shunda ketma-ket skanerlash to'xtamaydi. Qo'lda (ro'yxatdan
+    // bosib) qo'shilgan bo'lsa - odatdagidek to'liq xabar chiqadi.
+    if (viaScan) {
+      openedViaScan = false;
+      continueScanning(
+        "sklad",
+        `✅ ${productName}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona`
+      );
+    } else {
+      tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.`);
+    }
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   } finally {
