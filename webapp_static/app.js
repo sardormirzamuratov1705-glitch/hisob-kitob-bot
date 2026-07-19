@@ -144,16 +144,20 @@ const API = {
   adminBroadcast: "/api/webapp/admin/broadcast",
 };
 
+// YANGI: BOSH SAHIFA (dashboard) - qarang: webapp_handlers/dashboard.py.
+API.dashboard = "/api/webapp/dashboard";
+
 let cart = []; // [{id, name, qty, price, stock}]
 let selectedPaymentMethod = null;
 let currentModalProduct = null;
-let currentSection = "sale"; // 6-BOSQICH: "sale" (Savdo) | "sklad" (Sklad)
+// YANGI: endi standart (default) bo'lim "home" (Bosh sahifa) - avval "sale" edi.
+let currentSection = "home"; // "home" (Bosh sahifa) | "sale" (Savdo) | "sklad" (Sklad) | ...
 
 // 8-BOSQICH: api_me javobidan to'ldiriladi (init() ichida) - "Sklad"
 // bo'limida "➕ Skladga qo'shish" imkoniyati shu bayroqqa qarab
 // ko'rsatiladi/qulflanadi (do'kon egasi buni sotuvchi uchun o'chirib
 // qo'ygan bo'lishi mumkin - qarang: handlers/sellers.py "🔐 Sklad ruxsati").
-let currentUser = { role: null, canAddStock: true };
+let currentUser = { role: null, canAddStock: true, name: "" };
 
 // YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shilgan tovar
 // "✅ olindi" deb ochilganda (yangi mahsulot yaratish oynasi orqali),
@@ -168,6 +172,7 @@ async function loadMe() {
     const data = await res.json();
     currentUser.role = data.role;
     currentUser.canAddStock = data.can_add_stock !== false;
+    currentUser.name = data.name || "";
     updateSkladPermissionUI();
     // 1-BLOK, 2-BOSQICH: "Sotuvchilar" tugmasi FAQAT haqiqiy do'kon egasiga
     // ko'rinadi - sotuvchi o'zi boshqa sotuvchi qo'sha olmaydi (bot
@@ -191,7 +196,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "reports", "subscription", "profile",
+    "loading", "error", "home", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "reports", "subscription", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -226,6 +231,66 @@ async function apiFetch(url, options = {}) {
   }
   return res;
 }
+
+// ---------- YANGI: BOSH SAHIFA (DASHBOARD) ----------
+// Qarang: index.html #screen-home, backend: webapp_handlers/dashboard.py
+// (database.get_dashboard_stats()).
+
+function homeGrowthText(percent) {
+  if (percent === null || percent === undefined) return "";
+  const arrow = percent >= 0 ? "↗" : "↘";
+  const sign = percent >= 0 ? "+" : "";
+  return `${arrow} ${sign}${percent}% kecha bilan solishtirganda`;
+}
+
+async function loadDashboard() {
+  el("home-greeting").textContent = currentUser.name
+    ? `Xush kelibsiz, ${currentUser.name}! 👋`
+    : "Xush kelibsiz! 👋";
+  try {
+    const res = await apiFetch(API.dashboard);
+    if (!res.ok) throw new Error("dashboard_failed");
+    const data = await res.json();
+    renderDashboard(data);
+  } catch (e) {
+    // Jim o'tkazamiz - dashboard shunchaki bo'sh/standart qiymatlarda
+    // qoladi, savdo oqimini to'xtatib qo'ymaydi (xuddi loadMe() kabi).
+  }
+}
+
+function renderDashboard(data) {
+  if (data.name) el("home-greeting").textContent = `Xush kelibsiz, ${data.name}! 👋`;
+  el("home-sales-amount").textContent = formatNum(data.today_sales_total || 0);
+  const growthEl = el("home-sales-growth");
+  const growthText = homeGrowthText(data.growth_percent);
+  growthEl.textContent = growthText || "Bugungi birinchi savdongizni kuting";
+  growthEl.classList.toggle("negative", (data.growth_percent || 0) < 0);
+  el("home-stat-sold").textContent = formatNum(data.sold_qty_today || 0);
+  el("home-stat-debts").textContent = `${formatNum(data.total_debt || 0)} so'm`;
+  el("home-stat-stock").textContent = formatNum(data.stock_qty_total || 0);
+  el("home-stat-lowstock").textContent = formatNum(data.low_stock_count || 0);
+}
+
+// Menyu kataklari - mavjud bo'limlarga yo'naltiradi (qarang: switchSection).
+document.querySelectorAll(".home-menu-item").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const action = btn.dataset.homeAction;
+    if (action === "branches" || action === "settings") {
+      // "Filiallar" va "Sozlamalar" - Profil ekranidagi tegishli
+      // bo'limlarga tegishli (alohida ekran hozircha yo'q).
+      switchSection("profile");
+    } else if (action === "ai") {
+      // "AI Tavsiyalar" - Sklad bo'limidagi AI buyurtma tavsiyasi oynasi.
+      switchSection("sklad");
+      openSkladAi();
+    } else {
+      switchSection(action);
+    }
+  });
+});
+
+el("home-daily-report-btn").addEventListener("click", () => switchSection("reports"));
+el("home-bell-btn").addEventListener("click", () => switchSection("restock"));
 
 // ---------- MAHSULOTLAR RO'YXATI ----------
 
@@ -1171,7 +1236,10 @@ function switchSection(section) {
     tab.classList.toggle("active", tab.dataset.section === section);
   });
 
-  if (section === "sklad") {
+  if (section === "home") {
+    showScreen("home");
+    loadDashboard();
+  } else if (section === "sklad") {
     showScreen("sklad");
     updateSkladPermissionUI();
     loadSkladProducts(el("sklad-search-input").value.trim());
@@ -1223,6 +1291,7 @@ function updateSkladPermissionUI() {
   scanBtn.classList.toggle("locked-btn", !currentUser.canAddStock);
 }
 
+el("tab-home").addEventListener("click", () => switchSection("home"));
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
 el("tab-restock").addEventListener("click", () => switchSection("restock"));
@@ -4269,5 +4338,12 @@ el("subscription-pay-send-btn").addEventListener("click", async () => {
     startAdminMode();
     return;
   }
+  // YANGI: mahsulotlar ("Savdo" bo'limi uchun) fonda oldindan yuklab
+  // qo'yiladi (loadProducts ichida shu screen ko'rsatilib ketadi -
+  // shuning uchun keyin darhol "home"ga qaytaramiz), lekin foydalanuvchi
+  // ochilganda birinchi ko'radigan ekran endi "🏠 Bosh sahifa".
   await loadProducts();
+  currentSection = "home";
+  showScreen("home");
+  loadDashboard();
 })();
