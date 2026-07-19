@@ -645,6 +645,12 @@ input:focus {
   color: var(--hint);
 }
 
+/* 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR - .history-row bilan bir
+   xil asosga qurilgan, faqat summa kirim (yashil) / chiqim (qizil) bo'yicha
+   rangli ko'rsatiladi. */
+.tx-amount-income { color: var(--success); }
+.tx-amount-expense { color: var(--danger); }
+
 /* YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shilgan tovarlar
    ro'yxati (.history-row bilan bir xil asosga qurilgan). */
 .restock-manual-list {
