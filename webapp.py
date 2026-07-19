@@ -714,6 +714,104 @@ async def api_sklad_history(request: web.Request):
     return web.json_response({"history": payload})
 
 
+# ---------- OLINISHI KERAK BO'LGAN TOVARLAR - MINI APP ----------
+# handlers/products.py'dagi "🧾 Olinishi kerak bo'lgan tovarlar" bo'limi
+# bilan AYNAN BIR XIL ma'lumot manbai (db.get_low_stock_products +
+# db.get_manual_restock_items) - faqat mini app'dan chaqirilishi uchun.
+# Do'kon egasi HAM, sotuvchi HAM ko'ra oladi; faqat do'kon egasi
+# "sotib olindi" deb belgilay oladi - qarang: keyboards.restock_kb(manage=...)
+# bilan bir xil qoida (front-end "manage" maydoniga qarab tugmalarni
+# ko'rsatadi/yashiradi).
+
+async def api_restock_list(request: web.Request):
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] not in ("owner", "seller"):
+        return web.json_response({"error": "not_applicable"}, status=404)
+
+    shop_id = auth["shop_id"]
+    low_stock = await db.get_low_stock_products(shop_id)
+    manual_items = await db.get_manual_restock_items(shop_id)
+
+    return web.json_response({
+        "manage": auth["role"] == "owner",
+        "low_stock": [_product_payload(p) for p in low_stock],
+        "manual_items": [
+            {"id": item["id"], "name": item["name"], "note": item.get("note")}
+            for item in manual_items
+        ],
+    })
+
+
+async def api_restock_add(request: web.Request):
+    """Bot tarafidagi "➕ Qo'lda qo'shish" (restock_add_start/_name/_note,
+    handlers/products.py) bilan bir xil - do'kon egasi HAM, sotuvchi HAM
+    qo'sha oladi (bu tugma keyboards.restock_kb'da manage'dan qat'i
+    nazar har doim ko'rinadi)."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] not in ("owner", "seller"):
+        return web.json_response({"error": "not_applicable"}, status=404)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        return web.json_response({"error": "missing_name"}, status=400)
+    note = (body.get("note") or "").strip() or None
+
+    shop_id = auth["shop_id"]
+    # Bot tarafidagi restock_add_name bilan bir xil tekshiruv - agar shu
+    # nomdagi mahsulot skladda allaqachon bo'lsa, ro'yxatga qo'shish o'rniga
+    # foydalanuvchini ogohlantiramiz (u "Sklad"dan miqdor qo'shishi kerak).
+    existing = await db.find_product_by_name(shop_id, name)
+    if existing:
+        return web.json_response({
+            "error": "product_exists",
+            "product": _product_payload(existing),
+        }, status=400)
+
+    await db.add_manual_restock_item(shop_id, name, note)
+    return web.json_response({"ok": True})
+
+
+async def api_restock_delete_manual(request: web.Request):
+    """Qo'lda qo'shilgan tovarni ro'yxatdan olib tashlaydi - front-end shuni
+    mahsulot ALLAQACHON (yangi mahsulot sifatida) skladga qo'shilgandan
+    keyin chaqiradi (qarang: app.js saveSkladNewProduct), xuddi bot
+    tarafidagi _finalize_restock_purchase()dagi db.delete_manual_restock_item()
+    chaqiruviga o'xshab. FAQAT do'kon egasi - bot tarafida ham bu amalni
+    faqat manage=True (owner) bajara oladi."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] != "owner":
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    try:
+        item_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_item"}, status=400)
+
+    shop_id = auth["shop_id"]
+    item = await db.get_manual_restock_item(shop_id, item_id)
+    if not item:
+        return web.json_response({"error": "not_found"}, status=400)
+
+    await db.delete_manual_restock_item(shop_id, item_id)
+    return web.json_response({"ok": True})
+
+
 async def api_cross_sell(request: web.Request):
     """3-BOSQICH: matnli oqimdagi "💡 Odatda bu tovar(lar) bilan birga
     quyidagilar ham sotib olinadi" taklifi bilan AYNAN BIR XIL
@@ -1405,6 +1503,9 @@ def create_web_app(bot) -> web.Application:
     app.router.add_post("/api/webapp/sklad/create-product", api_sklad_create_product)
     app.router.add_post("/api/webapp/sklad/update-product", api_sklad_update_product)
     app.router.add_get("/api/webapp/sklad/history", api_sklad_history)
+    app.router.add_get("/api/webapp/restock", api_restock_list)
+    app.router.add_post("/api/webapp/restock/add", api_restock_add)
+    app.router.add_post("/api/webapp/restock/delete-manual", api_restock_delete_manual)
 
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
