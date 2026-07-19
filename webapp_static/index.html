@@ -2,7 +2,7 @@
 <html lang="uz">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Savdo</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <!-- BARKOD - MINI APP SAVDO - 4-BOSQICH: kamera orqali barkod o'qish uchun
@@ -96,6 +96,7 @@
       <div class="scanner-viewport">
         <div id="scanner-reader"></div>
         <div class="scanner-frame"></div>
+        <button id="scanner-torch-btn" type="button" class="scanner-torch-btn hidden" title="Fonar">🔦</button>
       </div>
       <p id="scanner-status" class="muted scanner-status">Kamerani barkodga to'g'rilang...</p>
     </div>
@@ -166,6 +167,10 @@
           <input id="sklad-new-sell-price-input" type="number" inputmode="decimal" placeholder="0">
         </div>
       </div>
+
+      <label>Eng past narx (ixtiyoriy)</label>
+      <p class="muted">Sotuvchilar shu narxdan pastga sota olmaydi (chegirma bo'lmasa).</p>
+      <input id="sklad-new-min-price-input" type="number" inputmode="decimal" placeholder="0">
 
       <label>Boshlang'ich miqdori</label>
       <input id="sklad-new-quantity-input" type="number" inputmode="decimal" value="1">
