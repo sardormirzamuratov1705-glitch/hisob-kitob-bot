@@ -45,6 +45,7 @@ const API = {
   skladProducts: "/api/webapp/sklad/products",
   skladAddQuantity: "/api/webapp/sklad/add-quantity",
   skladCreateProduct: "/api/webapp/sklad/create-product",
+  skladUpdateProduct: "/api/webapp/sklad/update-product",
 };
 
 let cart = []; // [{id, name, qty, price, stock}]
@@ -537,6 +538,7 @@ function setScannerStatus(text, type) {
 function defaultScannerStatusText() {
   if (scannerMode === "sklad") return "Skladga qo'shish uchun barkodni skanerlang...";
   if (scannerMode === "sklad_new") return "Yangi mahsulot uchun barkodni skanerlang...";
+  if (scannerMode === "sklad_edit") return "Tahrirlanayotgan mahsulot uchun barkodni skanerlang...";
   return "Kamerani barkodga to'g'rilang...";
 }
 
@@ -628,6 +630,9 @@ async function closeScanner() {
   if (scannerMode === "sklad_new") {
     el("modal-sklad-new").classList.remove("hidden");
   }
+  if (scannerMode === "sklad_edit") {
+    el("modal-sklad-edit").classList.remove("hidden");
+  }
 }
 
 // 5/7-BOSQICH (+ YANGI REJA 3/6-BOSQICH): skanerlangan barkodni rejimga
@@ -646,6 +651,19 @@ async function onBarcodeDecoded(decodedText) {
   if (scanHandled) return; // bitta kadrda bir necha marta chaqirilishining oldini olamiz
   scanHandled = true;
   tg.HapticFeedback.impactOccurred("light");
+
+  // 7-BOSQICH: tahrirlash oynasidan skanerlanganda - shunchaki barkod
+  // maydonini to'ldiramiz (bu YANGI mahsulot emas, aniq TANLANGAN
+  // mahsulot tahrirlanyapti, shuning uchun "boshqa mahsulot topildimi"
+  // tekshiruvi shart emas - tekshiruv "✅ Saqlash" bosilganda bo'ladi).
+  if (scannerMode === "sklad_edit") {
+    await stopScanner();
+    el("modal-scanner").classList.add("hidden");
+    el("sklad-edit-barcode-input").value = decodedText;
+    el("modal-sklad-edit").classList.remove("hidden");
+    scanHandled = false;
+    return;
+  }
 
   if (scannerMode === "sklad") {
     setScannerStatus("Qidirilmoqda...");
@@ -864,15 +882,30 @@ function renderSkladProducts(products) {
       ? '<div class="discount-badge">⚠️ Skladda yo\'q</div>'
       : "";
     const actionIcon = currentUser.canAddStock ? "➕" : "🔒";
+    // 7-BOSQICH: tahrirlash (✏️) tugmasi FAQAT do'kon egasiga ko'rinadi -
+    // narx/nom o'zgartirish sotuvchiga berilgan "sklad ruxsati"dan
+    // (faqat miqdor qo'shish) farqli, jiddiyroq huquq.
+    const editBtn = currentUser.role === "owner"
+      ? '<div class="edit-icon" title="Tahrirlash">✏️</div>'
+      : "";
     card.innerHTML = `
       <div>
         <div class="name">${escapeHtml(p.name)}</div>
         <div class="stock">${formatNum(p.quantity)} dona bor</div>
         ${lowBadge}
       </div>
-      <div class="add-icon">${actionIcon}</div>
+      <div class="card-actions">
+        ${editBtn}
+        <div class="add-icon">${actionIcon}</div>
+      </div>
     `;
     card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p); });
+    if (currentUser.role === "owner") {
+      card.querySelector(".edit-icon").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openSkladEditModal(p);
+      });
+    }
     list.appendChild(card);
   });
 }
@@ -1109,6 +1142,113 @@ function skladCreateErrorText(data) {
     barcode_exists: `Bu barkod allaqachon "${data.product ? data.product.name : ""}" mahsulotida bor.`,
   };
   return map[data.error] || "Mahsulot qo'shishda xatolik yuz berdi.";
+}
+
+// 7-BOSQICH: mavjud mahsulotni tahrirlash (FAQAT do'kon egasi - qarang:
+// renderSkladProducts yuqorida, tugma faqat currentUser.role === "owner"
+// bo'lsa ko'rinadi; shunga qaramay, xavfsizlik uchun backend - webapp.py
+// api_sklad_update_product - ham alohida is_owner_level tekshiradi).
+let currentEditProduct = null;
+
+function openSkladEditModal(product) {
+  currentEditProduct = product;
+  el("sklad-edit-name-input").value = product.name;
+  el("sklad-edit-price-input").value = product.price ?? "";
+  el("sklad-edit-sell-price-input").value = product.sell_price ?? "";
+  el("sklad-edit-min-price-input").value = product.min_price ?? "";
+  el("sklad-edit-barcode-input").value = product.barcode || "";
+  el("modal-sklad-edit").classList.remove("hidden");
+}
+
+el("sklad-edit-cancel-btn").addEventListener("click", () => {
+  el("modal-sklad-edit").classList.add("hidden");
+  currentEditProduct = null;
+});
+
+// Tahrirlash oynasidagi 📷 - faqat barkod maydonini to'ldiradi (qidiruv/
+// tekshiruv qilmaydi - takrorlanish tekshiruvi "✅ Saqlash" bosilganda,
+// backendda amalga oshadi).
+el("sklad-edit-scan-btn").addEventListener("click", () => {
+  el("modal-sklad-edit").classList.add("hidden");
+  openScanner("sklad_edit");
+});
+
+el("sklad-edit-save-btn").addEventListener("click", async () => {
+  if (!currentEditProduct) return;
+
+  const name = el("sklad-edit-name-input").value.trim();
+  const price = parseFloat(el("sklad-edit-price-input").value);
+  if (!name) {
+    tg.showAlert("Mahsulot nomini kiriting.");
+    return;
+  }
+  if (isNaN(price) || price < 0) {
+    tg.showAlert("Tannarxni to'g'ri kiriting.");
+    return;
+  }
+
+  const sellPriceRaw = el("sklad-edit-sell-price-input").value;
+  const minPriceRaw = el("sklad-edit-min-price-input").value;
+  const barcodeRaw = el("sklad-edit-barcode-input").value.trim();
+
+  if (sellPriceRaw !== "" && (isNaN(parseFloat(sellPriceRaw)) || parseFloat(sellPriceRaw) < 0)) {
+    tg.showAlert("Sotish narxini to'g'ri kiriting.");
+    return;
+  }
+  if (minPriceRaw !== "" && (isNaN(parseFloat(minPriceRaw)) || parseFloat(minPriceRaw) < 0)) {
+    tg.showAlert("Eng past narxni to'g'ri kiriting.");
+    return;
+  }
+
+  const body = {
+    product_id: currentEditProduct.id,
+    name,
+    price,
+    sell_price: sellPriceRaw === "" ? "" : parseFloat(sellPriceRaw),
+    min_price: minPriceRaw === "" ? "" : parseFloat(minPriceRaw),
+    barcode: barcodeRaw,
+  };
+
+  const btn = el("sklad-edit-save-btn");
+  btn.disabled = true;
+  btn.textContent = "Saqlanmoqda...";
+
+  try {
+    const res = await apiFetch(API.skladUpdateProduct, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(skladUpdateErrorText(data));
+      return;
+    }
+
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-sklad-edit").classList.add("hidden");
+    currentEditProduct = null;
+    tg.showAlert(`✅ "${data.product.name}" yangilandi.`);
+    loadSkladProducts(el("sklad-search-input").value.trim());
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Saqlash";
+  }
+});
+
+function skladUpdateErrorText(data) {
+  const map = {
+    missing_name: "Mahsulot nomini kiriting.",
+    invalid_price: "Tannarx noto'g'ri.",
+    invalid_sell_price: "Sotish narxi noto'g'ri.",
+    invalid_min_price: "Eng past narx noto'g'ri.",
+    invalid_item: "Mahsulot tanlanmagan.",
+    product_not_found: "Mahsulot topilmadi (ehtimol o'chirilgan).",
+    forbidden: "🔒 Faqat do'kon egasi mahsulotni tahrirlay oladi.",
+    barcode_exists: `Bu barkod allaqachon "${data.product ? data.product.name : ""}" mahsulotida bor.`,
+  };
+  return map[data.error] || "Saqlashda xatolik yuz berdi.";
 }
 
 el("sklad-scan-btn").addEventListener("click", () => {
