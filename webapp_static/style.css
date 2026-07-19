@@ -645,6 +645,20 @@ input:focus {
   color: var(--hint);
 }
 
+/* YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shilgan tovarlar
+   ro'yxati (.history-row bilan bir xil asosga qurilgan). */
+.restock-manual-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+
+.restock-manual-row .restock-buy-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
 /* YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi barkod maydoni +
    skanerlash tugmasi - .search-box bilan bir xil g'oya, faqat qidiruv
    ikonkasisiz (chap tarafda joy bo'sh qoladi). */
