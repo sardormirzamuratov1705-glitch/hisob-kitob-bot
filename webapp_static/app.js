@@ -329,8 +329,14 @@ function cartValidationError(product, qty, price) {
   if (product.price && price < product.price) {
     return `Narx tannarxdan (${formatNum(product.price)} so'm) past bo'lishi mumkin emas.`;
   }
-  if (product.min_price && price < product.min_price && !product.discount_price) {
-    return `Narx eng past narxdan (${formatNum(product.min_price)} so'm) past bo'lishi mumkin emas.`;
+  // 17-BOSQICH: backenddagi (webapp.py, 16-bosqich) tuzatish bilan mos -
+  // avval chegirma bo'lsa tekshiruv BUTUNLAY o'chib qolar edi. Endi
+  // chegirma bo'lsa ANIQ chegirma narxining o'zi eng past chegara
+  // bo'ladi (undan pastga tushirib bo'lmaydi), chegirma yo'q bo'lsa -
+  // odatdagi eng past narx ishlatiladi.
+  const effectiveMinPrice = product.discount_price || product.min_price;
+  if (effectiveMinPrice && price < effectiveMinPrice) {
+    return `Narx eng past narxdan (${formatNum(effectiveMinPrice)} so'm) past bo'lishi mumkin emas.`;
   }
   return null;
 }
