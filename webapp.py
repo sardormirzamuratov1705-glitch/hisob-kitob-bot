@@ -1549,6 +1549,11 @@ def create_web_app(bot) -> web.Application:
     from webapp_handlers.subscription import register_routes as _register_subscription_routes
     _register_subscription_routes(app)
 
+    # 8-BLOK, 15-BOSQICH: RO'YXATDAN O'TISH / TAKLIF HAVOLASI (mini app) -
+    # alohida modulga chiqarilgan (qarang: webapp_handlers/onboarding.py).
+    from webapp_handlers.onboarding import register_routes as _register_onboarding_routes
+    _register_onboarding_routes(app)
+
     # 11-BOSQICH: BOSH ADMIN PANELI (mini app)
     app.router.add_get("/api/webapp/admin/stats", api_admin_stats)
     app.router.add_get("/api/webapp/admin/owners", api_admin_owners_list)
