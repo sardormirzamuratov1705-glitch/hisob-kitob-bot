@@ -167,6 +167,61 @@ async def api_me(request: web.Request):
     })
 
 
+async def api_profile(request: web.Request):
+    """PROFIL EKRANI: do'kon egasi va sotuvchi uchun "Admin panel"dagi kabi
+    tartibli/chiroyli statistika+ma'lumot ekrani (qarang: webapp_static/app.js
+    renderProfile()). Bosh adminga tegishli emas (u o'z "Admin panel"ida
+    xuddi shunday ekranga ega - api_admin_stats)."""
+    auth = await _authenticate(request)
+    if not auth:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if auth["role"] == "admin":
+        return web.json_response({"error": "not_applicable"}, status=404)
+
+    shop_id = auth["shop_id"]
+    owner = await db.get_owner(shop_id)
+    access = await db.get_owner_subscription_access(shop_id) or {}
+    branches = await db.get_branches(shop_id)
+    sellers_can_add_stock = await db.get_sellers_can_add_stock(shop_id)
+
+    payload = {
+        "role": auth["role"],
+        "telegram_id": auth["telegram_id"],
+        "shop_name": (owner or {}).get("shop_name"),
+        "status": access.get("status"),
+        "days_left": access.get("days_left"),
+        "subscription_until": (owner or {}).get("subscription_until"),
+        "branches_count": len(branches),
+        "sellers_can_add_stock": sellers_can_add_stock,
+    }
+
+    if auth["role"] == "owner":
+        sellers = await db.get_sellers(shop_id)
+        products = await db.get_all_products(shop_id)
+        payload.update({
+            "owner_name": (owner or {}).get("owner_name"),
+            "phone_number": (owner or {}).get("phone_number"),
+            "sellers_count": len(sellers),
+            "products_count": len(products),
+        })
+    else:  # seller
+        seller = await db.get_seller(auth["telegram_id"])
+        branch_name = "Bosh filial"
+        branch_id = (seller or {}).get("branch_id")
+        if branch_id:
+            match = next((b for b in branches if b["id"] == branch_id), None)
+            if match:
+                branch_name = match["name"]
+        payload.update({
+            "seller_name": (seller or {}).get("seller_name"),
+            "phone_number": (seller or {}).get("phone_number"),
+            "branch_name": branch_name,
+            "can_add_stock": await access_control.can_add_stock(auth["telegram_id"]),
+        })
+
+    return web.json_response(payload)
+
+
 async def api_products(request: web.Request):
     auth = await _authenticate(request)
     if not auth:
@@ -1263,6 +1318,7 @@ def create_web_app(bot) -> web.Application:
     app["bot"] = bot
 
     app.router.add_get("/api/webapp/me", api_me)
+    app.router.add_get("/api/webapp/profile", api_profile)
     app.router.add_get("/api/webapp/products", api_products)
     app.router.add_get("/api/webapp/products/by-barcode", api_product_by_barcode)
     app.router.add_get("/api/webapp/cross_sell", api_cross_sell)
