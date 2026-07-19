@@ -23,6 +23,11 @@
            (qarang: app.js loadRestockList(), webapp.py api_restock_list).
            Do'kon egasi HAM, sotuvchi HAM ko'radi. -->
       <button id="tab-restock" type="button" class="section-tab" data-section="restock">🧾 Kerak</button>
+      <!-- 3-BLOK, 6-BOSQICH: QARZLAR - do'kon egasi HAM, sotuvchi HAM ko'radi
+           (bot tarafidagi handlers/debts.py bilan bir xil - get_shop_id
+           ikkalasiga ham shop_id qaytaradi). Qarang: app.js loadDebts(),
+           backend: webapp_handlers/debts.py (5-bosqich). -->
+      <button id="tab-debts" type="button" class="section-tab" data-section="debts">💳 Qarzlar</button>
       <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat HAQIQIY do'kon
            egasiga ko'rinadi (standart holatda "hidden", app.js loadMe()
            ichida role==="owner" bo'lsa ko'rsatiladi - xuddi sotuvchi
@@ -134,6 +139,18 @@
     </div>
   </div>
 
+  <!-- 3-BLOK, 6-BOSQICH: QARZLAR - do'kon egasi HAM, sotuvchi HAM ko'radi
+       (qarang: app.js loadDebts()/renderDebts(), backend:
+       webapp_handlers/debts.py). Bot tarafidagi "📋 Qarzdorlar ro'yxati" /
+       "➕ Qarz qo'shish" bilan bir xil amallar - shu yerda bitta ekranda. -->
+  <div id="screen-debts" class="screen hidden">
+    <div class="sklad-toolbar">
+      <button id="debts-add-btn" type="button" class="secondary-btn">➕ Qarz qo'shish</button>
+    </div>
+    <div id="debts-total-card" class="admin-settings-row"></div>
+    <div id="debts-list" class="product-list"></div>
+  </div>
+
   <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat do'kon egasi ko'radi
        (qarang: app.js loadSellers()/renderSellers(), backend:
        webapp_handlers/sellers.py). Bot tarafidagi "🧑‍💼 Sotuvchilar"
@@ -160,6 +177,11 @@
          o'z filialini o'zi almashtira olmaydi. -->
     <div id="profile-branches-section" class="hidden">
       <div class="section-title">🏢 Filiallar (bosib almashtiring)</div>
+      <!-- 2-BLOK, 4-BOSQICH: yaratish/nomini o'zgartirish/o'chirish tugmalari -
+           backend: webapp_handlers/branches.py (3-bosqich). -->
+      <div class="sklad-toolbar">
+        <button id="branches-add-btn" type="button" class="secondary-btn">➕ Filial qo'shish</button>
+      </div>
       <div id="profile-branches-list" class="admin-settings-list"></div>
     </div>
     <div class="section-title">ℹ️ Ma'lumotlar</div>
@@ -434,6 +456,93 @@
       <div class="modal-actions">
         <button id="seller-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
         <button id="seller-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI oynasi
+       Bitta modal ham yangi filial YARATISH, ham mavjudini NOMINI
+       O'ZGARTIRISH uchun ishlatiladi (app.js dagi branchEditMode orqali
+       farqlanadi) - backend: webapp_handlers/branches.py (3-bosqich).
+       ================================================================== -->
+  <div id="modal-branch-edit" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="branch-edit-title">➕ Yangi filial</h3>
+      <label>Filial nomi</label>
+      <input id="branch-edit-name-input" type="text" placeholder="Masalan: 2-filial (Chilonzor)">
+      <div class="modal-actions">
+        <button id="branch-edit-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="branch-edit-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       3-BLOK, 6-BOSQICH: QARZLAR oynalari
+       ================================================================== -->
+
+  <!-- Yangi qarz qo'shish oynasi -->
+  <div id="modal-debt-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi qarz</h3>
+      <label>Mijoz ismi</label>
+      <input id="debt-add-name-input" type="text" placeholder="Masalan: Aziz aka">
+      <label>Telefon raqami</label>
+      <input id="debt-add-phone-input" type="text" inputmode="tel" placeholder="Masalan: +998901234567">
+      <label>Qarz summasi (so'mda)</label>
+      <input id="debt-add-amount-input" type="text" inputmode="decimal" placeholder="0">
+      <label>Qarz olingan sana (bo'sh — bugun)</label>
+      <input id="debt-add-taken-input" type="text" placeholder="kun.oy.yil, masalan 10.07.2026">
+      <label>Qaytarish sanasi (bo'sh yoki "-" — sanasiz, son — necha kundan keyin, yoki kun.oy.yil)</label>
+      <input id="debt-add-due-input" type="text" placeholder="Masalan: 7 yoki 25.07.2026">
+      <label>Izoh</label>
+      <input id="debt-add-desc-input" type="text" placeholder="Masalan: Oziq-ovqat qarzi">
+      <div class="modal-actions">
+        <button id="debt-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="debt-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Qarz tafsiloti + eslatma/link + to'lov qabul qilish oynasi -->
+  <div id="modal-debt-detail" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="debt-detail-title"></h3>
+      <div id="debt-detail-body" class="admin-detail-body"></div>
+      <div class="modal-actions">
+        <button id="debt-detail-remind-btn" type="button" class="secondary-btn">🔔 Eslatma yuborish</button>
+        <button id="debt-detail-link-btn" type="button" class="secondary-btn">🔗 Shaxsiy link</button>
+      </div>
+      <button id="debt-detail-pay-btn" type="button" class="primary-btn full-width">💰 To'lov qabul qilish</button>
+      <button id="debt-detail-close-btn" type="button" class="secondary-btn">Yopish</button>
+    </div>
+  </div>
+
+  <!-- To'lov qabul qilish oynasi -->
+  <div id="modal-debt-pay" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>💰 To'lov qabul qilish</h3>
+      <p id="debt-pay-remaining" class="muted"></p>
+      <label>To'lanadigan summa (so'mda)</label>
+      <input id="debt-pay-amount-input" type="text" inputmode="decimal" placeholder="0">
+      <div class="section-title">To'lov turi</div>
+      <div class="payment-methods">
+        <button type="button" class="debt-pay-btn" data-method="naqd"><span class="pay-icon">💵</span>Naqd</button>
+        <button type="button" class="debt-pay-btn" data-method="plastik"><span class="pay-icon">💳</span>Plastik</button>
+        <button type="button" class="debt-pay-btn" data-method="aralash"><span class="pay-icon">🔀</span>Aralash</button>
+      </div>
+      <div id="debt-mixed-box" class="mixed-box hidden">
+        <label>Naqd summasi (so'mda)</label>
+        <input id="debt-mixed-cash-input" type="text" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="modal-actions">
+        <button id="debt-pay-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="debt-pay-save-btn" type="button" class="primary-btn">✅ Tasdiqlash</button>
       </div>
     </div>
   </div>
