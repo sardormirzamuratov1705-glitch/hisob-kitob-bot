@@ -61,6 +61,18 @@ const API = {
   // webapp_handlers/transactions.py). GET - ro'yxat + jami, POST - yangi
   // kirim/chiqim qo'shish (bitta manzil, ikkalasi ham).
   transactions: "/api/webapp/transactions",
+
+  // 5-BLOK, 10-BOSQICH: HISOBOTLAR (backend: 9-bosqich,
+  // webapp_handlers/reports.py).
+  reportsSummary: "/api/webapp/reports/summary",
+  reportsBranchesComparison: "/api/webapp/reports/branches-comparison",
+  reportsSellersComparison: "/api/webapp/reports/sellers-comparison",
+  reportsForecast: "/api/webapp/reports/forecast",
+  reportsTrend: "/api/webapp/reports/trend",
+  reportsTopProducts: "/api/webapp/reports/top-products",
+  reportsDailyReport: "/api/webapp/reports/daily-report",
+  reportsSuspiciousAlert: "/api/webapp/reports/suspicious-alert",
+  reportsAuditLog: "/api/webapp/reports/audit-log",
   profile: "/api/webapp/profile",
   branches: "/api/webapp/branches",
   branchesSwitch: "/api/webapp/branches/switch",
@@ -140,7 +152,7 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "profile",
+    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "reports", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
@@ -1112,6 +1124,9 @@ function switchSection(section) {
   } else if (section === "transactions") {
     showScreen("transactions");
     loadTransactions();
+  } else if (section === "reports") {
+    showScreen("reports");
+    loadReports();
   } else if (section === "profile") {
     showScreen("profile");
     loadProfile();
@@ -1148,6 +1163,7 @@ el("tab-restock").addEventListener("click", () => switchSection("restock"));
 el("tab-sellers").addEventListener("click", () => switchSection("sellers"));
 el("tab-debts").addEventListener("click", () => switchSection("debts"));
 el("tab-transactions").addEventListener("click", () => switchSection("transactions"));
+el("tab-reports").addEventListener("click", () => switchSection("reports"));
 el("tab-profile").addEventListener("click", () => switchSection("profile"));
 
 // ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
@@ -2070,6 +2086,369 @@ el("tx-add-save-btn").addEventListener("click", async () => {
 });
 
 wireEnterToNext(["tx-add-amount-input", "tx-add-desc-input"], "tx-add-save-btn");
+
+// ---------- 5-BLOK, 10-BOSQICH: HISOBOTLAR ----------
+// Do'kon egasi HAM, sotuvchi HAM ko'radi (backend: webapp_handlers/
+// reports.py, 9-bosqich - bot tarafidagi handlers/reports.py._require_shop()
+// bilan bir xil ruxsat qoidasi - hatto sozlamalar/audit jurnali ham).
+
+let reportsScopeBranchId = null; // null = "🌐 Umumiy" (barcha filiallar birga)
+
+function reportsScopeQuery() {
+  return reportsScopeBranchId === null ? "" : `?branch_id=${reportsScopeBranchId}`;
+}
+
+async function loadReports() {
+  loadReportsScopeChips();
+  loadReportsSummary();
+  loadReportsTopProducts();
+  loadReportsBranchesComparison();
+  loadReportsSellersComparison();
+  loadReportsForecast();
+  loadReportsTrend();
+  loadReportsSettings();
+}
+
+// ---- filial bo'yicha kesim (faqat summary va top-products'ga ta'sir qiladi -
+// bot tarafida ham faqat shu ikkitasi filial bo'yicha filtrlanadi). ----
+
+async function loadReportsScopeChips() {
+  const container = el("reports-scope-chips");
+  try {
+    const res = await apiFetch(API.branches);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const branches = data.branches || [];
+    if (branches.length === 0) {
+      container.classList.add("hidden");
+      container.innerHTML = "";
+      el("reports-branches-comparison-section").classList.add("hidden");
+      return;
+    }
+    el("reports-branches-comparison-section").classList.remove("hidden");
+    container.classList.remove("hidden");
+    const chips = [
+      { id: null, name: "🌐 Umumiy" },
+      { id: 0, name: "🏠 Bosh filial" },
+      ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}` })),
+    ];
+    container.innerHTML = chips.map((c) => `
+      <button type="button" class="scope-chip${c.id === reportsScopeBranchId ? " active" : ""}">${escapeHtml(c.name)}</button>
+    `).join("");
+    container.querySelectorAll(".scope-chip").forEach((btn, idx) => {
+      btn.addEventListener("click", () => {
+        reportsScopeBranchId = chips[idx].id;
+        container.querySelectorAll(".scope-chip").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        loadReportsSummary();
+        loadReportsTopProducts();
+      });
+    });
+  } catch (e) {
+    container.classList.add("hidden");
+  }
+}
+
+// ---- 📊 umumiy / 🏢 filial bo'yicha hisobot ----
+
+async function loadReportsSummary() {
+  const grid = el("reports-summary-grid");
+  grid.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(`${API.reportsSummary}${reportsScopeQuery()}`);
+    if (!res.ok) throw new Error("Hisobotni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsSummary(data);
+  } catch (e) {
+    grid.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderReportsSummary(data) {
+  const cards = [
+    ["🟢", `${formatNum(data.income)} so'm`, "Kirim"],
+    ["🔴", `${formatNum(data.expense)} so'm`, "Chiqim"],
+    ["⚖️", `${formatNum(data.balance)} so'm`, "Balans"],
+    ["📒", `${formatNum(data.total_debt)} so'm`, "Qarzdorlik"],
+    ["💵", `${formatNum(data.payment_totals.naqd)} so'm`, "Naqd"],
+    ["💳", `${formatNum(data.payment_totals.plastik)} so'm`, "Plastik"],
+  ];
+  // Sklad butun do'kon bo'yicha yagona - faqat "umumiy" kesimda keladi
+  // (qarang: webapp_handlers/reports.py.api_reports_summary).
+  if (data.products_count !== undefined) {
+    cards.push(["📦", formatNum(data.products_count), "Mahsulotlar (sklad)"]);
+    cards.push(["📦", `${formatNum(data.total_stock_value)} so'm`, "Sklad qiymati"]);
+  }
+  el("reports-summary-grid").innerHTML = cards.map(([icon, value, label]) => `
+    <div class="admin-stat-card">
+      <div class="admin-stat-value">${icon} ${escapeHtml(String(value))}</div>
+      <div class="admin-stat-label">${escapeHtml(label)}</div>
+    </div>
+  `).join("");
+}
+
+// ---- 🏆 top mahsulotlar ----
+
+async function loadReportsTopProducts() {
+  const sellingList = el("reports-top-selling-list");
+  const profitList = el("reports-top-profit-list");
+  sellingList.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  profitList.innerHTML = "";
+  try {
+    const res = await apiFetch(`${API.reportsTopProducts}${reportsScopeQuery()}`);
+    if (!res.ok) throw new Error("Top mahsulotlarni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsTopList(sellingList, data.top_selling || [],
+      (r) => `${formatNum(r.total_qty)} dona (${formatNum(r.total_sum)} so'm)`);
+    renderReportsTopList(profitList, data.top_profit || [],
+      (r) => `${formatNum(r.total_profit)} so'm foyda`);
+  } catch (e) {
+    sellingList.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+    profitList.innerHTML = "";
+  }
+}
+
+function renderReportsTopList(container, rows, valueFn) {
+  container.innerHTML = "";
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="muted">Ma\'lumot yo\'q.</p>';
+    return;
+  }
+  rows.forEach((r, i) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    row.innerHTML = `
+      <div class="history-row-top">
+        <span class="history-action">${i + 1}. ${escapeHtml(r.name)}</span>
+      </div>
+      <div class="history-details">${escapeHtml(valueFn(r))}</div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// ---- 🆚 filiallar / sotuvchilar solishtiruvi ----
+
+async function loadReportsBranchesComparison() {
+  const list = el("reports-branches-comparison-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.reportsBranchesComparison);
+    if (!res.ok) throw new Error("Solishtiruvni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsComparisonList(list, data.branches || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+async function loadReportsSellersComparison() {
+  const list = el("reports-sellers-comparison-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.reportsSellersComparison);
+    if (!res.ok) throw new Error("Solishtiruvni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsComparisonList(list, data.sellers || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+const REPORTS_MEDALS = ["🥇", "🥈", "🥉"];
+
+function renderReportsComparisonList(container, rows) {
+  container.innerHTML = "";
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="muted">Hozircha solishtirish uchun yetarli ma\'lumot yo\'q.</p>';
+    return;
+  }
+  rows.forEach((r, i) => {
+    const rank = REPORTS_MEDALS[i] || `${i + 1}.`;
+    const row = document.createElement("div");
+    row.className = "history-row";
+    row.innerHTML = `
+      <div class="history-row-top">
+        <span class="history-action">${rank} ${escapeHtml(r.name)}</span>
+        <span class="history-time">🛒 ${formatNum(r.sales_count)} ta chek</span>
+      </div>
+      <div class="history-details">💰 Foyda: ${formatNum(r.profit)} so'm</div>
+      <div class="history-actor">💵 ${formatNum(r.income)} so'm · 💸 ${formatNum(r.expense)} so'm · 📈 ${formatNum(r.balance)} so'm</div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// ---- 📈 oylik prognoz ----
+
+async function loadReportsForecast() {
+  const body = el("reports-forecast-body");
+  body.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.reportsForecast);
+    if (!res.ok) throw new Error("Prognozni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsForecast(data);
+  } catch (e) {
+    body.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function renderReportsForecast(data) {
+  const body = el("reports-forecast-body");
+  if (!data.has_data) {
+    body.innerHTML = '<p class="muted">Hozircha savdo tarixi yo\'q.</p>';
+    return;
+  }
+  let html = data.history.map((h) => `
+    <div class="admin-detail-row"><span class="k">${escapeHtml(h.month_label)}</span><span class="v">${formatNum(h.sales_count)} ta chek, ${formatNum(h.profit)} so'm</span></div>
+  `).join("");
+  if (data.forecast) {
+    html += `
+      <div class="admin-detail-row"><span class="k">🔮 ${escapeHtml(data.forecast.forecast_month_label)}</span><span class="v">${formatNum(data.forecast.forecast_profit)} so'm (taxminiy)</span></div>
+    `;
+  } else {
+    html += '<p class="muted">Prognoz uchun kamida bitta TO\'LIQ tugagan oylik savdo tarixi kerak.</p>';
+  }
+  body.innerHTML = html;
+}
+
+// ---- 📉 trend tahlili ----
+
+async function loadReportsTrend() {
+  const body = el("reports-trend-body");
+  body.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.reportsTrend);
+    if (!res.ok) throw new Error("Trendni yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsTrend(data);
+  } catch (e) {
+    body.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+}
+
+function reportsTrendArrow(changePercent) {
+  if (changePercent === null || changePercent === undefined) return "▪️";
+  if (changePercent > 5) return "📈";
+  if (changePercent < -5) return "📉";
+  return "➡️";
+}
+
+function renderReportsTrend(data) {
+  const body = el("reports-trend-body");
+  if (!data.has_data) {
+    body.innerHTML = '<p class="muted">Hozircha savdo tarixi yo\'q.</p>';
+    return;
+  }
+  const renderSeries = (title, series) => `
+    <div class="muted" style="margin: 6px 0 2px;">${escapeHtml(title)}</div>
+    ${series.map((t) => {
+      const change = (t.change_percent !== null && t.change_percent !== undefined)
+        ? ` (${t.change_percent > 0 ? "+" : ""}${formatNum(Math.round(t.change_percent))}%)`
+        : "";
+      return `<div class="admin-detail-row"><span class="k">${reportsTrendArrow(t.change_percent)} ${escapeHtml(t.label)}</span><span class="v">${formatNum(t.value)} so'm${change}</span></div>`;
+    }).join("")}
+  `;
+  body.innerHTML = renderSeries("📅 Oylik (so'nggi 6 oy)", data.monthly)
+    + renderSeries("🗓 Haftalik (so'nggi 8 hafta)", data.weekly);
+}
+
+// ---- ⚙️ sozlamalar: 🔔 kunlik hisobot / 🚨 shubhali holatlar ----
+
+async function loadReportsSettings() {
+  try {
+    const [dailyRes, suspRes] = await Promise.all([
+      apiFetch(API.reportsDailyReport),
+      apiFetch(API.reportsSuspiciousAlert),
+    ]);
+    const daily = dailyRes.ok ? await dailyRes.json() : { enabled: false };
+    const susp = suspRes.ok ? await suspRes.json() : { enabled: false };
+    renderReportsToggleRow("reports-daily-toggle-row", "🔔 Kunlik hisobot", daily.enabled, toggleReportsDailyReport);
+    renderReportsToggleRow("reports-suspicious-toggle-row", "🚨 Shubhali holatlar ogohlantiruvi", susp.enabled, toggleReportsSuspiciousAlert);
+  } catch (e) {
+    // jim - sozlamalar ekranning yordamchi qismi, asosiy hisobotlarni to'xtatmasin.
+  }
+}
+
+function renderReportsToggleRow(rowId, label, enabled, onToggle) {
+  const row = el(rowId);
+  row.innerHTML = `
+    <div>
+      <div class="value">${escapeHtml(label)}: ${enabled ? "🔔 Yoqilgan" : "🔕 O'chirilgan"}</div>
+      <div class="env-tag">Bosib o'zgartiring</div>
+    </div>
+  `;
+  row.onclick = () => onToggle(!enabled);
+}
+
+async function toggleReportsDailyReport(nextEnabled) {
+  try {
+    const res = await apiFetch(API.reportsDailyReport, {
+      method: "POST", body: JSON.stringify({ enabled: nextEnabled }),
+    });
+    if (!res.ok) throw new Error("O'zgartirib bo'lmadi.");
+    tg.HapticFeedback.notificationOccurred("success");
+    loadReportsSettings();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+async function toggleReportsSuspiciousAlert(nextEnabled) {
+  try {
+    const res = await apiFetch(API.reportsSuspiciousAlert, {
+      method: "POST", body: JSON.stringify({ enabled: nextEnabled }),
+    });
+    if (!res.ok) throw new Error("O'zgartirib bo'lmadi.");
+    tg.HapticFeedback.notificationOccurred("success");
+    loadReportsSettings();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  }
+}
+
+// ---- 🗂 audit jurnali ----
+
+el("reports-audit-btn").addEventListener("click", async () => {
+  const list = el("reports-audit-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  el("modal-reports-audit").classList.remove("hidden");
+  try {
+    const res = await apiFetch(API.reportsAuditLog);
+    if (!res.ok) throw new Error("Audit jurnalini yuklab bo'lmadi.");
+    const data = await res.json();
+    renderReportsAudit(data.logs || []);
+  } catch (e) {
+    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
+  }
+});
+
+el("reports-audit-close-btn").addEventListener("click", () => {
+  el("modal-reports-audit").classList.add("hidden");
+});
+
+function renderReportsAudit(rows) {
+  const list = el("reports-audit-list");
+  list.innerHTML = "";
+  if (rows.length === 0) {
+    list.innerHTML = '<p class="muted">Audit jurnalida hali yozuv yo\'q.</p>';
+    return;
+  }
+  rows.forEach((r) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    row.innerHTML = `
+      <div class="history-row-top">
+        <span class="history-action">${escapeHtml(r.actor_name || "Noma'lum")}</span>
+        <span class="history-time">${escapeHtml((r.created_at || "").slice(0, 16))}</span>
+      </div>
+      <div class="history-details">${escapeHtml(r.action || "")}</div>
+      ${r.details ? `<div class="history-actor">${escapeHtml(r.details)}</div>` : ""}
+    `;
+    list.appendChild(row);
+  });
+}
 
 async function loadSkladProducts(query = "") {
   try {
