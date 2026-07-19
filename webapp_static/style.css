@@ -1129,3 +1129,15 @@ body.admin-mode .screen {
   transition: transform 0.12s ease, opacity 0.15s ease;
 }
 .admin-stat-card.clickable:active { opacity: 0.8; transform: scale(0.97); }
+
+/* 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV - tarif qatorlari, .branch-row bilan
+   bir xil "bosiladigan qator" uslubi (qarang: app.js renderSubscription()). */
+.plan-row {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+.plan-row:active { opacity: 0.8; transform: scale(0.98); }
+.plan-row.current { box-shadow: 0 0 0 1.5px var(--accent), 0 1px 3px rgba(0, 0, 0, 0.06); }
