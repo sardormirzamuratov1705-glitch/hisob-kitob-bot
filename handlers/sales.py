@@ -44,11 +44,20 @@ async def _require_shop_cb(callback: CallbackQuery):
 
 
 async def _sellable_products(shop_id, query: str = ""):
-    """Skladda bor mahsulotlar ro'yxati, kerak bo'lsa nomi bo'yicha filtrlangan."""
+    """Skladda bor mahsulotlar ro'yxati, kerak bo'lsa nomi YOKI BARKODI
+    bo'yicha filtrlangan.
+
+    Barkod bo'yicha ham qidirish - kamera/skanerlash ishlamay qolganda
+    (masalan Telegram'ga kamera ruxsati berilmagan) foydalanuvchi
+    barkod raqamini QO'LDA kiritib ham mahsulotni topa olishi uchun -
+    bu doim ishlaydigan zaxira yo'l, kamera ruxsatiga bog'liq emas."""
     products = [p for p in await db.get_all_products(shop_id) if p["quantity"] > 0]
     if query:
         q = query.strip().lower()
-        products = [p for p in products if q in p["name"].lower()]
+        products = [
+            p for p in products
+            if q in p["name"].lower() or q in (p.get("barcode") or "").lower()
+        ]
     return products
 
 
