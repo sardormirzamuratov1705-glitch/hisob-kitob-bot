@@ -557,16 +557,53 @@ async function openScanner(mode = "sale") {
     html5QrCode = new Html5Qrcode("scanner-reader", {
       formatsToSupport: BARCODE_FORMATS,
       verbose: false,
+      // 8-BOSQICH: qurilma/brauzer qo'llab-quvvatlasa (ko'p zamonaviy
+      // Android Chrome'da bor), kutubxona OS/brauzerning O'ZINING tezroq
+      // va aniqroq (past yorug'likka ham chidamliroq) native
+      // BarcodeDetector API'sidan foydalanadi - JS orqali kadr-kadr
+      // tahlil qilishdan TEZROQ ishlaydi. Qo'llab-quvvatlanmasa,
+      // kutubxona o'zining odatdagi (eski) usuliga avtomatik qaytadi -
+      // xatolik chiqmaydi.
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
     });
     await html5QrCode.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 260, height: 160 } },
+      {
+        facingMode: "environment",
+        // 8-BOSQICH: kameradan YUQORIROQ chinakam piksel sifatini
+        // so'raymiz (qurilma qo'llab-quvvatlasa) - past yorug'likda yoki
+        // kichik/uzoqdagi barkodlarda aniqlik sezilarli oshadi.
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      {
+        // Kadr chastotasini biroz oshirdik (10 -> 15) - barkod tezroq
+        // "ushlanadi", ayniqsa qo'l titrasa/harakatda bo'lsa.
+        fps: 15,
+        qrbox: { width: 280, height: 170 },
+      },
       onBarcodeDecoded,
       () => {} // har bir kadrda "topilmadi" - bu normal holat, e'tiborsiz qoldiramiz
     );
     await setupTorchButton();
+    await setupContinuousFocus();
   } catch (err) {
     setScannerStatus("Kameraga ruxsat berilmadi. Telegram sozlamalaridan ruxsat bering.", "error");
+  }
+}
+
+// 8-BOSQICH: "continuous" avtofokus - qo'llab-quvvatlansa, kamera
+// doimiy ravishda qayta fokuslanib turadi (masalan telefon harakatda
+// bo'lsa yoki barkod yaqin/uzoq masofada bo'lsa ham aniq ko'rinishi
+// uchun). Qo'llab-quvvatlanmasa - jim o'tkazamiz, hech qanday xato
+// chiqmaydi (aksariyat qurilmalarda brauzer buni allaqachon o'zi
+// qiladi).
+async function setupContinuousFocus() {
+  try {
+    await html5QrCode.applyVideoConstraints({
+      advanced: [{ focusMode: "continuous" }],
+    });
+  } catch (e) {
+    // Qo'llab-quvvatlanmaydi - odatiy avtofokus bilan davom etamiz.
   }
 }
 
