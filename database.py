@@ -408,6 +408,21 @@ async def init_db():
         except Exception:
             pass
 
+        # YANGI: do'kon egasi Mini App'dagi "🏠 Bosh sahifa" menyusidan
+        # sotuvchiga qaysi tugmalar ko'rinishini o'zi tanlaydi (masalan,
+        # "📦 Ombor" yoki "📊 Hisobotlar"ni sotuvchidan yashirishi mumkin).
+        # NULL = standart ro'yxat ishlatiladi (qarang: DEFAULT_HIDDEN_FROM_SELLER
+        # pastda) - eski do'konlarda hech narsa o'zgarmaydi. Bo'sh bo'lmasa -
+        # sotuvchidan YASHIRILADIGAN tugmalar kalitlarining vergul bilan
+        # ajratilgan ro'yxati (masalan: "sklad,reports,ai"). Mumkin bo'lgan
+        # kalitlar: sale, sklad, branches, debts, reports, ai, restock,
+        # settings (qarang: webapp_static/index.html .home-menu-item
+        # data-home-action, app.js applySellerHomeMenu()).
+        try:
+            await db.execute("ALTER TABLE owners ADD COLUMN seller_home_menu TEXT")
+        except Exception:
+            pass
+
         # Sotuvchining o'zi kiritgan ismi va telefon raqami - do'kon egasi
         # bir nechta sotuvchini boshqarganda ularni Telegram ID/username
         # emas, balki tanish nom bilan bir-biridan ajratib olishi uchun.
@@ -2319,6 +2334,43 @@ async def set_sellers_can_add_stock(shop_id: int, allowed: bool) -> bool:
         cursor = await db.execute(
             "UPDATE owners SET sellers_can_add_stock = ? WHERE telegram_id = ?",
             (1 if allowed else 0, shop_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+# YANGI: Bosh sahifa menyusidan sotuvchidan yashiriladigan tugmalar -
+# owners.seller_home_menu NULL bo'lganda ishlatiladigan standart ro'yxat
+# (avval app.js'da qattiq yozilgan edi - endi do'kon egasi buni Profil
+# ekranidan o'zi o'zgartira oladi, qarang: webapp_handlers/settings.py).
+DEFAULT_HIDDEN_FROM_SELLER = ("sklad", "reports", "ai")
+
+
+async def get_seller_home_menu_hidden(shop_id: int) -> list[str]:
+    """Shu do'konda sotuvchidan yashirilgan Bosh sahifa tugmalari ro'yxati.
+    Ustun hali NULL bo'lsa (do'kon egasi hali hech narsa o'zgartirmagan) -
+    DEFAULT_HIDDEN_FROM_SELLER qaytariladi. Bo'sh qator ("") - "hech narsa
+    yashirilmagan, sotuvchiga hammasi ochiq" degani (do'kon egasi ataylab
+    shunday tanlashi mumkin)."""
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "SELECT seller_home_menu FROM owners WHERE telegram_id = ?", (shop_id,)
+        )
+        row = await cursor.fetchone()
+        if not row or row[0] is None:
+            return list(DEFAULT_HIDDEN_FROM_SELLER)
+        return [x for x in row[0].split(",") if x]
+
+
+async def set_seller_home_menu_hidden(shop_id: int, hidden_actions: list[str]) -> bool:
+    """Do'kon egasi Profil > Sozlamalar ekranidan Bosh sahifa
+    tugmalarining qaysilari sotuvchidan yashirilishini tanlaganda
+    saqlanadi (qarang: webapp_handlers/settings.py)."""
+    value = ",".join(hidden_actions)
+    async with aiosqlite.connect(config.DB_PATH, timeout=10) as db:
+        cursor = await db.execute(
+            "UPDATE owners SET seller_home_menu = ? WHERE telegram_id = ?",
+            (value, shop_id),
         )
         await db.commit()
         return cursor.rowcount > 0
