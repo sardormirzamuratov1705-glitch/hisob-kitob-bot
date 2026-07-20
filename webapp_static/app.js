@@ -162,6 +162,7 @@ const API = {
 
 // YANGI: BOSH SAHIFA (dashboard) - qarang: webapp_handlers/dashboard.py.
 API.dashboard = "/api/webapp/dashboard";
+API.sellerMenu = "/api/webapp/dashboard/seller-menu";
 
 let cart = []; // [{id, name, qty, price, stock}]
 let selectedPaymentMethod = null;
@@ -209,18 +210,6 @@ async function loadMe() {
     // borishning ma'nosi yo'q.
     const homeBranchesBtn = document.querySelector('.home-menu-item[data-home-action="branches"]');
     if (homeBranchesBtn) homeBranchesBtn.classList.toggle("hidden", data.role !== "owner");
-    // YANGI: sotuvchi tanlovi bo'yicha Bosh sahifadagi "📦 Ombor",
-    // "📊 Hisobotlar" va "🤖 AI Tavsiyalar" tugmalari FAQAT haqiqiy do'kon
-    // egasiga ko'rinadi ("🧾 Sotib olish" ochiq qoladi - u yerda narxlar
-    // sotuvchiga baribir ko'rinmaydi, qarang: sklad_core.py
-    // api_restock_list "manage": auth["role"] == "owner"). DIQQAT: bu
-    // faqat Bosh sahifadagi tezkor tugmalarga tegishli - pastdagi
-    // "📦 Sklad"/"📊 Hisobotlar" bo'limlarining o'zi (va ularning mavjud
-    // ruxsat qoidalari, masalan sellers_can_add_stock) o'zgarishsiz qoladi.
-    ["sklad", "reports", "ai"].forEach((action) => {
-      const btn = document.querySelector(`.home-menu-item[data-home-action="${action}"]`);
-      if (btn) btn.classList.toggle("hidden", data.role !== "owner");
-    });
   } catch (e) {
     // Jim o'tkazamiz - bu faqat UI'ni yaxshilash uchun, savdo oqimini
     // to'xtatib qo'ymasligi kerak (asosiy 401 tekshiruvi baribir
@@ -317,6 +306,17 @@ function renderDashboard(data) {
   el("home-stat-debts").textContent = `${formatNum(data.total_debt || 0)} so'm`;
   el("home-stat-stock").textContent = formatNum(data.stock_qty_total || 0);
   el("home-stat-lowstock").textContent = formatNum(data.low_stock_count || 0);
+
+  // YANGI: do'kon egasi Profil > "🏠 Bosh sahifa sozlamalari" orqali
+  // sotuvchidan yashirgan tugmalar - qarang: webapp_handlers/dashboard.py
+  // TOGGLEABLE_HOME_ACTIONS. Do'kon egasining o'zida bu ro'yxat har doim
+  // bo'sh keladi (backendning o'zi shunday qaytaradi).
+  const hidden = data.hidden_home_actions || [];
+  document.querySelectorAll(".home-menu-item[data-home-action]").forEach((btn) => {
+    const action = btn.dataset.homeAction;
+    if (action === "branches") return; // alohida, rolga qarab loadMe()da boshqariladi
+    btn.classList.toggle("hidden", hidden.includes(action));
+  });
 }
 
 // Menyu kataklari - mavjud bo'limlarga yo'naltiradi (qarang: switchSection).
@@ -1463,6 +1463,65 @@ function renderProfile(data) {
     loadProfileBranches();
   } else {
     branchesSection.classList.add("hidden");
+  }
+
+  // YANGI: "Sotuvchilar" / "Tranzaksiyalar" / "Obuna" ga tezkor havolalar
+  // va "Bosh sahifa sozlamalari" (qaysi tugmalar sotuvchidan
+  // yashirilishi) - FAQAT do'kon egasiga.
+  el("profile-owner-links").classList.toggle("hidden", !isOwner);
+  el("profile-seller-menu-section").classList.toggle("hidden", !isOwner);
+  if (isOwner) loadSellerMenuSettings();
+}
+
+document.querySelectorAll('[data-owner-link]').forEach((btn) => {
+  btn.addEventListener("click", () => switchSection(btn.dataset.ownerLink));
+});
+
+// ---------- YANGI: BOSH SAHIFA SOZLAMALARI (do'kon egasi tanlaydi) ----------
+
+const SELLER_MENU_LABELS = {
+  sklad: "📦 Ombor",
+  reports: "📊 Hisobotlar",
+  ai: "🤖 AI Tavsiyalar",
+  restock: "🛒 Sotib olish",
+  settings: "⚙️ Sozlamalar",
+};
+
+async function loadSellerMenuSettings() {
+  const list = el("profile-seller-menu-list");
+  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
+  try {
+    const res = await apiFetch(API.sellerMenu);
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    renderSellerMenuSettings(data.options || [], data.hidden || []);
+  } catch (e) {
+    list.innerHTML = '<p class="muted">Yuklab bo\'lmadi.</p>';
+  }
+}
+
+function renderSellerMenuSettings(options, hidden) {
+  const list = el("profile-seller-menu-list");
+  list.innerHTML = options.map((action) => `
+    <label class="seller-menu-toggle-row">
+      <span>${escapeHtml(SELLER_MENU_LABELS[action] || action)}</span>
+      <input type="checkbox" data-menu-action="${action}" ${hidden.includes(action) ? "" : "checked"}>
+    </label>
+  `).join("");
+  list.querySelectorAll("input[data-menu-action]").forEach((cb) => {
+    cb.addEventListener("change", () => saveSellerMenuSettings(list));
+  });
+}
+
+async function saveSellerMenuSettings(list) {
+  const hidden = Array.from(list.querySelectorAll("input[data-menu-action]"))
+    .filter((cb) => !cb.checked)
+    .map((cb) => cb.dataset.menuAction);
+  try {
+    await apiFetch(API.sellerMenu, { method: "POST", body: JSON.stringify({ hidden }) });
+    tg.HapticFeedback.notificationOccurred("success");
+  } catch (e) {
+    tg.showAlert("Saqlashda xatolik yuz berdi.");
   }
 }
 
