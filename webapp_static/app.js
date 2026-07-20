@@ -8,12 +8,27 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// 1-3-BOSQICH: MAVZULAR (THEMES) - hozircha faqat joriy seansda ishlaydi
-// (sahifa qayta ochilganda "default"ga qaytadi) - serverda saqlash
-// 4-bosqichda qo'shiladi. applyTheme() <body data-theme="..."> ni
-// o'rnatadi (style.css shunga qarab ranglarni almashtiradi) va
-// "Profil" ekranidagi tanlagichda joriy mavzuni yorug'lantiradi.
+// MAVZULAR (THEMES) - tanlangan mavzu localStorage'da saqlanadi, shuning
+// uchun ilova qayta ochilganda ham oxirgi tanlangan mavzu turadi (avval
+// faqat joriy seansda ishlar edi va har safar "default"ga qaytardi).
+const THEME_STORAGE_KEY = "hisobkitob_theme";
 const VALID_THEMES = ["default", "purple", "teal", "midnight", "nature", "gold"];
+
+function getSavedTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY);
+  } catch (e) {
+    return null; // ba'zi cheklangan WebView'larda localStorage bloklangan bo'lishi mumkin
+  }
+}
+
+function saveTheme(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch (e) {
+    // jim o'tkazamiz - saqlay olmasa ham, joriy seansda mavzu baribir ishlayveradi
+  }
+}
 
 function applyTheme(theme) {
   if (!VALID_THEMES.includes(theme)) theme = "default";
@@ -23,11 +38,12 @@ function applyTheme(theme) {
   });
 }
 
-applyTheme("default");
+applyTheme(getSavedTheme() || "default");
 
 document.querySelectorAll(".theme-swatch").forEach((btn) => {
   btn.addEventListener("click", () => {
     applyTheme(btn.dataset.themeOption);
+    saveTheme(btn.dataset.themeOption);
     tg.HapticFeedback.impactOccurred("light");
   });
 });
