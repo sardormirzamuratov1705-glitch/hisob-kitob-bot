@@ -16,19 +16,47 @@
   <!-- 6-BOSQICH: "Savdo" / "Sklad" bo'limlari orasida almashtirgich -->
   <div id="app-header" class="app-header">
     <div class="section-tabs">
-      <button id="tab-sale" type="button" class="section-tab active" data-section="sale">🛒 Savdo</button>
+      <!-- YANGI: BOSH SAHIFA - foydalanuvchi taqdim etgan 5 ta dizayn
+           namunasidagi kirish ekrani, endi ENDILIKDA standart (default)
+           bo'lim (qarang: app.js currentSection, init()). Qarang:
+           #screen-home, app.js loadDashboard()/renderDashboard(),
+           backend: webapp_handlers/dashboard.py. -->
+      <button id="tab-home" type="button" class="section-tab active" data-section="home">🏠 Bosh sahifa</button>
+      <button id="tab-sale" type="button" class="section-tab" data-section="sale">🛒 Savdo</button>
       <button id="tab-sklad" type="button" class="section-tab" data-section="sklad">📦 Sklad</button>
       <!-- YANGI: "Olinishi kerak bo'lgan tovarlar" - bot tarafidagi
            "🧾 Olinishi kerak bo'lgan tovarlar" bo'limi bilan bir xil
            (qarang: app.js loadRestockList(), webapp.py api_restock_list).
            Do'kon egasi HAM, sotuvchi HAM ko'radi. -->
       <button id="tab-restock" type="button" class="section-tab" data-section="restock">🧾 Kerak</button>
+      <!-- 3-BLOK, 6-BOSQICH: QARZLAR - do'kon egasi HAM, sotuvchi HAM ko'radi
+           (bot tarafidagi handlers/debts.py bilan bir xil - get_shop_id
+           ikkalasiga ham shop_id qaytaradi). Qarang: app.js loadDebts(),
+           backend: webapp_handlers/debts.py (5-bosqich). -->
+      <button id="tab-debts" type="button" class="section-tab" data-section="debts">💳 Qarzlar</button>
+      <!-- 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR - do'kon egasi HAM,
+           sotuvchi HAM ko'radi (backend: webapp_handlers/transactions.py,
+           7-bosqich - bot tarafidagi handlers/transactions.py bilan bir xil
+           ruxsat qoidasi: "Kirim" qo'shish FAQAT do'kon egasiga, "Chiqim"
+           qo'shish va ro'yxatni ko'rish ikkalasiga ham). -->
+      <button id="tab-transactions" type="button" class="section-tab" data-section="transactions">💰 Tranzaksiyalar</button>
+      <!-- 5-BLOK, 10-BOSQICH: HISOBOTLAR - do'kon egasi HAM, sotuvchi HAM
+           ko'radi (bot tarafidagi handlers/reports.py._require_shop() bilan
+           bir xil - qarang: app.js loadReports(), backend:
+           webapp_handlers/reports.py, 9-bosqich). -->
+      <button id="tab-reports" type="button" class="section-tab" data-section="reports">📊 Hisobotlar</button>
       <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat HAQIQIY do'kon
            egasiga ko'rinadi (standart holatda "hidden", app.js loadMe()
            ichida role==="owner" bo'lsa ko'rsatiladi - xuddi sotuvchi
            o'zi bu tugmani boshqa yo'l bilan ochib qolmasligi uchun
            backend (webapp_handlers/sellers.py) ham alohida tekshiradi). -->
       <button id="tab-sellers" type="button" class="section-tab hidden" data-section="sellers">🧑‍💼 Sotuvchilar</button>
+      <!-- 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV - FAQAT haqiqiy do'kon egasiga
+           ko'rinadi (standart holatda "hidden", app.js loadMe() ichida
+           role==="owner" bo'lsa ko'rsatiladi - tab-sellers bilan bir xil
+           g'oya). Qarang: app.js loadSubscription(), backend:
+           webapp_handlers/subscription.py (13-bosqich). -->
+      <button id="tab-subscription" type="button" class="section-tab hidden" data-section="subscription">💳 Obuna</button>
       <!-- YANGI: do'kon egasi/sotuvchi uchun "Admin panel"dagi kabi tartibli
            profil ekrani (qarang: app.js renderProfile(), webapp.py api_profile). -->
       <button id="tab-profile" type="button" class="section-tab" data-section="profile">👤 Profil</button>
@@ -43,6 +71,11 @@
     <span class="admin-header-title">👑 Admin panel</span>
   </div>
 
+  <!-- YANGI: har bir bo'lim ekranida ko'rinadigan suzuvchi "◀ Bosh sahifa"
+       tugmasi - qarang: app.js showScreen() (ko'rsatish/yashirish mantig'i)
+       va switchSection("home") (bosilganda). -->
+  <button id="back-to-home-btn" type="button" class="back-to-home-btn hidden">◀ Bosh sahifa</button>
+
   <div id="screen-loading" class="screen">
     <div class="loading-spinner"></div>
     <p class="loading-text">Yuklanmoqda...</p>
@@ -53,6 +86,70 @@
       <div class="error-icon">⚠️</div>
       <p id="error-text">Xatolik yuz berdi.</p>
     </div>
+  </div>
+
+  <!-- YANGI: BOSH SAHIFA - foydalanuvchi taqdim etgan 5 ta dizayn
+       namunasi asosidagi yangi kirish ekrani. CSS ranglari mavjud 5 ta
+       mavzu o'zgaruvchisidan (--accent/--bg/--card-bg/--text/--hint,
+       qarang: style.css ":root" va "MAVZULAR" bo'limi) foydalanadi -
+       shuning uchun Profil ekranida qaysi mavzu tanlansa
+       (binafsha/teal/midnight/nature/gold), bu ekran ham AVTOMATIK
+       o'sha uslubga moslashadi - 5 ta rasmning hammasi shu YAGONA
+       joylashuvning boshqa-boshqa rang mavzusi, xolos.
+       Qarang: app.js loadDashboard()/renderDashboard(),
+       backend: webapp_handlers/dashboard.py. -->
+  <div id="screen-home" class="screen hidden">
+    <div class="home-greeting-row">
+      <div>
+        <div class="home-greeting" id="home-greeting">Salom! 👋</div>
+        <div class="home-subgreeting">Bugun ham biznesingizni birga rivojlantiramiz.</div>
+      </div>
+      <button type="button" class="home-bell-btn" id="home-bell-btn" title="Bildirishnomalar">🔔</button>
+    </div>
+
+    <div class="home-sales-card">
+      <div class="home-sales-label">Bugungi savdo</div>
+      <div class="home-sales-amount"><span id="home-sales-amount">0</span> <span class="sum-label">so'm</span></div>
+      <div class="home-sales-growth" id="home-sales-growth">—</div>
+    </div>
+
+    <div class="home-stats-grid">
+      <div class="home-stat-box">
+        <div class="home-stat-icon">🛍</div>
+        <div class="home-stat-value" id="home-stat-sold">0</div>
+        <div class="home-stat-label">Sotilgan mahsulot</div>
+      </div>
+      <div class="home-stat-box">
+        <div class="home-stat-icon">💳</div>
+        <div class="home-stat-value" id="home-stat-debts">0</div>
+        <div class="home-stat-label">Qarzdorlar</div>
+      </div>
+      <div class="home-stat-box">
+        <div class="home-stat-icon">📦</div>
+        <div class="home-stat-value" id="home-stat-stock">0</div>
+        <div class="home-stat-label">Ombordagi mahsulot</div>
+      </div>
+      <div class="home-stat-box home-stat-danger">
+        <div class="home-stat-icon">⚠️</div>
+        <div class="home-stat-value" id="home-stat-lowstock">0</div>
+        <div class="home-stat-label">Kamayib borayotgan</div>
+      </div>
+    </div>
+
+    <div class="home-menu-grid">
+      <button type="button" class="home-menu-item" data-home-action="sale"><span class="home-menu-icon">🧾</span>Kassa</button>
+      <button type="button" class="home-menu-item" data-home-action="sklad"><span class="home-menu-icon">📦</span>Ombor</button>
+      <button type="button" class="home-menu-item" data-home-action="branches"><span class="home-menu-icon">🏢</span>Filiallar</button>
+      <button type="button" class="home-menu-item" data-home-action="debts"><span class="home-menu-icon">👥</span>Qarzdorlar</button>
+      <button type="button" class="home-menu-item" data-home-action="reports"><span class="home-menu-icon">📊</span>Hisobotlar</button>
+      <button type="button" class="home-menu-item" data-home-action="ai"><span class="home-menu-icon">🤖</span>AI Tavsiyalar</button>
+      <button type="button" class="home-menu-item" data-home-action="restock"><span class="home-menu-icon">🛒</span>Sotib olish</button>
+      <button type="button" class="home-menu-item" data-home-action="settings"><span class="home-menu-icon">⚙️</span>Sozlamalar</button>
+    </div>
+
+    <button type="button" class="home-daily-report-bar" id="home-daily-report-btn">
+      <span>📋 Kunlik hisobot tayyor</span><span class="home-daily-report-link">Ko'rish ›</span>
+    </button>
   </div>
 
   <!-- 1-EKRAN: mahsulot tanlash -->
@@ -107,6 +204,10 @@
            hozirgacha faqat botning ichki audit jurnalida ko'rinardi, endi
            veb-ilovada ham ko'rish mumkin. -->
       <button id="sklad-history-btn" type="button" class="secondary-btn">🗂 Tarix</button>
+      <!-- 19-BOSQICH: AI BUYURTMA TAVSIYASI - botdagi "🤖 AI buyurtma
+           tavsiyasi" bo'limining Mini App'dagi ko'rinishi (qarang:
+           webapp_handlers/sklad_extra.py). -->
+      <button id="sklad-ai-btn" type="button" class="secondary-btn">🤖 AI tavsiya</button>
     </div>
     <p class="muted sklad-hint">Mahsulotni bosing va kelgan tovar sonini kiriting.</p>
     <div id="sklad-product-list" class="product-list"></div>
@@ -134,6 +235,87 @@
     </div>
   </div>
 
+  <!-- 3-BLOK, 6-BOSQICH: QARZLAR - do'kon egasi HAM, sotuvchi HAM ko'radi
+       (qarang: app.js loadDebts()/renderDebts(), backend:
+       webapp_handlers/debts.py). Bot tarafidagi "📋 Qarzdorlar ro'yxati" /
+       "➕ Qarz qo'shish" bilan bir xil amallar - shu yerda bitta ekranda. -->
+  <div id="screen-debts" class="screen hidden">
+    <div class="sklad-toolbar">
+      <button id="debts-add-btn" type="button" class="secondary-btn">➕ Qarz qo'shish</button>
+    </div>
+    <div id="debts-total-card" class="admin-settings-row"></div>
+    <div id="debts-list" class="product-list"></div>
+  </div>
+
+  <!-- 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR - do'kon egasi HAM,
+       sotuvchi HAM ko'radi (qarang: app.js loadTransactions()/
+       renderTransactions(), backend: webapp_handlers/transactions.py,
+       7-bosqich). Bot tarafidagi "➕ Kirim qo'shish" / "➖ Chiqim qo'shish" /
+       "📈 Bugungi holat" bilan bir xil amallar - shu yerda bitta ekranda,
+       bot tarafida yo'q bo'lgan TO'LIQ tranzaksiyalar jurnali (savdo/qarz/
+       qo'lda kiritilgan - hammasi birga) bilan. -->
+  <div id="screen-transactions" class="screen hidden">
+    <div class="sklad-toolbar">
+      <!-- "Kirim" FAQAT haqiqiy do'kon egasiga ko'rinadi - app.js loadMe()
+           ichida (tab-sellers bilan bir xil g'oya) role!=="owner" bo'lsa
+           yashiriladi. Backend ham qayta tekshiradi (owner_only xatosi). -->
+      <button id="tx-add-income-btn" type="button" class="secondary-btn">➕ Kirim qo'shish</button>
+      <button id="tx-add-expense-btn" type="button" class="secondary-btn">➖ Chiqim qo'shish</button>
+    </div>
+    <div id="tx-stats-grid" class="admin-stats-grid"></div>
+    <div id="tx-list" class="history-list"></div>
+  </div>
+
+  <!-- 5-BLOK, 10-BOSQICH: HISOBOTLAR - do'kon egasi HAM, sotuvchi HAM ko'radi
+       (qarang: app.js loadReports(), backend: webapp_handlers/reports.py,
+       9-bosqich). Bot tarafidagi "📊 Umumiy hisobot" / "🏢 Filial bo'yicha
+       hisobot" / "🆚 Filiallar solishtiruvi" / "🆚 Sotuvchilar solishtiruvi" /
+       "📈 Oylik prognoz" / "📉 Trend tahlili" / "🏆 Top mahsulotlar" /
+       "🔔 Kunlik hisobot" / "🚨 Shubhali holatlar" / "🗂 Audit jurnali"
+       bo'limlarining HAMMASI shu bitta ekranda. -->
+  <div id="screen-reports" class="screen hidden">
+    <!-- Filial bo'yicha kesim tanlash - faqat filial qo'shilgan bo'lsa
+         ko'rinadi (qarang: renderReportsScopeChips). Faqat summary va
+         top-products shu kesimga bog'liq - qolgan bo'limlar (solishtiruv,
+         prognoz, trend, audit) doim BUTUN do'kon bo'yicha (bot tarafida
+         ham shunday). -->
+    <div id="reports-scope-chips" class="scope-chips hidden"></div>
+
+    <div id="reports-summary-grid" class="admin-stats-grid"></div>
+
+    <div class="section-title">🏆 Top mahsulotlar</div>
+    <div class="admin-detail-body">
+      <div class="muted" style="margin: 4px 0 2px;">Eng ko'p sotilgan</div>
+      <div id="reports-top-selling-list" class="history-list"></div>
+      <div class="muted" style="margin: 10px 0 2px;">Eng ko'p foyda keltirgan</div>
+      <div id="reports-top-profit-list" class="history-list"></div>
+    </div>
+
+    <div id="reports-branches-comparison-section" class="hidden">
+      <div class="section-title">🆚 Filiallar solishtiruvi</div>
+      <div id="reports-branches-comparison-list" class="history-list"></div>
+    </div>
+
+    <div class="section-title">🆚 Sotuvchilar solishtiruvi</div>
+    <div id="reports-sellers-comparison-list" class="history-list"></div>
+
+    <div class="section-title">📈 Oylik prognoz</div>
+    <div id="reports-forecast-body" class="admin-detail-body"></div>
+
+    <div class="section-title">📉 Trend tahlili</div>
+    <div id="reports-trend-body" class="admin-detail-body"></div>
+
+    <div class="section-title">⚙️ Sozlamalar</div>
+    <div class="admin-settings-list">
+      <div id="reports-daily-toggle-row" class="admin-settings-row"></div>
+      <div id="reports-suspicious-toggle-row" class="admin-settings-row"></div>
+    </div>
+
+    <div class="sklad-toolbar">
+      <button id="reports-audit-btn" type="button" class="secondary-btn">🗂 Audit jurnali</button>
+    </div>
+  </div>
+
   <!-- 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI - faqat do'kon egasi ko'radi
        (qarang: app.js loadSellers()/renderSellers(), backend:
        webapp_handlers/sellers.py). Bot tarafidagi "🧑‍💼 Sotuvchilar"
@@ -141,11 +323,42 @@
   <div id="screen-sellers" class="screen hidden">
     <div class="sklad-toolbar">
       <button id="sellers-add-btn" type="button" class="secondary-btn">➕ Sotuvchi qo'shish</button>
+      <!-- 8-BLOK, 16-BOSQICH: RO'YXATDAN O'TISH / TAKLIF HAVOLASI - qarang:
+           app.js createSellerInviteLink(), backend:
+           webapp_handlers/onboarding.py (15-bosqich). Bot tarafidagi
+           "🔗 Sotuvchi uchun link" tugmasi bilan bir xil amal. -->
+      <button id="sellers-invite-link-btn" type="button" class="secondary-btn">🔗 Havola orqali qo'shish</button>
     </div>
     <!-- Sklad huquqi hozircha FAQAT do'kon darajasida (barcha sotuvchiga
          birdek) - qarang: webapp_handlers/sellers.py boshidagi izoh. -->
     <div id="sellers-perm-section" class="admin-settings-list"></div>
     <div id="sellers-list" class="product-list"></div>
+  </div>
+
+  <!-- 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV - FAQAT haqiqiy do'kon egasiga
+       (qarang: app.js loadSubscription()/renderSubscription(), backend:
+       webapp_handlers/subscription.py, 13-bosqich). Bot tarafidagi
+       "💳 Obuna" bo'limi bilan bir xil amal - tarif tanlash + chek
+       yuklash (rasm fayl input orqali, Telegramdagidek chatga yuborish
+       o'rniga). -->
+  <div id="screen-subscription" class="screen hidden">
+    <div id="subscription-status-card" class="profile-header-card"></div>
+
+    <div class="section-title">📦 Tariflar</div>
+    <div id="subscription-plans-list" class="admin-settings-list"></div>
+
+    <div id="subscription-requisites-section" class="hidden">
+      <div class="section-title">💳 To'lov rekvizitlari</div>
+      <div id="subscription-requisites-body" class="admin-detail-body"></div>
+
+      <div class="section-title">📷 Chekni yuklash</div>
+      <p class="muted">To'lovni amalga oshirgach, chek/skrinshotni tanlang - u bosh adminga tekshirish uchun boradi.</p>
+      <input id="subscription-photo-input" type="file" accept="image/*">
+      <div class="modal-actions">
+        <button id="subscription-pay-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="subscription-pay-send-btn" type="button" class="primary-btn">✅ Chekni yuborish</button>
+      </div>
+    </div>
   </div>
 
   <!-- YANGI: PROFIL EKRANI - do'kon egasi/sotuvchi uchun "👑 Admin panel"
@@ -159,17 +372,74 @@
     <!-- Faqat do'kon egasiga ko'rinadi (app.js renderProfile()) - sotuvchi
          o'z filialini o'zi almashtira olmaydi. -->
     <div id="profile-branches-section" class="hidden">
-      <div class="section-title">🏢 Filiallar</div>
-      <p class="muted">Nomini bosib almashtiring - ✏️ nomini o'zgartiradi, 🗑 o'chiradi.</p>
-      <!-- 2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI (frontend) -
-           backend allaqachon tayyor (qarang: webapp_handlers/branches.py). -->
+      <div class="section-title">🏢 Filiallar (bosib almashtiring)</div>
+      <!-- 2-BLOK, 4-BOSQICH: yaratish/nomini o'zgartirish/o'chirish tugmalari -
+           backend: webapp_handlers/branches.py (3-bosqich). -->
       <div class="sklad-toolbar">
-        <button id="branch-add-btn" type="button" class="secondary-btn">➕ Filial qo'shish</button>
+        <button id="branches-add-btn" type="button" class="secondary-btn">➕ Filial qo'shish</button>
       </div>
       <div id="profile-branches-list" class="admin-settings-list"></div>
     </div>
     <div class="section-title">ℹ️ Ma'lumotlar</div>
     <div id="profile-detail-body" class="admin-detail-body profile-detail-card"></div>
+    <!-- 6-BLOK, 12-BOSQICH: SOZLAMALAR - "Ma'lumotlar" kartasidagi F.I.Sh./
+         do'kon nomi/telefonni tahrirlash (qarang: app.js openSettingsEdit(),
+         backend: webapp_handlers/settings.py, 11-bosqich). Alohida tab
+         emas - Profil ekraniga "qo'shimcha amal" sifatida qo'shildi, chunki
+         xuddi shu ma'lumotlarni Profil allaqachon ko'rsatib turibdi. -->
+    <!-- YANGI: "🧑‍💼 Sotuvchilar" / "💰 Tranzaksiyalar" / "💳 Obuna"
+         endi pastdagi tugmalar qatorida emas (o'sha joy endi faqat 4 ta
+         asosiy bo'limga ajratilgan, qarang: style.css/.app-header) -
+         FAQAT do'kon egasiga shu yerdan, Profil ekranidan ochiladi. -->
+    <div id="profile-owner-links" class="hidden profile-owner-links">
+      <button type="button" class="secondary-btn" data-owner-link="sellers">🧑‍💼 Sotuvchilar</button>
+      <button type="button" class="secondary-btn" data-owner-link="transactions">💰 Tranzaksiyalar</button>
+      <button type="button" class="secondary-btn" data-owner-link="subscription">💳 Obuna</button>
+    </div>
+
+    <!-- YANGI: FAQAT do'kon egasiga - Bosh sahifadagi qaysi tugmalar
+         sotuvchidan yashirilishini o'zi tanlaydi. Qarang: app.js
+         loadSellerMenuSettings()/saveSellerMenuSetting(), backend:
+         webapp_handlers/dashboard.py (api_seller_menu_get/update). -->
+    <div id="profile-seller-menu-section" class="hidden">
+      <div class="section-title">🏠 Bosh sahifa - sotuvchiga ko'rinadigan tugmalar</div>
+      <div id="profile-seller-menu-list" class="seller-menu-toggle-list"></div>
+    </div>
+
+    <div class="sklad-toolbar">
+      <button id="settings-edit-btn" type="button" class="secondary-btn">✏️ Sozlamalarni tahrirlash</button>
+    </div>
+
+    <!-- MAVZULAR (THEMES) - 3-BOSQICH: mavzu tanlash. Bosilganda darhol
+         qo'llanadi (qarang: app.js applyTheme()). Hozircha faqat shu
+         seansda ishlaydi - serverda saqlash 4-bosqichda qo'shiladi. -->
+    <div class="section-title">🎨 Mavzu</div>
+    <div id="theme-picker" class="theme-picker">
+      <button type="button" class="theme-swatch" data-theme-option="default">
+        <span class="theme-swatch-dot theme-dot-default"></span>
+        <span>Standart</span>
+      </button>
+      <button type="button" class="theme-swatch" data-theme-option="purple">
+        <span class="theme-swatch-dot theme-dot-purple"></span>
+        <span>Binafsha</span>
+      </button>
+      <button type="button" class="theme-swatch" data-theme-option="teal">
+        <span class="theme-swatch-dot theme-dot-teal"></span>
+        <span>Teal</span>
+      </button>
+      <button type="button" class="theme-swatch" data-theme-option="midnight">
+        <span class="theme-swatch-dot theme-dot-midnight"></span>
+        <span>To'q ko'k</span>
+      </button>
+      <button type="button" class="theme-swatch" data-theme-option="nature">
+        <span class="theme-swatch-dot theme-dot-nature"></span>
+        <span>Tabiat</span>
+      </button>
+      <button type="button" class="theme-swatch" data-theme-option="gold">
+        <span class="theme-swatch-dot theme-dot-gold"></span>
+        <span>Oltin</span>
+      </button>
+    </div>
   </div>
 
   <!-- 9-BOSQICH: SKLAD TARIXI oynasi -->
@@ -180,6 +450,31 @@
       <div id="sklad-history-list" class="history-list"></div>
       <div class="modal-actions">
         <button id="sklad-history-close-btn" class="secondary-btn">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 19-BOSQICH: AI BUYURTMA TAVSIYASI oynasi -->
+  <div id="modal-sklad-ai" class="modal hidden">
+    <div class="modal-content">
+      <h3>🤖 AI buyurtma tavsiyasi</h3>
+      <p id="sklad-ai-subtitle" class="muted">Oxirgi 30 kunlik sotilish tezligi asosida hisoblanadi.</p>
+      <div id="sklad-ai-list" class="history-list"></div>
+      <div class="modal-actions">
+        <button id="sklad-ai-close-btn" class="secondary-btn">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5-BLOK, 10-BOSQICH: AUDIT JURNALI oynasi - .history-list bilan bir
+       xil asosga qurilgan (qarang: app.js renderReportsAudit()). -->
+  <div id="modal-reports-audit" class="modal hidden">
+    <div class="modal-content">
+      <h3>🗂 Audit jurnali</h3>
+      <p class="muted">Kim, qachon nima qilgani - oxirgi 30 ta yozuv, yangisidan boshlab.</p>
+      <div id="reports-audit-list" class="history-list"></div>
+      <div class="modal-actions">
+        <button id="reports-audit-close-btn" class="secondary-btn">Yopish</button>
       </div>
     </div>
   </div>
@@ -223,7 +518,12 @@
     </div>
   </div>
 
-  <!-- 7-BOSQICH: SKLAD - miqdor kiritish oynasi (narx so'ramaydi) -->
+  <!-- 7-BOSQICH: SKLAD - miqdor kiritish oynasi (narx so'ramaydi).
+       YANGI: "Kerak" ro'yxatidan ochilganda (haqiqiy xarid) narx maydoni
+       ham ko'rinadi - qarang: app.js openSkladAddModal(product, fromRestock),
+       chunki bu holda moliyadan (Tranzaksiyalar) avtomatik "Chiqim"
+       yoziladi (sotib olingani uchun) - oddiy Sklad bo'limidan miqdor
+       qo'shishda esa moliyaga TEGILMAYDI. -->
   <div id="modal-sklad-add" class="modal hidden">
     <div class="modal-content">
       <div class="modal-handle"></div>
@@ -232,6 +532,12 @@
 
       <label>Nechta dona keldi?</label>
       <input id="sklad-modal-qty-input" type="number" inputmode="decimal" value="1">
+
+      <div id="sklad-modal-cost-row" class="hidden">
+        <label>Sotib olingan narxi (1 dona uchun, so'm)</label>
+        <input id="sklad-modal-cost-input" type="number" inputmode="decimal" placeholder="Masalan: 15000">
+        <p class="muted" style="margin-top: -4px;">Bu summa "Tranzaksiyalar"ga avtomatik "Chiqim" sifatida yoziladi.</p>
+      </div>
 
       <div class="modal-actions">
         <button id="sklad-modal-cancel-btn" class="secondary-btn">Bekor qilish</button>
@@ -445,33 +751,133 @@
   </div>
 
   <!-- ==================================================================
-       2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI oynalari
+       2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI oynasi
+       Bitta modal ham yangi filial YARATISH, ham mavjudini NOMINI
+       O'ZGARTIRISH uchun ishlatiladi (app.js dagi branchEditMode orqali
+       farqlanadi) - backend: webapp_handlers/branches.py (3-bosqich).
        ================================================================== -->
-
-  <!-- Yangi filial qo'shish oynasi -->
-  <div id="modal-branch-add" class="modal hidden">
+  <div id="modal-branch-edit" class="modal hidden">
     <div class="modal-content">
       <div class="modal-handle"></div>
-      <h3>➕ Yangi filial</h3>
+      <h3 id="branch-edit-title">➕ Yangi filial</h3>
       <label>Filial nomi</label>
-      <input id="branch-add-name-input" type="text" placeholder="Masalan: 2-filial (Chilonzor)">
+      <input id="branch-edit-name-input" type="text" placeholder="Masalan: 2-filial (Chilonzor)">
       <div class="modal-actions">
-        <button id="branch-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
-        <button id="branch-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+        <button id="branch-edit-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="branch-edit-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
       </div>
     </div>
   </div>
 
-  <!-- Filial nomini o'zgartirish oynasi -->
-  <div id="modal-branch-rename" class="modal hidden">
+  <!-- ==================================================================
+       6-BLOK, 12-BOSQICH: SOZLAMALAR oynasi - rolga qarab maydonlar
+       ko'rsatiladi/yashiriladi (app.js openSettingsEdit()), backend:
+       webapp_handlers/settings.py (11-bosqich). -->
+  <div id="modal-settings-edit" class="modal hidden">
     <div class="modal-content">
       <div class="modal-handle"></div>
-      <h3>✏️ Filial nomini o'zgartirish</h3>
-      <label>Yangi nom</label>
-      <input id="branch-rename-name-input" type="text">
+      <h3>✏️ Sozlamalar</h3>
+      <div id="settings-owner-fields">
+        <label>F.I.Sh.</label>
+        <input id="settings-owner-name-input" type="text" placeholder="Ismingiz">
+        <label>Do'kon nomi</label>
+        <input id="settings-shop-name-input" type="text" placeholder="Do'kon nomi yoki turi">
+      </div>
+      <div id="settings-seller-fields">
+        <label>F.I.Sh.</label>
+        <input id="settings-seller-name-input" type="text" placeholder="Ismingiz">
+      </div>
+      <label>Telefon raqami</label>
+      <input id="settings-phone-input" type="text" placeholder="Masalan: +998901234567">
       <div class="modal-actions">
-        <button id="branch-rename-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
-        <button id="branch-rename-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
+        <button id="settings-edit-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="settings-edit-save-btn" type="button" class="primary-btn">✅ Saqlash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       3-BLOK, 6-BOSQICH: QARZLAR oynalari
+       ================================================================== -->
+
+  <!-- 4-BLOK, 8-BOSQICH: kirim/chiqim qo'shish oynasi - bitta oyna, sarlavha
+       va tur (income/expense) tx-add-open() orqali qaysi tugma bosilganiga
+       qarab dinamik o'rnatiladi (qarang: app.js). -->
+  <div id="modal-tx-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="tx-add-title">➕ Kirim qo'shish</h3>
+      <label>Summa (so'mda)</label>
+      <input id="tx-add-amount-input" type="text" inputmode="decimal" placeholder="0">
+      <label>Izoh</label>
+      <input id="tx-add-desc-input" type="text" placeholder="Masalan: Un sotib olindi">
+      <div class="modal-actions">
+        <button id="tx-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="tx-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Yangi qarz qo'shish oynasi -->
+  <div id="modal-debt-add" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>➕ Yangi qarz</h3>
+      <label>Mijoz ismi</label>
+      <input id="debt-add-name-input" type="text" placeholder="Masalan: Aziz aka">
+      <label>Telefon raqami</label>
+      <input id="debt-add-phone-input" type="text" inputmode="tel" placeholder="Masalan: +998901234567">
+      <label>Qarz summasi (so'mda)</label>
+      <input id="debt-add-amount-input" type="text" inputmode="decimal" placeholder="0">
+      <label>Qarz olingan sana (bo'sh — bugun)</label>
+      <input id="debt-add-taken-input" type="text" placeholder="kun.oy.yil, masalan 10.07.2026">
+      <label>Qaytarish sanasi (bo'sh yoki "-" — sanasiz, son — necha kundan keyin, yoki kun.oy.yil)</label>
+      <input id="debt-add-due-input" type="text" placeholder="Masalan: 7 yoki 25.07.2026">
+      <label>Izoh</label>
+      <input id="debt-add-desc-input" type="text" placeholder="Masalan: Oziq-ovqat qarzi">
+      <div class="modal-actions">
+        <button id="debt-add-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="debt-add-save-btn" type="button" class="primary-btn">✅ Qo'shish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Qarz tafsiloti + eslatma/link + to'lov qabul qilish oynasi -->
+  <div id="modal-debt-detail" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3 id="debt-detail-title"></h3>
+      <div id="debt-detail-body" class="admin-detail-body"></div>
+      <div class="modal-actions">
+        <button id="debt-detail-remind-btn" type="button" class="secondary-btn">🔔 Eslatma yuborish</button>
+        <button id="debt-detail-link-btn" type="button" class="secondary-btn">🔗 Shaxsiy link</button>
+      </div>
+      <button id="debt-detail-pay-btn" type="button" class="primary-btn full-width">💰 To'lov qabul qilish</button>
+      <button id="debt-detail-close-btn" type="button" class="secondary-btn">Yopish</button>
+    </div>
+  </div>
+
+  <!-- To'lov qabul qilish oynasi -->
+  <div id="modal-debt-pay" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-handle"></div>
+      <h3>💰 To'lov qabul qilish</h3>
+      <p id="debt-pay-remaining" class="muted"></p>
+      <label>To'lanadigan summa (so'mda)</label>
+      <input id="debt-pay-amount-input" type="text" inputmode="decimal" placeholder="0">
+      <div class="section-title">To'lov turi</div>
+      <div class="payment-methods">
+        <button type="button" class="debt-pay-btn" data-method="naqd"><span class="pay-icon">💵</span>Naqd</button>
+        <button type="button" class="debt-pay-btn" data-method="plastik"><span class="pay-icon">💳</span>Plastik</button>
+        <button type="button" class="debt-pay-btn" data-method="aralash"><span class="pay-icon">🔀</span>Aralash</button>
+      </div>
+      <div id="debt-mixed-box" class="mixed-box hidden">
+        <label>Naqd summasi (so'mda)</label>
+        <input id="debt-mixed-cash-input" type="text" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="modal-actions">
+        <button id="debt-pay-cancel-btn" type="button" class="secondary-btn">Bekor qilish</button>
+        <button id="debt-pay-save-btn" type="button" class="primary-btn">✅ Tasdiqlash</button>
       </div>
     </div>
   </div>
