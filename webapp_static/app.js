@@ -8,46 +8,6 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// MAVZULAR (THEMES) - tanlangan mavzu localStorage'da saqlanadi, shuning
-// uchun ilova qayta ochilganda ham oxirgi tanlangan mavzu turadi (avval
-// faqat joriy seansda ishlar edi va har safar "default"ga qaytardi).
-const THEME_STORAGE_KEY = "hisobkitob_theme";
-const VALID_THEMES = ["default", "purple", "teal", "midnight", "nature", "gold"];
-
-function getSavedTheme() {
-  try {
-    return localStorage.getItem(THEME_STORAGE_KEY);
-  } catch (e) {
-    return null; // ba'zi cheklangan WebView'larda localStorage bloklangan bo'lishi mumkin
-  }
-}
-
-function saveTheme(theme) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch (e) {
-    // jim o'tkazamiz - saqlay olmasa ham, joriy seansda mavzu baribir ishlayveradi
-  }
-}
-
-function applyTheme(theme) {
-  if (!VALID_THEMES.includes(theme)) theme = "default";
-  document.body.dataset.theme = theme;
-  document.querySelectorAll(".theme-swatch").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.themeOption === theme);
-  });
-}
-
-applyTheme(getSavedTheme() || "default");
-
-document.querySelectorAll(".theme-swatch").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    applyTheme(btn.dataset.themeOption);
-    saveTheme(btn.dataset.themeOption);
-    tg.HapticFeedback.impactOccurred("light");
-  });
-});
-
 // ZAXIRA (FALLBACK): ba'zi Telegram Desktop versiyalarida WebApp haqiqiy
 // "web_app" tugmasi orqali ochilsa ham (URL fragmentida #tgWebAppData=...
 // bo'ladi), Telegram.WebApp.initData bo'sh qolib ketadi - bu Telegramning
@@ -87,48 +47,12 @@ const API = {
   skladCreateProduct: "/api/webapp/sklad/create-product",
   skladUpdateProduct: "/api/webapp/sklad/update-product",
   skladHistory: "/api/webapp/sklad/history",
-  skladAiSuggestions: "/api/webapp/sklad/ai-suggestions",
   restockList: "/api/webapp/restock",
   restockAdd: "/api/webapp/restock/add",
   restockDeleteManual: "/api/webapp/restock/delete-manual",
-
-  // 3-BLOK, 6-BOSQICH: QARZLAR (backend: 5-bosqich, webapp_handlers/debts.py)
-  debts: "/api/webapp/debts",
-  debtsPay: "/api/webapp/debts/pay",
-  debtsRemind: "/api/webapp/debts/remind",
-  debtsLink: "/api/webapp/debts/link",
-
-  // 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR (backend: 7-bosqich,
-  // webapp_handlers/transactions.py). GET - ro'yxat + jami, POST - yangi
-  // kirim/chiqim qo'shish (bitta manzil, ikkalasi ham).
-  transactions: "/api/webapp/transactions",
-
-  // 5-BLOK, 10-BOSQICH: HISOBOTLAR (backend: 9-bosqich,
-  // webapp_handlers/reports.py).
-  reportsSummary: "/api/webapp/reports/summary",
-  reportsBranchesComparison: "/api/webapp/reports/branches-comparison",
-  reportsSellersComparison: "/api/webapp/reports/sellers-comparison",
-  reportsForecast: "/api/webapp/reports/forecast",
-  reportsTrend: "/api/webapp/reports/trend",
-  reportsTopProducts: "/api/webapp/reports/top-products",
-  reportsDailyReport: "/api/webapp/reports/daily-report",
-  reportsSuspiciousAlert: "/api/webapp/reports/suspicious-alert",
-  reportsAuditLog: "/api/webapp/reports/audit-log",
   profile: "/api/webapp/profile",
-  // 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV (backend: 13-bosqich,
-  // webapp_handlers/subscription.py).
-  subscription: "/api/webapp/subscription",
-  subscriptionPay: "/api/webapp/subscription/pay",
-  // 6-BLOK, 12-BOSQICH: SOZLAMALAR (backend: 11-bosqich,
-  // webapp_handlers/settings.py). GET - joriy profil, POST - yangilash.
-  settings: "/api/webapp/settings",
   branches: "/api/webapp/branches",
   branchesSwitch: "/api/webapp/branches/switch",
-  // 2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI (backend: 3-bosqich,
-  // webapp_handlers/branches.py). branchesCreate xuddi shu
-  // "/api/webapp/branches" manziliga POST qiladi - ro'yxatni olish (GET)
-  // bilan TO'QNASHMAYDI, chunki HTTP metodi boshqa.
-  branchesCreate: "/api/webapp/branches",
   branchesRename: "/api/webapp/branches/rename",
   branchesDelete: "/api/webapp/branches/delete",
   skladPermission: "/api/webapp/sklad-permission",
@@ -136,9 +60,6 @@ const API = {
   // 1-BLOK, 2-BOSQICH: SOTUVCHILAR BOSHQARUVI
   sellers: "/api/webapp/sellers",
   sellersRemove: "/api/webapp/sellers/remove",
-  // 8-BLOK, 16-BOSQICH: RO'YXATDAN O'TISH / TAKLIF HAVOLASI (backend:
-  // 15-bosqich, webapp_handlers/onboarding.py).
-  sellersInviteLink: "/api/webapp/onboarding/seller-invite",
   sellersBranch: "/api/webapp/sellers/branch",
 
   // 11-BOSQICH: BOSH ADMIN PANELI
@@ -160,21 +81,16 @@ const API = {
   adminBroadcast: "/api/webapp/admin/broadcast",
 };
 
-// YANGI: BOSH SAHIFA (dashboard) - qarang: webapp_handlers/dashboard.py.
-API.dashboard = "/api/webapp/dashboard";
-API.sellerMenu = "/api/webapp/dashboard/seller-menu";
-
 let cart = []; // [{id, name, qty, price, stock}]
 let selectedPaymentMethod = null;
 let currentModalProduct = null;
-// YANGI: endi standart (default) bo'lim "home" (Bosh sahifa) - avval "sale" edi.
-let currentSection = "home"; // "home" (Bosh sahifa) | "sale" (Savdo) | "sklad" (Sklad) | ...
+let currentSection = "sale"; // 6-BOSQICH: "sale" (Savdo) | "sklad" (Sklad)
 
 // 8-BOSQICH: api_me javobidan to'ldiriladi (init() ichida) - "Sklad"
 // bo'limida "➕ Skladga qo'shish" imkoniyati shu bayroqqa qarab
 // ko'rsatiladi/qulflanadi (do'kon egasi buni sotuvchi uchun o'chirib
 // qo'ygan bo'lishi mumkin - qarang: handlers/sellers.py "🔐 Sklad ruxsati").
-let currentUser = { role: null, canAddStock: true, name: "" };
+let currentUser = { role: null, canAddStock: true };
 
 // YANGI: "Olinishi kerak bo'lgan tovarlar" - qo'lda qo'shilgan tovar
 // "✅ olindi" deb ochilganda (yangi mahsulot yaratish oynasi orqali),
@@ -189,27 +105,11 @@ async function loadMe() {
     const data = await res.json();
     currentUser.role = data.role;
     currentUser.canAddStock = data.can_add_stock !== false;
-    currentUser.name = data.name || "";
     updateSkladPermissionUI();
     // 1-BLOK, 2-BOSQICH: "Sotuvchilar" tugmasi FAQAT haqiqiy do'kon egasiga
     // ko'rinadi - sotuvchi o'zi boshqa sotuvchi qo'sha olmaydi (bot
     // tarafidagi handlers/sellers.py'dagi qoida bilan bir xil).
     el("tab-sellers").classList.toggle("hidden", data.role !== "owner");
-    // 7-BLOK, 14-BOSQICH: "Obuna" tugmasi FAQAT haqiqiy do'kon egasiga
-    // ko'rinadi (bot tarafidagi is_owner_level() qoidasi bilan bir xil -
-    // sotuvchi obunani uzaytira olmaydi).
-    el("tab-subscription").classList.toggle("hidden", data.role !== "owner");
-    // 4-BLOK, 8-BOSQICH: "Kirim qo'shish" FAQAT haqiqiy do'kon egasiga -
-    // backend ham qayta tekshiradi (owner_only), bu faqat UI qulayligi uchun.
-    el("tx-add-income-btn").classList.toggle("hidden", data.role !== "owner");
-    // YANGI: Bosh sahifadagi "🏢 Filiallar" menyu tugmasi ham FAQAT haqiqiy
-    // do'kon egasiga ko'rinadi - Profil ekranidagi filiallar bo'limining
-    // o'zi sotuvchiga allaqachon yashiringan (qarang: renderProfile()
-    // ichidagi "isOwner" tekshiruvi), shuning uchun sotuvchiga bu
-    // tugmani ko'rsatib, so'ng bo'sh/kerak bo'lmagan joyga olib
-    // borishning ma'nosi yo'q.
-    const homeBranchesBtn = document.querySelector('.home-menu-item[data-home-action="branches"]');
-    if (homeBranchesBtn) homeBranchesBtn.classList.toggle("hidden", data.role !== "owner");
   } catch (e) {
     // Jim o'tkazamiz - bu faqat UI'ni yaxshilash uchun, savdo oqimini
     // to'xtatib qo'ymasligi kerak (asosiy 401 tekshiruvi baribir
@@ -221,23 +121,11 @@ const el = (id) => document.getElementById(id);
 
 function showScreen(name) {
   [
-    "loading", "error", "home", "products", "cart", "sklad", "restock", "sellers", "debts", "transactions", "reports", "subscription", "profile",
+    "loading", "error", "products", "cart", "sklad", "restock", "sellers", "profile",
     "admin-stats", "admin-owners", "admin-payments", "admin-settings",
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
   });
-
-  // YANGI: har bir bo'lim ekranida (Bosh sahifaning o'zida, yuklanish/
-  // xatolik va admin ekranlaridan tashqari) "◀ Bosh sahifa" tugmasi -
-  // bosilganda to'g'ridan-to'g'ri Bosh sahifaga qaytaradi.
-  const backBtn = el("back-to-home-btn");
-  if (backBtn) {
-    const showBack = ![
-      "loading", "error", "home",
-      "admin-stats", "admin-owners", "admin-payments", "admin-settings",
-    ].includes(name);
-    backBtn.classList.toggle("hidden", !showBack);
-  }
 }
 
 function showError(message) {
@@ -250,7 +138,7 @@ async function apiFetch(url, options = {}) {
   const headers = Object.assign({}, options.headers || {}, {
     "X-Telegram-Init-Data": initData,
   });
-  if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  if (options.body) headers["Content-Type"] = "application/json";
   const res = await fetch(url, Object.assign({}, options, { headers }));
   if (res.status === 401) {
     // VAQTINCHALIK DIAGNOSTIKA (401 sababini aniqlash uchun): Telegram
@@ -268,77 +156,6 @@ async function apiFetch(url, options = {}) {
   }
   return res;
 }
-
-// ---------- YANGI: BOSH SAHIFA (DASHBOARD) ----------
-// Qarang: index.html #screen-home, backend: webapp_handlers/dashboard.py
-// (database.get_dashboard_stats()).
-
-function homeGrowthText(percent) {
-  if (percent === null || percent === undefined) return "";
-  const arrow = percent >= 0 ? "↗" : "↘";
-  const sign = percent >= 0 ? "+" : "";
-  return `${arrow} ${sign}${percent}% kecha bilan solishtirganda`;
-}
-
-async function loadDashboard() {
-  el("home-greeting").textContent = currentUser.name
-    ? `Xush kelibsiz, ${currentUser.name}! 👋`
-    : "Xush kelibsiz! 👋";
-  try {
-    const res = await apiFetch(API.dashboard);
-    if (!res.ok) throw new Error("dashboard_failed");
-    const data = await res.json();
-    renderDashboard(data);
-  } catch (e) {
-    // Jim o'tkazamiz - dashboard shunchaki bo'sh/standart qiymatlarda
-    // qoladi, savdo oqimini to'xtatib qo'ymaydi (xuddi loadMe() kabi).
-  }
-}
-
-function renderDashboard(data) {
-  if (data.name) el("home-greeting").textContent = `Xush kelibsiz, ${data.name}! 👋`;
-  el("home-sales-amount").textContent = formatNum(data.today_sales_total || 0);
-  const growthEl = el("home-sales-growth");
-  const growthText = homeGrowthText(data.growth_percent);
-  growthEl.textContent = growthText || "Bugungi birinchi savdongizni kuting";
-  growthEl.classList.toggle("negative", (data.growth_percent || 0) < 0);
-  el("home-stat-sold").textContent = formatNum(data.sold_qty_today || 0);
-  el("home-stat-debts").textContent = `${formatNum(data.total_debt || 0)} so'm`;
-  el("home-stat-stock").textContent = formatNum(data.stock_qty_total || 0);
-  el("home-stat-lowstock").textContent = formatNum(data.low_stock_count || 0);
-
-  // YANGI: do'kon egasi Profil > "🏠 Bosh sahifa sozlamalari" orqali
-  // sotuvchidan yashirgan tugmalar - qarang: webapp_handlers/dashboard.py
-  // TOGGLEABLE_HOME_ACTIONS. Do'kon egasining o'zida bu ro'yxat har doim
-  // bo'sh keladi (backendning o'zi shunday qaytaradi).
-  const hidden = data.hidden_home_actions || [];
-  document.querySelectorAll(".home-menu-item[data-home-action]").forEach((btn) => {
-    const action = btn.dataset.homeAction;
-    if (action === "branches") return; // alohida, rolga qarab loadMe()da boshqariladi
-    btn.classList.toggle("hidden", hidden.includes(action));
-  });
-}
-
-// Menyu kataklari - mavjud bo'limlarga yo'naltiradi (qarang: switchSection).
-document.querySelectorAll(".home-menu-item").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const action = btn.dataset.homeAction;
-    if (action === "branches" || action === "settings") {
-      // "Filiallar" va "Sozlamalar" - Profil ekranidagi tegishli
-      // bo'limlarga tegishli (alohida ekran hozircha yo'q).
-      switchSection("profile");
-    } else if (action === "ai") {
-      // "AI Tavsiyalar" - Sklad bo'limidagi AI buyurtma tavsiyasi oynasi.
-      switchSection("sklad");
-      openSkladAi();
-    } else {
-      switchSection(action);
-    }
-  });
-});
-
-el("home-daily-report-btn").addEventListener("click", () => switchSection("reports"));
-el("home-bell-btn").addEventListener("click", () => switchSection("restock"));
 
 // ---------- MAHSULOTLAR RO'YXATI ----------
 
@@ -467,14 +284,8 @@ function cartValidationError(product, qty, price) {
   if (product.price && price < product.price) {
     return `Narx tannarxdan (${formatNum(product.price)} so'm) past bo'lishi mumkin emas.`;
   }
-  // 17-BOSQICH: backenddagi (webapp.py, 16-bosqich) tuzatish bilan mos -
-  // avval chegirma bo'lsa tekshiruv BUTUNLAY o'chib qolar edi. Endi
-  // chegirma bo'lsa ANIQ chegirma narxining o'zi eng past chegara
-  // bo'ladi (undan pastga tushirib bo'lmaydi), chegirma yo'q bo'lsa -
-  // odatdagi eng past narx ishlatiladi.
-  const effectiveMinPrice = product.discount_price || product.min_price;
-  if (effectiveMinPrice && price < effectiveMinPrice) {
-    return `Narx eng past narxdan (${formatNum(effectiveMinPrice)} so'm) past bo'lishi mumkin emas.`;
+  if (product.min_price && price < product.min_price && !product.discount_price) {
+    return `Narx eng past narxdan (${formatNum(product.min_price)} so'm) past bo'lishi mumkin emas.`;
   }
   return null;
 }
@@ -743,26 +554,8 @@ el("finalize-btn").addEventListener("click", async () => {
     tg.HapticFeedback.notificationOccurred("success");
     tg.showPopup(
       { title: "✅ Savdo yakunlandi", message: `Jami: ${formatNum(data.total)} so'm` },
-      () => {}
+      () => tg.close()
     );
-
-    // MUHIM TUZATISH: ilgari shu yerda tg.close() chaqirilib, HAR BIR
-    // savdo yakunlangandan keyin butun Mini App yopilib, foydalanuvchi
-    // botga qaytarib yuborilar edi - keyingi savdo uchun qayta "🛒 Savdo"
-    // tugmasini bosishga majbur bo'lardi. Endi ilova ochiq qoladi: savat
-    // tozalanadi, to'lov tanlovi bekor qilinadi, va mahsulotlar ro'yxati
-    // (yangi qoldiqlar bilan) qayta yuklanadi - foydalanuvchi darhol
-    // keyingi mijozga xizmat qila oladi.
-    cart = [];
-    selectedPaymentMethod = null;
-    document.querySelectorAll(".pay-btn").forEach((b) => b.classList.remove("selected"));
-    el("mixed-box").classList.add("hidden");
-    el("mixed-cash-input").value = "";
-    el("finalize-btn").classList.add("hidden");
-    el("finalize-btn").disabled = false;
-    el("finalize-btn").textContent = "✅ Savdoni yakunlash";
-    renderCartBar();
-    await loadProducts(el("search-input").value || "");
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
     el("finalize-btn").disabled = false;
@@ -1284,10 +1077,7 @@ function switchSection(section) {
     tab.classList.toggle("active", tab.dataset.section === section);
   });
 
-  if (section === "home") {
-    showScreen("home");
-    loadDashboard();
-  } else if (section === "sklad") {
+  if (section === "sklad") {
     showScreen("sklad");
     updateSkladPermissionUI();
     loadSkladProducts(el("sklad-search-input").value.trim());
@@ -1297,18 +1087,6 @@ function switchSection(section) {
   } else if (section === "sellers") {
     showScreen("sellers");
     loadSellers();
-  } else if (section === "debts") {
-    showScreen("debts");
-    loadDebts();
-  } else if (section === "transactions") {
-    showScreen("transactions");
-    loadTransactions();
-  } else if (section === "reports") {
-    showScreen("reports");
-    loadReports();
-  } else if (section === "subscription") {
-    showScreen("subscription");
-    loadSubscription();
   } else if (section === "profile") {
     showScreen("profile");
     loadProfile();
@@ -1339,16 +1117,10 @@ function updateSkladPermissionUI() {
   scanBtn.classList.toggle("locked-btn", !currentUser.canAddStock);
 }
 
-el("tab-home").addEventListener("click", () => switchSection("home"));
-el("back-to-home-btn").addEventListener("click", () => switchSection("home"));
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
 el("tab-restock").addEventListener("click", () => switchSection("restock"));
 el("tab-sellers").addEventListener("click", () => switchSection("sellers"));
-el("tab-debts").addEventListener("click", () => switchSection("debts"));
-el("tab-transactions").addEventListener("click", () => switchSection("transactions"));
-el("tab-reports").addEventListener("click", () => switchSection("reports"));
-el("tab-subscription").addEventListener("click", () => switchSection("subscription"));
 el("tab-profile").addEventListener("click", () => switchSection("profile"));
 
 // ---------- YANGI: PROFIL EKRANI (do'kon egasi/sotuvchi) ----------
@@ -1464,143 +1236,9 @@ function renderProfile(data) {
   } else {
     branchesSection.classList.add("hidden");
   }
-
-  // YANGI: "Sotuvchilar" / "Tranzaksiyalar" / "Obuna" ga tezkor havolalar
-  // va "Bosh sahifa sozlamalari" (qaysi tugmalar sotuvchidan
-  // yashirilishi) - FAQAT do'kon egasiga.
-  el("profile-owner-links").classList.toggle("hidden", !isOwner);
-  el("profile-seller-menu-section").classList.toggle("hidden", !isOwner);
-  if (isOwner) loadSellerMenuSettings();
 }
 
-document.querySelectorAll('[data-owner-link]').forEach((btn) => {
-  btn.addEventListener("click", () => switchSection(btn.dataset.ownerLink));
-});
-
-// ---------- YANGI: BOSH SAHIFA SOZLAMALARI (do'kon egasi tanlaydi) ----------
-
-const SELLER_MENU_LABELS = {
-  sklad: "📦 Ombor",
-  reports: "📊 Hisobotlar",
-  ai: "🤖 AI Tavsiyalar",
-  restock: "🛒 Sotib olish",
-  settings: "⚙️ Sozlamalar",
-};
-
-async function loadSellerMenuSettings() {
-  const list = el("profile-seller-menu-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(API.sellerMenu);
-    if (!res.ok) throw new Error("failed");
-    const data = await res.json();
-    renderSellerMenuSettings(data.options || [], data.hidden || []);
-  } catch (e) {
-    list.innerHTML = '<p class="muted">Yuklab bo\'lmadi.</p>';
-  }
-}
-
-function renderSellerMenuSettings(options, hidden) {
-  const list = el("profile-seller-menu-list");
-  list.innerHTML = options.map((action) => `
-    <label class="seller-menu-toggle-row">
-      <span>${escapeHtml(SELLER_MENU_LABELS[action] || action)}</span>
-      <input type="checkbox" data-menu-action="${action}" ${hidden.includes(action) ? "" : "checked"}>
-    </label>
-  `).join("");
-  list.querySelectorAll("input[data-menu-action]").forEach((cb) => {
-    cb.addEventListener("change", () => saveSellerMenuSettings(list));
-  });
-}
-
-async function saveSellerMenuSettings(list) {
-  const hidden = Array.from(list.querySelectorAll("input[data-menu-action]"))
-    .filter((cb) => !cb.checked)
-    .map((cb) => cb.dataset.menuAction);
-  try {
-    await apiFetch(API.sellerMenu, { method: "POST", body: JSON.stringify({ hidden }) });
-    tg.HapticFeedback.notificationOccurred("success");
-  } catch (e) {
-    tg.showAlert("Saqlashda xatolik yuz berdi.");
-  }
-}
-
-// 6-BLOK, 12-BOSQICH: SOZLAMALAR - Profil ekranidagi "✏️ Sozlamalarni
-// tahrirlash" tugmasi (backend: webapp_handlers/settings.py, 11-bosqich).
-// Ochilganda joriy qiymatlar GET bilan olinadi, rolga qarab (owner/seller)
-// tegishli maydonlar ko'rsatiladi (branch-edit modal bilan bir xil
-// oddiy show/hide + apiFetch naqshi).
-let settingsEditRole = null;
-
-async function openSettingsEditModal() {
-  el("modal-settings-edit").classList.remove("hidden");
-  el("settings-owner-fields").classList.add("hidden");
-  el("settings-seller-fields").classList.add("hidden");
-  try {
-    const res = await apiFetch(API.settings);
-    if (!res.ok) throw new Error("Sozlamalarni yuklab bo'lmadi.");
-    const data = await res.json();
-    settingsEditRole = data.role;
-    if (data.role === "owner") {
-      el("settings-owner-fields").classList.remove("hidden");
-      el("settings-owner-name-input").value = data.owner_name || "";
-      el("settings-shop-name-input").value = data.shop_name || "";
-    } else {
-      el("settings-seller-fields").classList.remove("hidden");
-      el("settings-seller-name-input").value = data.seller_name || "";
-    }
-    el("settings-phone-input").value = data.phone_number || "";
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-    el("modal-settings-edit").classList.add("hidden");
-  }
-}
-
-el("settings-edit-btn").addEventListener("click", openSettingsEditModal);
-
-el("settings-edit-cancel-btn").addEventListener("click", () => {
-  el("modal-settings-edit").classList.add("hidden");
-});
-
-el("settings-edit-save-btn").addEventListener("click", async () => {
-  const phone = el("settings-phone-input").value.trim();
-  const body = { phone_number: phone };
-  if (settingsEditRole === "owner") {
-    body.owner_name = el("settings-owner-name-input").value.trim();
-    body.shop_name = el("settings-shop-name-input").value.trim();
-    if (!body.owner_name || !body.shop_name || !phone) {
-      tg.showAlert("Barcha maydonlarni to'ldiring.");
-      return;
-    }
-  } else {
-    body.seller_name = el("settings-seller-name-input").value.trim();
-    if (!body.seller_name || !phone) {
-      tg.showAlert("Barcha maydonlarni to'ldiring.");
-      return;
-    }
-  }
-
-  const btn = el("settings-edit-save-btn");
-  btn.disabled = true;
-  btn.textContent = "Saqlanmoqda...";
-  try {
-    const res = await apiFetch(API.settings, { method: "POST", body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) {
-      tg.showAlert(data.error === "empty_field" ? "Barcha maydonlarni to'ldiring." : "Saqlab bo'lmadi.");
-      return;
-    }
-    tg.HapticFeedback.notificationOccurred("success");
-    el("modal-settings-edit").classList.add("hidden");
-    loadProfile();
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "✅ Saqlash";
-  }
-});
-
+// MINI APP ICHIDAN FILIALGA O'TISH: handlers/branches.py "🏢 Filiallar"dagi
 // bilan bir xil amal, faqat mini app'dan. Faqat do'kon egasiga ko'rinadi.
 async function loadProfileBranches() {
   const list = el("profile-branches-list");
@@ -1619,46 +1257,43 @@ function renderProfileBranches(branches, currentBranchId) {
   const list = el("profile-branches-list");
   list.innerHTML = "";
 
-  // "🏠 Bosh filial" - haqiqiy filial EMAS (id: null, hali birorta ham
-  // haqiqiy filial qo'shilmagan holatdagi joriy ma'lumotlarni bildiradi) -
-  // shu sababli unga tahrirlash/o'chirish tugmalari BERILMAYDI (qarang:
-  // webapp_handlers/branches.py boshidagi izoh - "Bosh filial" nomi
-  // faqat birinchi haqiqiy filial qo'shilganda db.ensure_default_branch()
-  // orqali haqiqiy qatorga aylanadi).
-  const rows = [{ id: null, name: "🏠 Bosh filial", real: false }, ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}`, real: true }))];
+  const rows = [
+    { id: null, name: "🏠 Bosh filial", rawName: null },
+    ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}`, rawName: b.name })),
+  ];
   rows.forEach((b) => {
     const isCurrent = (b.id || null) === (currentBranchId || null);
     const row = document.createElement("div");
     row.className = `admin-settings-row branch-row${isCurrent ? " current" : ""}`;
-    const actions = b.real
-      ? `<div class="row-actions">
-          <button type="button" class="branch-rename-btn" data-id="${b.id}" title="Nomini o'zgartirish">✏️</button>
-          <button type="button" class="branch-delete-btn" data-id="${b.id}" title="O'chirish">🗑</button>
-        </div>`
-      : "";
+    // 2-BLOK, 4-BOSQICH: "Bosh filial" (rawName=null) haqiqiy yozuv emas -
+    // uni o'zgartirib/o'chirib bo'lmaydi, shu sababli ✏️/🗑 tugmalari
+    // FAQAT haqiqiy filiallarda (rawName bor) ko'rsatiladi.
     row.innerHTML = `
       <div class="value">${escapeHtml(b.name)}</div>
-      ${isCurrent ? '<span class="branch-check">✅</span>' : ""}
-      ${actions}
+      <div class="row-actions">
+        ${isCurrent ? '<span class="branch-check">✅</span>' : ""}
+        ${b.rawName !== null ? `
+          <button type="button" class="branch-rename-btn" data-id="${b.id}" data-name="${escapeHtml(b.rawName)}" title="Nomini o'zgartirish">✏️</button>
+          <button type="button" class="branch-delete-btn" data-id="${b.id}" data-name="${escapeHtml(b.rawName)}" title="O'chirish">🗑</button>
+        ` : ""}
+      </div>
     `;
     if (!isCurrent) {
-      row.addEventListener("click", () => switchProfileBranch(b.id, b.name));
+      row.querySelector(".value").addEventListener("click", () => switchProfileBranch(b.id, b.name));
     }
     list.appendChild(row);
   });
 
   list.querySelectorAll(".branch-rename-btn").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const branch = branches.find((x) => x.id === Number(btn.dataset.id));
-      if (branch) openBranchEditModal("rename", branch);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openBranchRenameModal(parseInt(btn.dataset.id, 10), btn.dataset.name);
     });
   });
   list.querySelectorAll(".branch-delete-btn").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const branch = branches.find((x) => x.id === Number(btn.dataset.id));
-      if (branch) deleteBranch(branch);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteBranch(parseInt(btn.dataset.id, 10), btn.dataset.name);
     });
   });
 
@@ -1685,78 +1320,121 @@ async function switchProfileBranch(branchId, branchName) {
   }
 }
 
-// ---- 2-BLOK, 4-BOSQICH: filial yaratish/nomini o'zgartirish/o'chirish ----
-// (backend: webapp_handlers/branches.py, 3-bosqich). Bitta modal
-// (#modal-branch-edit) ikkala holatda ham ishlatiladi - branchEditMode
-// ("create" | "rename") va branchEditTarget shu farqni saqlaydi.
-let branchEditMode = "create";
-let branchEditTarget = null;
+// ---------- 2-BLOK, 4-BOSQICH: FILIALLAR TO'LIQ BOSHQARUVI ----------
+// Backend: webapp_handlers/branches.py. Yaratish/nomini o'zgartirish/
+// o'chirish - hammasi Profil ekranidagi "🏢 Filiallar" ro'yxatidan.
 
-function openBranchEditModal(mode, branch = null) {
-  branchEditMode = mode;
-  branchEditTarget = branch;
-  el("branch-edit-title").textContent = mode === "rename" ? "✏️ Filial nomini o'zgartirish" : "➕ Yangi filial";
-  el("branch-edit-name-input").value = mode === "rename" && branch ? branch.name : "";
-  el("modal-branch-edit").classList.remove("hidden");
-}
+const branchErrorText = (data) => ({
+  empty_name: "Filial nomini kiriting.",
+  duplicate_name: "Bu nomda filial allaqachon mavjud.",
+  not_found: "Filial topilmadi (avval o'chirilgan bo'lishi mumkin).",
+  invalid_branch_id: "Filial aniqlanmadi.",
+}[data && data.error] || "Amalni bajarib bo'lmadi.");
 
-el("branches-add-btn").addEventListener("click", () => openBranchEditModal("create"));
-
-el("branch-edit-cancel-btn").addEventListener("click", () => {
-  el("modal-branch-edit").classList.add("hidden");
+el("branch-add-btn").addEventListener("click", () => {
+  el("branch-add-name-input").value = "";
+  el("modal-branch-add").classList.remove("hidden");
 });
 
-el("branch-edit-save-btn").addEventListener("click", async () => {
-  const name = el("branch-edit-name-input").value.trim();
+el("branch-add-cancel-btn").addEventListener("click", () => {
+  el("modal-branch-add").classList.add("hidden");
+});
+
+el("branch-add-save-btn").addEventListener("click", async () => {
+  const name = el("branch-add-name-input").value.trim();
   if (!name) {
     tg.showAlert("Filial nomini kiriting.");
     return;
   }
-  const btn = el("branch-edit-save-btn");
+  const btn = el("branch-add-save-btn");
   btn.disabled = true;
-  btn.textContent = "Saqlanmoqda...";
+  btn.textContent = "Qo'shilmoqda...";
   try {
-    const isRename = branchEditMode === "rename" && branchEditTarget;
-    const url = isRename ? API.branchesRename : API.branchesCreate;
-    const body = isRename ? { branch_id: branchEditTarget.id, name } : { name };
-    const res = await apiFetch(url, { method: "POST", body: JSON.stringify(body) });
+    const res = await apiFetch(API.branches, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
     const data = await res.json();
     if (!res.ok) {
-      const map = {
-        empty_name: "Filial nomini kiriting.",
-        duplicate_name: "Bu nomdagi filial allaqachon mavjud.",
-        not_found: "Filial topilmadi.",
-      };
-      tg.showAlert(map[data.error] || "Saqlab bo'lmadi.");
+      tg.showAlert(branchErrorText(data));
       return;
     }
     tg.HapticFeedback.notificationOccurred("success");
-    el("modal-branch-edit").classList.add("hidden");
-    loadProfileBranches();
+    el("modal-branch-add").classList.add("hidden");
+    if (data.default_branch_created) {
+      tg.showAlert(
+        `✅ Hozirgacha yozilgan ma'lumotlar "${data.default_branch_created.name}" nomli birinchi filialga o'tkazildi.\n` +
+        `✅ "${data.branch.name}" filiali qo'shildi.`
+      );
+    } else {
+      tg.showAlert(`✅ "${data.branch.name}" filiali qo'shildi.`);
+    }
     loadProfile();
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
   } finally {
     btn.disabled = false;
-    btn.textContent = "✅ Saqlash";
+    btn.textContent = "✅ Qo'shish";
   }
 });
 
-async function deleteBranch(branch) {
-  const ok = await confirmAsync(`"${branch.name}" filiali o'chirilsinmi? Unga biriktirilgan sotuvchilar va joriy filial tanlovi "Bosh filial"ga qaytariladi.`);
+let currentBranchRenameId = null;
+
+function openBranchRenameModal(branchId, currentName) {
+  currentBranchRenameId = branchId;
+  el("branch-rename-name-input").value = currentName;
+  el("modal-branch-rename").classList.remove("hidden");
+}
+
+el("branch-rename-cancel-btn").addEventListener("click", () => {
+  el("modal-branch-rename").classList.add("hidden");
+  currentBranchRenameId = null;
+});
+
+el("branch-rename-save-btn").addEventListener("click", async () => {
+  if (currentBranchRenameId == null) return;
+  const name = el("branch-rename-name-input").value.trim();
+  if (!name) {
+    tg.showAlert("Filial nomini kiriting.");
+    return;
+  }
+  const btn = el("branch-rename-save-btn");
+  btn.disabled = true;
+  try {
+    const res = await apiFetch(API.branchesRename, {
+      method: "POST",
+      body: JSON.stringify({ branch_id: currentBranchRenameId, name }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      tg.showAlert(branchErrorText(data));
+      return;
+    }
+    tg.HapticFeedback.notificationOccurred("success");
+    el("modal-branch-rename").classList.add("hidden");
+    currentBranchRenameId = null;
+    loadProfile();
+  } catch (e) {
+    tg.showAlert(e.message || "Xatolik yuz berdi.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function deleteBranch(branchId, name) {
+  const ok = await confirmAsync(`"${name}" filiali o'chirilsinmi? Unga biriktirilgan sotuvchilar "Bosh filial"ga o'tkaziladi.`);
   if (!ok) return;
   try {
     const res = await apiFetch(API.branchesDelete, {
       method: "POST",
-      body: JSON.stringify({ branch_id: branch.id }),
+      body: JSON.stringify({ branch_id: branchId }),
     });
     const data = await res.json();
     if (!res.ok) {
-      tg.showAlert(data.error === "not_found" ? "Filial topilmadi." : "O'chirib bo'lmadi.");
+      tg.showAlert(branchErrorText(data));
       return;
     }
     tg.HapticFeedback.notificationOccurred("success");
-    loadProfileBranches();
     loadProfile();
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
@@ -1941,29 +1619,6 @@ el("sellers-add-btn").addEventListener("click", () => {
   el("modal-seller-add").classList.remove("hidden");
 });
 
-el("sellers-invite-link-btn").addEventListener("click", async () => {
-  const btn = el("sellers-invite-link-btn");
-  btn.disabled = true;
-  try {
-    const res = await apiFetch(API.sellersInviteLink, { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) throw new Error("Linkni yasab bo'lmadi.");
-    tg.showPopup({
-      title: "🔗 Sotuvchi uchun taklif havolasi",
-      message: "Buni yangi sotuvchiga yuboring. U linkni bosib botni ochishi bilanoq sizning do'koningizga qo'shiladi.\n\n⚠️ Link faqat BITTA marta ishlaydi.\n\n" + data.link,
-      buttons: [{ id: "copy", type: "default", text: "Nusxalash" }, { type: "close" }],
-    }, (btnId) => {
-      if (btnId === "copy" && navigator.clipboard) {
-        navigator.clipboard.writeText(data.link).catch(() => {});
-      }
-    });
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  } finally {
-    btn.disabled = false;
-  }
-});
-
 el("seller-add-cancel-btn").addEventListener("click", () => {
   el("modal-seller-add").classList.add("hidden");
 });
@@ -2003,794 +1658,6 @@ el("seller-add-save-btn").addEventListener("click", async () => {
     btn.textContent = "✅ Qo'shish";
   }
 });
-
-// ---------- 3-BLOK, 6-BOSQICH: QARZLAR ----------
-// Do'kon egasi HAM, sotuvchi HAM ko'radi (backend: webapp_handlers/debts.py,
-// 5-bosqich - bot tarafidagi handlers/debts.py bilan bir xil ruxsat qoidasi).
-
-let currentDebtDetail = null;
-
-async function loadDebts() {
-  const list = el("debts-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  el("debts-total-card").innerHTML = "";
-  try {
-    const res = await apiFetch(API.debts);
-    if (!res.ok) throw new Error("Qarzlarni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderDebtsTotal(data.total_debt || 0);
-    renderDebts(data.debts || []);
-  } catch (e) {
-    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-function renderDebtsTotal(total) {
-  el("debts-total-card").innerHTML = `
-    <div>
-      <div class="value">💵 ${formatNum(total)} so'm</div>
-      <div class="env-tag">Umumiy qarzdorlik</div>
-    </div>
-  `;
-}
-
-function renderDebts(debts) {
-  const list = el("debts-list");
-  list.innerHTML = "";
-  if (debts.length === 0) {
-    list.innerHTML = '<p class="muted">Qarzdorlar yo\'q. 🎉</p>';
-    return;
-  }
-  debts.forEach((d) => {
-    const card = document.createElement("div");
-    card.className = "product-card owner-card";
-    const sub = [d.phone, `${formatNum(d.remaining)} so'm qoldi`].filter(Boolean).join(" · ");
-    const overdueBadge = (d.days_left !== null && d.days_left < 0)
-      ? `<div class="discount-badge">❗️ ${-d.days_left} kun kechikdi</div>`
-      : "";
-    card.innerHTML = `
-      <div class="owner-card-top">
-        <div>
-          <div class="name">${escapeHtml(d.customer_name)}</div>
-          <div class="sub">${escapeHtml(sub)}</div>
-          ${overdueBadge}
-        </div>
-      </div>
-    `;
-    card.addEventListener("click", () => openDebtDetail(d));
-    list.appendChild(card);
-  });
-}
-
-function debtDetailRows(d) {
-  const rows = [
-    ["Telefon", d.phone || "—"],
-    ["Jami qarz", `${formatNum(d.amount)} so'm`],
-    ["To'landi", `${formatNum(d.paid_amount)} so'm`],
-    ["Qolgan", `${formatNum(d.remaining)} so'm`],
-    ["Qarz olingan sana", d.taken_date || "—"],
-    ["Qaytarish sanasi", d.due_date || "—"],
-    ["Izoh", d.description || "—"],
-  ];
-  if (d.days_left !== null && d.days_left !== undefined) {
-    let dueStatus;
-    if (d.days_left < 0) dueStatus = `❗️ ${-d.days_left} kun kechikdi`;
-    else if (d.days_left === 0) dueStatus = "📅 Bugun";
-    else dueStatus = `${d.days_left} kun qoldi`;
-    rows.push(["Muddat holati", dueStatus]);
-  }
-  rows.push(["Botga ulanish", d.customer_linked ? "🔗 Ulangan" : "Ulanmagan"]);
-  return rows;
-}
-
-function openDebtDetail(debt) {
-  currentDebtDetail = debt;
-  el("debt-detail-title").textContent = debt.customer_name;
-  el("debt-detail-body").innerHTML = debtDetailRows(debt).map(([k, v]) => `
-    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
-  `).join("");
-  el("debt-detail-pay-btn").classList.toggle("hidden", debt.is_paid);
-  el("modal-debt-detail").classList.remove("hidden");
-}
-
-el("debt-detail-close-btn").addEventListener("click", () => {
-  el("modal-debt-detail").classList.add("hidden");
-  currentDebtDetail = null;
-});
-
-el("debt-detail-remind-btn").addEventListener("click", async () => {
-  if (!currentDebtDetail) return;
-  try {
-    const res = await apiFetch(API.debtsRemind, {
-      method: "POST",
-      body: JSON.stringify({ debt_id: currentDebtDetail.id }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error("Eslatma yuborilmadi.");
-    if (data.sent) {
-      tg.HapticFeedback.notificationOccurred("success");
-      tg.showAlert("✅ Eslatma mijozga yuborildi.");
-    } else {
-      tg.showAlert("❌ Mijoz hali botga ulanmagan.");
-    }
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  }
-});
-
-el("debt-detail-link-btn").addEventListener("click", async () => {
-  if (!currentDebtDetail) return;
-  try {
-    const res = await apiFetch(`${API.debtsLink}?debt_id=${currentDebtDetail.id}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error("Linkni olib bo'lmadi.");
-    tg.showPopup({
-      title: "🔗 Shaxsiy link",
-      message: "Buni mijozga yuboring — u linkni bosib botni ochsa, keyin unga to'g'ridan-to'g'ri eslatma yuborish mumkin bo'ladi:\n\n" + data.link,
-      buttons: [{ id: "copy", type: "default", text: "Nusxalash" }, { type: "close" }],
-    }, (btnId) => {
-      if (btnId === "copy" && navigator.clipboard) {
-        navigator.clipboard.writeText(data.link).catch(() => {});
-      }
-    });
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  }
-});
-
-// ---- qarz qo'shish ----
-
-el("debts-add-btn").addEventListener("click", () => {
-  ["name", "phone", "amount", "taken", "due", "desc"].forEach((k) => {
-    el(`debt-add-${k}-input`).value = "";
-  });
-  el("modal-debt-add").classList.remove("hidden");
-});
-
-el("debt-add-cancel-btn").addEventListener("click", () => {
-  el("modal-debt-add").classList.add("hidden");
-});
-
-el("debt-add-save-btn").addEventListener("click", async () => {
-  const customer_name = el("debt-add-name-input").value.trim();
-  const phone = el("debt-add-phone-input").value.trim();
-  const amountRaw = el("debt-add-amount-input").value;
-  const taken_date = el("debt-add-taken-input").value.trim();
-  const due_date = el("debt-add-due-input").value.trim();
-  const description = el("debt-add-desc-input").value.trim();
-
-  if (!customer_name) {
-    tg.showAlert("Mijoz ismini kiriting.");
-    return;
-  }
-  const amount = parseNum(amountRaw);
-  if (isNaN(amount) || amount <= 0) {
-    tg.showAlert("Qarz summasini to'g'ri kiriting.");
-    return;
-  }
-
-  const btn = el("debt-add-save-btn");
-  btn.disabled = true;
-  btn.textContent = "Qo'shilmoqda...";
-  try {
-    const res = await apiFetch(API.debts, {
-      method: "POST",
-      body: JSON.stringify({ customer_name, phone, amount, taken_date, due_date, description }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const map = {
-        empty_customer_name: "Mijoz ismini kiriting.",
-        invalid_amount: "Qarz summasini to'g'ri kiriting.",
-        invalid_taken_date: "Qarz olingan sanani to'g'ri kiriting: kun.oy.yil (masalan 10.07.2026).",
-        invalid_due_date: "Qaytarish sanasini to'g'ri kiriting: kun.oy.yil, son, yoki '-'.",
-      };
-      tg.showAlert(map[data.error] || "Qo'shib bo'lmadi.");
-      return;
-    }
-    tg.HapticFeedback.notificationOccurred("success");
-    el("modal-debt-add").classList.add("hidden");
-    loadDebts();
-    tg.showPopup({
-      title: "✅ Qarz qo'shildi",
-      message: "Bu mijozga eslatmalarni bevosita botdan yuborish uchun, quyidagi shaxsiy linkni unga yuboring:\n\n" + data.link,
-      buttons: [{ id: "copy", type: "default", text: "Nusxalash" }, { type: "close" }],
-    }, (btnId) => {
-      if (btnId === "copy" && navigator.clipboard) {
-        navigator.clipboard.writeText(data.link).catch(() => {});
-      }
-    });
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "✅ Qo'shish";
-  }
-});
-
-// ---- to'lov qabul qilish ----
-// selectedPaymentMethod (Savat/To'lov ekranidagi global o'zgaruvchi) BILAN
-// ARALASHMASLIGI uchun bu yerda ALOHIDA o'zgaruvchi va ALOHIDA CSS klass
-// (.debt-pay-btn, .pay-btn EMAS) ishlatiladi - qarang: style.css'dagi
-// izoh (ikkalasi bir xil ko'rinishda, lekin JS holatlari mustaqil).
-let selectedDebtPaymentMethod = null;
-
-el("debt-detail-pay-btn").addEventListener("click", () => {
-  if (!currentDebtDetail) return;
-  el("debt-pay-remaining").textContent = `Qolgan qarz: ${formatNum(currentDebtDetail.remaining)} so'm`;
-  el("debt-pay-amount-input").value = currentDebtDetail.remaining;
-  el("debt-mixed-cash-input").value = "";
-  selectedDebtPaymentMethod = null;
-  document.querySelectorAll(".debt-pay-btn").forEach((b) => b.classList.remove("selected"));
-  el("debt-mixed-box").classList.add("hidden");
-  el("modal-debt-detail").classList.add("hidden");
-  el("modal-debt-pay").classList.remove("hidden");
-});
-
-document.querySelectorAll(".debt-pay-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    selectedDebtPaymentMethod = btn.dataset.method;
-    document.querySelectorAll(".debt-pay-btn").forEach((b) => b.classList.remove("selected"));
-    btn.classList.add("selected");
-    el("debt-mixed-box").classList.toggle("hidden", selectedDebtPaymentMethod !== "aralash");
-  });
-});
-
-el("debt-pay-cancel-btn").addEventListener("click", () => {
-  el("modal-debt-pay").classList.add("hidden");
-  currentDebtDetail = null;
-});
-
-el("debt-pay-save-btn").addEventListener("click", async () => {
-  if (!currentDebtDetail) return;
-  const amount = parseNum(el("debt-pay-amount-input").value);
-  if (isNaN(amount) || amount <= 0) {
-    tg.showAlert("To'lanadigan summani to'g'ri kiriting.");
-    return;
-  }
-  if (amount > currentDebtDetail.remaining + 0.0001) {
-    tg.showAlert(`Kiritilgan summa qolgan qarzdan (${formatNum(currentDebtDetail.remaining)} so'm) katta bo'lmasligi kerak.`);
-    return;
-  }
-  if (!selectedDebtPaymentMethod) {
-    tg.showAlert("To'lov turini tanlang.");
-    return;
-  }
-
-  const body = { debt_id: currentDebtDetail.id, amount, payment_method: selectedDebtPaymentMethod };
-  if (selectedDebtPaymentMethod === "aralash") {
-    const cash = parseNum(el("debt-mixed-cash-input").value);
-    if (isNaN(cash) || cash < 0 || cash > amount) {
-      tg.showAlert(`Naqd summasi 0 dan ${formatNum(amount)} so'mgacha bo'lishi kerak.`);
-      return;
-    }
-    body.cash_amount = cash;
-  }
-
-  const btn = el("debt-pay-save-btn");
-  btn.disabled = true;
-  btn.textContent = "Yuborilmoqda...";
-  try {
-    const res = await apiFetch(API.debtsPay, { method: "POST", body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) {
-      const map = {
-        already_paid: "Bu qarz allaqachon to'liq to'langan.",
-        amount_too_large: `Kiritilgan summa qolgan qarzdan katta.`,
-        invalid_payment_method: "To'lov turini tanlang.",
-      };
-      tg.showAlert(map[data.error] || "To'lovni qabul qilib bo'lmadi.");
-      return;
-    }
-    tg.HapticFeedback.notificationOccurred("success");
-    el("modal-debt-pay").classList.add("hidden");
-    currentDebtDetail = null;
-    tg.showAlert(data.status === "full"
-      ? "✅ Qarz to'liq to'landi!"
-      : `✅ To'lov qabul qilindi. Qolgan qarz: ${formatNum(data.remaining)} so'm`);
-    loadDebts();
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "✅ Tasdiqlash";
-  }
-});
-
-wireEnterToNext(["debt-mixed-cash-input"], "debt-pay-save-btn");
-
-// ---------- 4-BLOK, 8-BOSQICH: KIRIM/CHIQIM TRANZAKSIYALAR ----------
-// Do'kon egasi HAM, sotuvchi HAM ro'yxatni ko'radi va "Chiqim" qo'sha oladi;
-// "Kirim" qo'shish FAQAT do'kon egasiga (backend: webapp_handlers/
-// transactions.py, 7-bosqich - bot tarafidagi handlers/transactions.py
-// bilan bir xil ruxsat qoidasi). Ro'yxat - savdo/qarz/qo'lda kiritilgan
-// BARCHA yozuvlarni birga ko'rsatuvchi to'liq moliyaviy jurnal (bot
-// tarafida bunga mos alohida ekran yo'q - faqat mini app'da bor).
-
-async function loadTransactions() {
-  const list = el("tx-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  el("tx-stats-grid").innerHTML = "";
-  try {
-    const res = await apiFetch(API.transactions);
-    if (!res.ok) throw new Error("Tranzaksiyalarni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderTransactionsStats(data.income || 0, data.expense || 0, data.balance || 0);
-    renderTransactions(data.transactions || []);
-  } catch (e) {
-    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-function renderTransactionsStats(income, expense, balance) {
-  const cards = [
-    ["🟢", `${formatNum(income)} so'm`, "Kirim"],
-    ["🔴", `${formatNum(expense)} so'm`, "Chiqim"],
-    ["⚖️", `${formatNum(balance)} so'm`, "Balans"],
-  ];
-  el("tx-stats-grid").innerHTML = cards.map(([icon, value, label]) => `
-    <div class="admin-stat-card">
-      <div class="admin-stat-value">${icon} ${escapeHtml(value)}</div>
-      <div class="admin-stat-label">${escapeHtml(label)}</div>
-    </div>
-  `).join("");
-}
-
-function renderTransactions(transactions) {
-  const list = el("tx-list");
-  list.innerHTML = "";
-  if (transactions.length === 0) {
-    list.innerHTML = '<p class="muted">Hozircha tranzaksiya yo\'q.</p>';
-    return;
-  }
-  const methodLabels = { naqd: "💵 Naqd", plastik: "💳 Plastik" };
-  transactions.forEach((t) => {
-    const isIncome = t.type === "income";
-    const row = document.createElement("div");
-    row.className = "history-row";
-    const sign = isIncome ? "+" : "-";
-    const amountClass = isIncome ? "tx-amount-income" : "tx-amount-expense";
-    const methodTag = methodLabels[t.payment_method] ? ` · ${methodLabels[t.payment_method]}` : "";
-    const mineTag = t.is_mine ? " · 👤 Siz" : "";
-    row.innerHTML = `
-      <div class="history-row-top">
-        <span class="history-action ${amountClass}">${sign}${formatNum(t.amount)} so'm</span>
-        <span class="history-time">${escapeHtml(t.created_at || "")}</span>
-      </div>
-      <div class="history-details">${escapeHtml(t.description || "—")}</div>
-      <div class="history-actor">${isIncome ? "🟢 Kirim" : "🔴 Chiqim"}${escapeHtml(methodTag)}${escapeHtml(mineTag)}</div>
-    `;
-    list.appendChild(row);
-  });
-}
-
-// ---- kirim/chiqim qo'shish ----
-
-let selectedTxType = null;
-
-function openTxAddModal(type) {
-  selectedTxType = type;
-  el("tx-add-title").textContent = type === "income" ? "➕ Kirim qo'shish" : "➖ Chiqim qo'shish";
-  el("tx-add-amount-input").value = "";
-  el("tx-add-desc-input").value = "";
-  el("modal-tx-add").classList.remove("hidden");
-}
-
-el("tx-add-income-btn").addEventListener("click", () => openTxAddModal("income"));
-el("tx-add-expense-btn").addEventListener("click", () => openTxAddModal("expense"));
-
-el("tx-add-cancel-btn").addEventListener("click", () => {
-  el("modal-tx-add").classList.add("hidden");
-  selectedTxType = null;
-});
-
-el("tx-add-save-btn").addEventListener("click", async () => {
-  if (!selectedTxType) return;
-  const amount = parseNum(el("tx-add-amount-input").value);
-  if (isNaN(amount) || amount <= 0) {
-    tg.showAlert("Summani to'g'ri kiriting.");
-    return;
-  }
-  const description = el("tx-add-desc-input").value.trim();
-  if (!description) {
-    tg.showAlert("Izoh kiriting.");
-    return;
-  }
-
-  const btn = el("tx-add-save-btn");
-  btn.disabled = true;
-  btn.textContent = "Qo'shilmoqda...";
-  try {
-    const res = await apiFetch(API.transactions, {
-      method: "POST",
-      body: JSON.stringify({ type: selectedTxType, amount, description }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const map = {
-        invalid_amount: "Summani to'g'ri kiriting.",
-        empty_description: "Izoh kiriting.",
-        owner_only: "Kirim qo'shish faqat do'kon egasiga ruxsat etilgan.",
-      };
-      tg.showAlert(map[data.error] || "Qo'shib bo'lmadi.");
-      return;
-    }
-    tg.HapticFeedback.notificationOccurred("success");
-    el("modal-tx-add").classList.add("hidden");
-    selectedTxType = null;
-    loadTransactions();
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "✅ Qo'shish";
-  }
-});
-
-wireEnterToNext(["tx-add-amount-input", "tx-add-desc-input"], "tx-add-save-btn");
-
-// ---------- 5-BLOK, 10-BOSQICH: HISOBOTLAR ----------
-// Do'kon egasi HAM, sotuvchi HAM ko'radi (backend: webapp_handlers/
-// reports.py, 9-bosqich - bot tarafidagi handlers/reports.py._require_shop()
-// bilan bir xil ruxsat qoidasi - hatto sozlamalar/audit jurnali ham).
-
-let reportsScopeBranchId = null; // null = "🌐 Umumiy" (barcha filiallar birga)
-
-function reportsScopeQuery() {
-  return reportsScopeBranchId === null ? "" : `?branch_id=${reportsScopeBranchId}`;
-}
-
-async function loadReports() {
-  loadReportsScopeChips();
-  loadReportsSummary();
-  loadReportsTopProducts();
-  loadReportsBranchesComparison();
-  loadReportsSellersComparison();
-  loadReportsForecast();
-  loadReportsTrend();
-  loadReportsSettings();
-}
-
-// ---- filial bo'yicha kesim (faqat summary va top-products'ga ta'sir qiladi -
-// bot tarafida ham faqat shu ikkitasi filial bo'yicha filtrlanadi). ----
-
-async function loadReportsScopeChips() {
-  const container = el("reports-scope-chips");
-  try {
-    const res = await apiFetch(API.branches);
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    const branches = data.branches || [];
-    if (branches.length === 0) {
-      container.classList.add("hidden");
-      container.innerHTML = "";
-      el("reports-branches-comparison-section").classList.add("hidden");
-      return;
-    }
-    el("reports-branches-comparison-section").classList.remove("hidden");
-    container.classList.remove("hidden");
-    const chips = [
-      { id: null, name: "🌐 Umumiy" },
-      { id: 0, name: "🏠 Bosh filial" },
-      ...branches.map((b) => ({ id: b.id, name: `🏢 ${b.name}` })),
-    ];
-    container.innerHTML = chips.map((c) => `
-      <button type="button" class="scope-chip${c.id === reportsScopeBranchId ? " active" : ""}">${escapeHtml(c.name)}</button>
-    `).join("");
-    container.querySelectorAll(".scope-chip").forEach((btn, idx) => {
-      btn.addEventListener("click", () => {
-        reportsScopeBranchId = chips[idx].id;
-        container.querySelectorAll(".scope-chip").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        loadReportsSummary();
-        loadReportsTopProducts();
-      });
-    });
-  } catch (e) {
-    container.classList.add("hidden");
-  }
-}
-
-// ---- 📊 umumiy / 🏢 filial bo'yicha hisobot ----
-
-async function loadReportsSummary() {
-  const grid = el("reports-summary-grid");
-  grid.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(`${API.reportsSummary}${reportsScopeQuery()}`);
-    if (!res.ok) throw new Error("Hisobotni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsSummary(data);
-  } catch (e) {
-    grid.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-function renderReportsSummary(data) {
-  const cards = [
-    ["🟢", `${formatNum(data.income)} so'm`, "Kirim"],
-    ["🔴", `${formatNum(data.expense)} so'm`, "Chiqim"],
-    ["⚖️", `${formatNum(data.balance)} so'm`, "Balans"],
-    ["📒", `${formatNum(data.total_debt)} so'm`, "Qarzdorlik"],
-    ["💵", `${formatNum(data.payment_totals.naqd)} so'm`, "Naqd"],
-    ["💳", `${formatNum(data.payment_totals.plastik)} so'm`, "Plastik"],
-  ];
-  // Sklad butun do'kon bo'yicha yagona - faqat "umumiy" kesimda keladi
-  // (qarang: webapp_handlers/reports.py.api_reports_summary).
-  if (data.products_count !== undefined) {
-    cards.push(["📦", formatNum(data.products_count), "Mahsulotlar (sklad)"]);
-    cards.push(["📦", `${formatNum(data.total_stock_value)} so'm`, "Sklad qiymati"]);
-  }
-  el("reports-summary-grid").innerHTML = cards.map(([icon, value, label]) => `
-    <div class="admin-stat-card">
-      <div class="admin-stat-value">${icon} ${escapeHtml(String(value))}</div>
-      <div class="admin-stat-label">${escapeHtml(label)}</div>
-    </div>
-  `).join("");
-}
-
-// ---- 🏆 top mahsulotlar ----
-
-async function loadReportsTopProducts() {
-  const sellingList = el("reports-top-selling-list");
-  const profitList = el("reports-top-profit-list");
-  sellingList.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  profitList.innerHTML = "";
-  try {
-    const res = await apiFetch(`${API.reportsTopProducts}${reportsScopeQuery()}`);
-    if (!res.ok) throw new Error("Top mahsulotlarni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsTopList(sellingList, data.top_selling || [],
-      (r) => `${formatNum(r.total_qty)} dona (${formatNum(r.total_sum)} so'm)`);
-    renderReportsTopList(profitList, data.top_profit || [],
-      (r) => `${formatNum(r.total_profit)} so'm foyda`);
-  } catch (e) {
-    sellingList.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-    profitList.innerHTML = "";
-  }
-}
-
-function renderReportsTopList(container, rows, valueFn) {
-  container.innerHTML = "";
-  if (rows.length === 0) {
-    container.innerHTML = '<p class="muted">Ma\'lumot yo\'q.</p>';
-    return;
-  }
-  rows.forEach((r, i) => {
-    const row = document.createElement("div");
-    row.className = "history-row";
-    row.innerHTML = `
-      <div class="history-row-top">
-        <span class="history-action">${i + 1}. ${escapeHtml(r.name)}</span>
-      </div>
-      <div class="history-details">${escapeHtml(valueFn(r))}</div>
-    `;
-    container.appendChild(row);
-  });
-}
-
-// ---- 🆚 filiallar / sotuvchilar solishtiruvi ----
-
-async function loadReportsBranchesComparison() {
-  const list = el("reports-branches-comparison-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(API.reportsBranchesComparison);
-    if (!res.ok) throw new Error("Solishtiruvni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsComparisonList(list, data.branches || []);
-  } catch (e) {
-    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-async function loadReportsSellersComparison() {
-  const list = el("reports-sellers-comparison-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(API.reportsSellersComparison);
-    if (!res.ok) throw new Error("Solishtiruvni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsComparisonList(list, data.sellers || []);
-  } catch (e) {
-    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-const REPORTS_MEDALS = ["🥇", "🥈", "🥉"];
-
-function renderReportsComparisonList(container, rows) {
-  container.innerHTML = "";
-  if (rows.length === 0) {
-    container.innerHTML = '<p class="muted">Hozircha solishtirish uchun yetarli ma\'lumot yo\'q.</p>';
-    return;
-  }
-  rows.forEach((r, i) => {
-    const rank = REPORTS_MEDALS[i] || `${i + 1}.`;
-    const row = document.createElement("div");
-    row.className = "history-row";
-    row.innerHTML = `
-      <div class="history-row-top">
-        <span class="history-action">${rank} ${escapeHtml(r.name)}</span>
-        <span class="history-time">🛒 ${formatNum(r.sales_count)} ta chek</span>
-      </div>
-      <div class="history-details">💰 Foyda: ${formatNum(r.profit)} so'm</div>
-      <div class="history-actor">💵 ${formatNum(r.income)} so'm · 💸 ${formatNum(r.expense)} so'm · 📈 ${formatNum(r.balance)} so'm</div>
-    `;
-    container.appendChild(row);
-  });
-}
-
-// ---- 📈 oylik prognoz ----
-
-async function loadReportsForecast() {
-  const body = el("reports-forecast-body");
-  body.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(API.reportsForecast);
-    if (!res.ok) throw new Error("Prognozni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsForecast(data);
-  } catch (e) {
-    body.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-function renderReportsForecast(data) {
-  const body = el("reports-forecast-body");
-  if (!data.has_data) {
-    body.innerHTML = '<p class="muted">Hozircha savdo tarixi yo\'q.</p>';
-    return;
-  }
-  let html = data.history.map((h) => `
-    <div class="admin-detail-row"><span class="k">${escapeHtml(h.month_label)}</span><span class="v">${formatNum(h.sales_count)} ta chek, ${formatNum(h.profit)} so'm</span></div>
-  `).join("");
-  if (data.forecast) {
-    html += `
-      <div class="admin-detail-row"><span class="k">🔮 ${escapeHtml(data.forecast.forecast_month_label)}</span><span class="v">${formatNum(data.forecast.forecast_profit)} so'm (taxminiy)</span></div>
-    `;
-  } else {
-    html += '<p class="muted">Prognoz uchun kamida bitta TO\'LIQ tugagan oylik savdo tarixi kerak.</p>';
-  }
-  body.innerHTML = html;
-}
-
-// ---- 📉 trend tahlili ----
-
-async function loadReportsTrend() {
-  const body = el("reports-trend-body");
-  body.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(API.reportsTrend);
-    if (!res.ok) throw new Error("Trendni yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsTrend(data);
-  } catch (e) {
-    body.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-function reportsTrendArrow(changePercent) {
-  if (changePercent === null || changePercent === undefined) return "▪️";
-  if (changePercent > 5) return "📈";
-  if (changePercent < -5) return "📉";
-  return "➡️";
-}
-
-function renderReportsTrend(data) {
-  const body = el("reports-trend-body");
-  if (!data.has_data) {
-    body.innerHTML = '<p class="muted">Hozircha savdo tarixi yo\'q.</p>';
-    return;
-  }
-  const renderSeries = (title, series) => `
-    <div class="muted" style="margin: 6px 0 2px;">${escapeHtml(title)}</div>
-    ${series.map((t) => {
-      const change = (t.change_percent !== null && t.change_percent !== undefined)
-        ? ` (${t.change_percent > 0 ? "+" : ""}${formatNum(Math.round(t.change_percent))}%)`
-        : "";
-      return `<div class="admin-detail-row"><span class="k">${reportsTrendArrow(t.change_percent)} ${escapeHtml(t.label)}</span><span class="v">${formatNum(t.value)} so'm${change}</span></div>`;
-    }).join("")}
-  `;
-  body.innerHTML = renderSeries("📅 Oylik (so'nggi 6 oy)", data.monthly)
-    + renderSeries("🗓 Haftalik (so'nggi 8 hafta)", data.weekly);
-}
-
-// ---- ⚙️ sozlamalar: 🔔 kunlik hisobot / 🚨 shubhali holatlar ----
-
-async function loadReportsSettings() {
-  try {
-    const [dailyRes, suspRes] = await Promise.all([
-      apiFetch(API.reportsDailyReport),
-      apiFetch(API.reportsSuspiciousAlert),
-    ]);
-    const daily = dailyRes.ok ? await dailyRes.json() : { enabled: false };
-    const susp = suspRes.ok ? await suspRes.json() : { enabled: false };
-    renderReportsToggleRow("reports-daily-toggle-row", "🔔 Kunlik hisobot", daily.enabled, toggleReportsDailyReport);
-    renderReportsToggleRow("reports-suspicious-toggle-row", "🚨 Shubhali holatlar ogohlantiruvi", susp.enabled, toggleReportsSuspiciousAlert);
-  } catch (e) {
-    // jim - sozlamalar ekranning yordamchi qismi, asosiy hisobotlarni to'xtatmasin.
-  }
-}
-
-function renderReportsToggleRow(rowId, label, enabled, onToggle) {
-  const row = el(rowId);
-  row.innerHTML = `
-    <div>
-      <div class="value">${escapeHtml(label)}: ${enabled ? "🔔 Yoqilgan" : "🔕 O'chirilgan"}</div>
-      <div class="env-tag">Bosib o'zgartiring</div>
-    </div>
-  `;
-  row.onclick = () => onToggle(!enabled);
-}
-
-async function toggleReportsDailyReport(nextEnabled) {
-  try {
-    const res = await apiFetch(API.reportsDailyReport, {
-      method: "POST", body: JSON.stringify({ enabled: nextEnabled }),
-    });
-    if (!res.ok) throw new Error("O'zgartirib bo'lmadi.");
-    tg.HapticFeedback.notificationOccurred("success");
-    loadReportsSettings();
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  }
-}
-
-async function toggleReportsSuspiciousAlert(nextEnabled) {
-  try {
-    const res = await apiFetch(API.reportsSuspiciousAlert, {
-      method: "POST", body: JSON.stringify({ enabled: nextEnabled }),
-    });
-    if (!res.ok) throw new Error("O'zgartirib bo'lmadi.");
-    tg.HapticFeedback.notificationOccurred("success");
-    loadReportsSettings();
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  }
-}
-
-// ---- 🗂 audit jurnali ----
-
-el("reports-audit-btn").addEventListener("click", async () => {
-  const list = el("reports-audit-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  el("modal-reports-audit").classList.remove("hidden");
-  try {
-    const res = await apiFetch(API.reportsAuditLog);
-    if (!res.ok) throw new Error("Audit jurnalini yuklab bo'lmadi.");
-    const data = await res.json();
-    renderReportsAudit(data.logs || []);
-  } catch (e) {
-    list.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-});
-
-el("reports-audit-close-btn").addEventListener("click", () => {
-  el("modal-reports-audit").classList.add("hidden");
-});
-
-function renderReportsAudit(rows) {
-  const list = el("reports-audit-list");
-  list.innerHTML = "";
-  if (rows.length === 0) {
-    list.innerHTML = '<p class="muted">Audit jurnalida hali yozuv yo\'q.</p>';
-    return;
-  }
-  rows.forEach((r) => {
-    const row = document.createElement("div");
-    row.className = "history-row";
-    row.innerHTML = `
-      <div class="history-row-top">
-        <span class="history-action">${escapeHtml(r.actor_name || "Noma'lum")}</span>
-        <span class="history-time">${escapeHtml((r.created_at || "").slice(0, 16))}</span>
-      </div>
-      <div class="history-details">${escapeHtml(r.action || "")}</div>
-      ${r.details ? `<div class="history-actor">${escapeHtml(r.details)}</div>` : ""}
-    `;
-    list.appendChild(row);
-  });
-}
 
 async function loadSkladProducts(query = "") {
   try {
@@ -2851,31 +1718,22 @@ function renderSkladProducts(products) {
 }
 
 let currentSkladProduct = null;
-let skladAddFromRestock = false;
 
-function openSkladAddModal(product, fromRestock = false) {
+function openSkladAddModal(product) {
   if (!currentUser.canAddStock) {
     tg.showAlert("🔒 Sizga skladga tovar qo'shishga ruxsat berilmagan. Do'kon egasiga murojaat qiling.");
     return;
   }
   currentSkladProduct = product;
-  skladAddFromRestock = fromRestock;
   el("sklad-modal-product-name").textContent = product.name;
   applyStockWarning(el("sklad-modal-product-stock"), `Hozir skladda ${formatNum(product.quantity)} dona bor`, product);
   el("sklad-modal-qty-input").value = 1;
-  el("sklad-modal-cost-input").value = "";
-  // "Kerak" (olinishi kerak bo'lgan tovarlar) ro'yxatidan ochilganda -
-  // bu HAQIQIY xarid, shuning uchun narx so'raladi va moliyaga "Chiqim"
-  // yoziladi. Oddiy "Sklad" bo'limidan ochilganda esa narx so'ralmaydi,
-  // moliyaga tegilmaydi (masalan miqdorni to'g'irlash uchun).
-  el("sklad-modal-cost-row").classList.toggle("hidden", !fromRestock);
   el("modal-sklad-add").classList.remove("hidden");
 }
 
 el("sklad-modal-cancel-btn").addEventListener("click", () => {
   el("modal-sklad-add").classList.add("hidden");
   currentSkladProduct = null;
-  skladAddFromRestock = false;
   if (openedViaScan) stopScanner();
   openedViaScan = false;
 });
@@ -2888,17 +1746,6 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     return;
   }
 
-  // "Kerak" ro'yxatidan ochilgan bo'lsa - bu haqiqiy xarid, shuning uchun
-  // narx MAJBURIY (moliyaga "Chiqim" shu narxdan yoziladi).
-  let unitCost = null;
-  if (skladAddFromRestock) {
-    unitCost = parseFloat(el("sklad-modal-cost-input").value);
-    if (!unitCost || unitCost <= 0) {
-      tg.showAlert("Sotib olingan narxini kiriting.");
-      return;
-    }
-  }
-
   const btn = el("sklad-modal-add-btn");
   const productId = currentSkladProduct.id;
   const productName = currentSkladProduct.name;
@@ -2907,11 +1754,9 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
   btn.textContent = "Yuborilmoqda...";
 
   try {
-    const body = { product_id: productId, qty };
-    if (unitCost) body.unit_cost = unitCost;
     const res = await apiFetch(API.skladAddQuantity, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ product_id: productId, qty }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -2922,7 +1767,6 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     tg.HapticFeedback.notificationOccurred("success");
     el("modal-sklad-add").classList.add("hidden");
     currentSkladProduct = null;
-    skladAddFromRestock = false;
     loadSkladProducts(el("sklad-search-input").value.trim());
     // "Olinishi kerak" ro'yxatidan ("📉 Skladda kamayib qolgan") ochilgan
     // bo'lsa - tovar endi to'ldirilgani uchun ro'yxatni yangilaymiz.
@@ -2933,7 +1777,6 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
     // natijani skaner oynasining o'zida (yashil status) ko'rsatamiz -
     // shunda ketma-ket skanerlash to'xtamaydi. Qo'lda (ro'yxatdan
     // bosib) qo'shilgan bo'lsa - odatdagidek to'liq xabar chiqadi.
-    const costLine = unitCost ? `\n💸 Xarajat: ${formatNum(unitCost * qty)} so'm (Tranzaksiyalarga yozildi)` : "";
     if (viaScan) {
       openedViaScan = false;
       continueScanning(
@@ -2941,7 +1784,7 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
         `✅ ${productName}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona`
       );
     } else {
-      tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.${costLine}`);
+      tg.showAlert(`✅ ${data.name}: ${formatNum(data.old_quantity)} → ${formatNum(data.new_quantity)} dona.`);
     }
   } catch (e) {
     tg.showAlert(e.message || "Xatolik yuz berdi.");
@@ -2954,7 +1797,6 @@ el("sklad-modal-add-btn").addEventListener("click", async () => {
 function skladErrorText(data) {
   const map = {
     invalid_quantity: "Miqdor noto'g'ri.",
-    invalid_unit_cost: "Sotib olingan narxi noto'g'ri.",
     invalid_item: "Mahsulot ma'lumoti noto'g'ri.",
     missing_product: "Mahsulot tanlanmagan.",
     product_not_found: "Mahsulot topilmadi (ehtimol o'chirilgan).",
@@ -3033,56 +1875,6 @@ function renderSkladHistory(items) {
 el("sklad-history-btn").addEventListener("click", () => openSkladHistory());
 el("sklad-history-close-btn").addEventListener("click", () => {
   el("modal-sklad-history").classList.add("hidden");
-});
-
-// 19-BOSQICH: AI BUYURTMA TAVSIYASI - botdagi "🤖 AI buyurtma tavsiyasi"
-// bo'limining Mini App'dagi ko'rinishi (qarang: webapp_handlers/sklad_extra.py).
-// Server allaqachon hisoblab (30 kunlik sotilish tezligi + yetkazib berish
-// muddati asosida) tayyor ro'yxatni yuboradi - bu yerda faqat chizamiz.
-async function openSkladAi() {
-  el("modal-sklad-ai").classList.remove("hidden");
-  const list = el("sklad-ai-list");
-  list.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  try {
-    const res = await apiFetch(API.skladAiSuggestions);
-    if (!res.ok) throw new Error("ai_failed");
-    const data = await res.json();
-    el("sklad-ai-subtitle").textContent =
-      `Oxirgi ${data.lookback_days} kunlik sotilish tezligi + ${data.lead_time_days} kunlik ` +
-      "yetkazib berish muddati asosida hisoblanadi.";
-    renderSkladAi(data.suggestions || []);
-  } catch (e) {
-    list.innerHTML = '<p class="muted">Tavsiyani yuklab bo\'lmadi. Qayta urinib ko\'ring.</p>';
-  }
-}
-
-function renderSkladAi(items) {
-  const list = el("sklad-ai-list");
-  list.innerHTML = "";
-  if (items.length === 0) {
-    list.innerHTML = '<p class="muted">✅ Hozircha shoshilinch buyurtma kerak bo\'lgan mahsulot yo\'q.</p>';
-    return;
-  }
-  const urgencyIcon = { high: "🔴", medium: "🟠", low: "🟡" };
-  items.forEach((s) => {
-    const row = document.createElement("div");
-    row.className = "history-row";
-    row.innerHTML = `
-      <div class="history-row-top">
-        <span class="history-action">${urgencyIcon[s.urgency] || "🟡"} ${escapeHtml(s.name)}</span>
-        <span class="history-time">${formatNum(s.quantity)} dona bor</span>
-      </div>
-      <div class="history-details">Kuniga ~${s.daily_sales_rate.toFixed(1)} dona sotiladi, taxminan
-        ${formatNum(s.days_left)} kunga yetadi</div>
-      <div class="history-actor">💡 Tavsiya: kamida ${formatNum(s.suggested_qty)} dona buyurtma bering</div>
-    `;
-    list.appendChild(row);
-  });
-}
-
-el("sklad-ai-btn").addEventListener("click", () => openSkladAi());
-el("sklad-ai-close-btn").addEventListener("click", () => {
-  el("modal-sklad-ai").classList.add("hidden");
 });
 
 // YANGI REJA - 3-BOSQICH: "Yangi mahsulot" oynasidagi 📷 tugmasi -
@@ -3194,15 +1986,6 @@ async function saveSkladNewProduct(body) {
   btn.disabled = true;
   btn.textContent = "Saqlanmoqda...";
 
-  // YANGI: "Kerak" ro'yxatidagi qo'lda qo'shilgan tovarni "✅ olindi" deb
-  // belgilashdan ochilgan bo'lsa (pendingManualRestockId bor) - bu HAQIQIY
-  // xarid, shuning uchun backend narx*miqdor bo'yicha moliyaga "Chiqim"
-  // yozishi uchun belgi yuboramiz. Oddiy "+ Yangi mahsulot" tugmasidan
-  // (pendingManualRestockId yo'q) ochilganda esa moliyaga tegilmaydi.
-  if (pendingManualRestockId != null) {
-    body.is_purchase = true;
-  }
-
   try {
     const res = await apiFetch(API.skladCreateProduct, {
       method: "POST",
@@ -3216,10 +1999,7 @@ async function saveSkladNewProduct(body) {
 
     tg.HapticFeedback.notificationOccurred("success");
     el("modal-sklad-new").classList.add("hidden");
-    const costLine = body.is_purchase && body.price > 0
-      ? `\n💸 Xarajat: ${formatNum(body.price * body.quantity)} so'm (Tranzaksiyalarga yozildi)`
-      : "";
-    tg.showAlert(`✅ "${data.product.name}" mahsuloti qo'shildi.${costLine}`);
+    tg.showAlert(`✅ "${data.product.name}" mahsuloti qo'shildi.`);
     loadSkladProducts(el("sklad-search-input").value.trim());
 
     // YANGI: agar bu oyna "Olinishi kerak" ro'yxatidagi qo'lda qo'shilgan
@@ -3327,7 +2107,7 @@ function renderRestockList(data) {
         </div>
       `;
       if (manage) {
-        card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p, true); });
+        card.addEventListener("click", () => { openedViaScan = false; openSkladAddModal(p); });
       }
       lowList.appendChild(card);
     });
@@ -4318,125 +3098,6 @@ wireEnterToNext(
   "sklad-edit-save-btn"
 );
 
-// ---------- 7-BLOK, 14-BOSQICH: OBUNA / TO'LOV ----------
-// Bot tarafidagi "💳 Obuna" bo'limi bilan bir xil - tarif tanlash, keyin
-// rekvizitlar ko'rsatilib, chek rasm fayl input orqali yuboriladi
-// (Telegram chatiga rasm yuborish o'rniga - backend:
-// webapp_handlers/subscription.py, 13-bosqich).
-let subscriptionSelectedPlan = null;
-let subscriptionPlansCache = null;
-
-async function loadSubscription() {
-  const card = el("subscription-status-card");
-  card.innerHTML = '<p class="muted">Yuklanmoqda...</p>';
-  el("subscription-plans-list").innerHTML = "";
-  el("subscription-requisites-section").classList.add("hidden");
-  subscriptionSelectedPlan = null;
-  try {
-    const res = await apiFetch(API.subscription);
-    if (!res.ok) throw new Error("Obuna ma'lumotlarini yuklab bo'lmadi.");
-    const data = await res.json();
-    renderSubscription(data);
-  } catch (e) {
-    card.innerHTML = `<p class="muted">${escapeHtml(e.message || "Xatolik yuz berdi.")}</p>`;
-  }
-}
-
-function renderSubscription(data) {
-  subscriptionPlansCache = data.plans || {};
-
-  el("subscription-status-card").innerHTML = `
-    <div class="profile-header-icon">💳</div>
-    <div class="profile-header-info">
-      <div class="profile-header-title">Obuna holati</div>
-      <div class="profile-header-sub">${escapeHtml(profileDaysLeftText(data.days_left))}${data.subscription_until ? ` · ${escapeHtml(data.subscription_until)}gacha` : ""}</div>
-    </div>
-    <div class="profile-header-badge">${profileStatusBadgeHtml(data.status)}</div>
-  `;
-
-  const order = ["1m", "3m", "12m"];
-  const list = el("subscription-plans-list");
-  list.innerHTML = "";
-  order.filter((key) => subscriptionPlansCache[key]).forEach((key) => {
-    const plan = subscriptionPlansCache[key];
-    const priceText = formatNum(plan.price) + " so'm";
-    const row = document.createElement("div");
-    row.className = "admin-settings-row plan-row";
-    row.innerHTML = `
-      <div class="value">📦 ${escapeHtml(plan.label)}${plan.discount_note ? ` <span class="muted">(${escapeHtml(plan.discount_note)})</span>` : ""}</div>
-      <div>${escapeHtml(priceText)}</div>
-    `;
-    row.addEventListener("click", () => selectSubscriptionPlan(key, data.requisites));
-    list.appendChild(row);
-  });
-}
-
-function selectSubscriptionPlan(planKey, requisites) {
-  subscriptionSelectedPlan = planKey;
-  document.querySelectorAll("#subscription-plans-list .plan-row").forEach((row) => row.classList.remove("current"));
-  const rows = Array.from(el("subscription-plans-list").children);
-  const order = ["1m", "3m", "12m"].filter((key) => subscriptionPlansCache[key]);
-  const idx = order.indexOf(planKey);
-  if (rows[idx]) rows[idx].classList.add("current");
-
-  el("subscription-photo-input").value = "";
-  el("subscription-requisites-body").innerHTML = [
-    ["Karta", `${requisites.card_number} (${requisites.card_holder})`],
-    ["Click", requisites.click_number],
-    ["Payme", requisites.payme_number],
-  ].map(([k, v]) => `
-    <div class="admin-detail-row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
-  `).join("");
-  el("subscription-requisites-section").classList.remove("hidden");
-}
-
-el("subscription-pay-cancel-btn").addEventListener("click", () => {
-  el("subscription-requisites-section").classList.add("hidden");
-  document.querySelectorAll("#subscription-plans-list .plan-row").forEach((row) => row.classList.remove("current"));
-  subscriptionSelectedPlan = null;
-});
-
-el("subscription-pay-send-btn").addEventListener("click", async () => {
-  const fileInput = el("subscription-photo-input");
-  const file = fileInput.files && fileInput.files[0];
-  if (!subscriptionSelectedPlan) {
-    tg.showAlert("Avval tarifni tanlang.");
-    return;
-  }
-  if (!file) {
-    tg.showAlert("Chek rasmini tanlang.");
-    return;
-  }
-
-  const btn = el("subscription-pay-send-btn");
-  btn.disabled = true;
-  btn.textContent = "Yuborilmoqda...";
-  try {
-    const formData = new FormData();
-    formData.append("plan", subscriptionSelectedPlan);
-    formData.append("photo", file);
-    const res = await apiFetch(API.subscriptionPay, { method: "POST", body: formData });
-    const data = await res.json();
-    if (!res.ok) {
-      const map = {
-        invalid_plan: "Bu tarif topilmadi, ekranni qaytadan oching.",
-        missing_photo: "Chek rasmini tanlang.",
-        admin_unreachable: "Adminlarga yuborib bo'lmadi, birozdan keyin qaytadan urinib ko'ring.",
-      };
-      tg.showAlert(map[data.error] || "Yuborib bo'lmadi.");
-      return;
-    }
-    tg.HapticFeedback.notificationOccurred("success");
-    el("subscription-requisites-section").classList.add("hidden");
-    tg.showAlert("✅ Chekingiz qabul qilindi va bosh adminga yuborildi. Tasdiqlangach obunangiz avtomatik uzaytiriladi.");
-  } catch (e) {
-    tg.showAlert(e.message || "Xatolik yuz berdi.");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "✅ Chekni yuborish";
-  }
-});
-
 // ---------- BOSHLASH ----------
 
 (async function init() {
@@ -4446,12 +3107,5 @@ el("subscription-pay-send-btn").addEventListener("click", async () => {
     startAdminMode();
     return;
   }
-  // YANGI: mahsulotlar ("Savdo" bo'limi uchun) fonda oldindan yuklab
-  // qo'yiladi (loadProducts ichida shu screen ko'rsatilib ketadi -
-  // shuning uchun keyin darhol "home"ga qaytaramiz), lekin foydalanuvchi
-  // ochilganda birinchi ko'radigan ekran endi "🏠 Bosh sahifa".
   await loadProducts();
-  currentSection = "home";
-  showScreen("home");
-  loadDashboard();
 })();
