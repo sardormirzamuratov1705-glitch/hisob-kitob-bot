@@ -387,6 +387,25 @@
          backend: webapp_handlers/settings.py, 11-bosqich). Alohida tab
          emas - Profil ekraniga "qo'shimcha amal" sifatida qo'shildi, chunki
          xuddi shu ma'lumotlarni Profil allaqachon ko'rsatib turibdi. -->
+    <!-- YANGI: "🧑‍💼 Sotuvchilar" / "💰 Tranzaksiyalar" / "💳 Obuna"
+         endi pastdagi tugmalar qatorida emas (o'sha joy endi faqat 4 ta
+         asosiy bo'limga ajratilgan, qarang: style.css/.app-header) -
+         FAQAT do'kon egasiga shu yerdan, Profil ekranidan ochiladi. -->
+    <div id="profile-owner-links" class="hidden profile-owner-links">
+      <button type="button" class="secondary-btn" data-owner-link="sellers">🧑‍💼 Sotuvchilar</button>
+      <button type="button" class="secondary-btn" data-owner-link="transactions">💰 Tranzaksiyalar</button>
+      <button type="button" class="secondary-btn" data-owner-link="subscription">💳 Obuna</button>
+    </div>
+
+    <!-- YANGI: FAQAT do'kon egasiga - Bosh sahifadagi qaysi tugmalar
+         sotuvchidan yashirilishini o'zi tanlaydi. Qarang: app.js
+         loadSellerMenuSettings()/saveSellerMenuSetting(), backend:
+         webapp_handlers/dashboard.py (api_seller_menu_get/update). -->
+    <div id="profile-seller-menu-section" class="hidden">
+      <div class="section-title">🏠 Bosh sahifa - sotuvchiga ko'rinadigan tugmalar</div>
+      <div id="profile-seller-menu-list" class="seller-menu-toggle-list"></div>
+    </div>
+
     <div class="sklad-toolbar">
       <button id="settings-edit-btn" type="button" class="secondary-btn">✏️ Sozlamalarni tahrirlash</button>
     </div>
