@@ -217,6 +217,18 @@ function showScreen(name) {
   ].forEach((s) => {
     el(`screen-${s}`).classList.toggle("hidden", s !== name);
   });
+
+  // YANGI: har bir bo'lim ekranida (Bosh sahifaning o'zida, yuklanish/
+  // xatolik va admin ekranlaridan tashqari) "◀ Bosh sahifa" tugmasi -
+  // bosilganda to'g'ridan-to'g'ri Bosh sahifaga qaytaradi.
+  const backBtn = el("back-to-home-btn");
+  if (backBtn) {
+    const showBack = ![
+      "loading", "error", "home",
+      "admin-stats", "admin-owners", "admin-payments", "admin-settings",
+    ].includes(name);
+    backBtn.classList.toggle("hidden", !showBack);
+  }
 }
 
 function showError(message) {
@@ -1308,6 +1320,7 @@ function updateSkladPermissionUI() {
 }
 
 el("tab-home").addEventListener("click", () => switchSection("home"));
+el("back-to-home-btn").addEventListener("click", () => switchSection("home"));
 el("tab-sale").addEventListener("click", () => switchSection("sale"));
 el("tab-sklad").addEventListener("click", () => switchSection("sklad"));
 el("tab-restock").addEventListener("click", () => switchSection("restock"));
