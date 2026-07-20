@@ -136,12 +136,25 @@ async def _authenticate(request: web.Request):
         )
         return None
 
+    # YANGI: "Xush kelibsiz, ..." kabi joylarda Telegramning o'zidagi
+    # ismi (first_name) o'rniga, ro'yxatdan o'tishda O'ZI kiritgan ismi
+    # ko'rsatiladi (do'kon egasida - owners.full_name, sotuvchida -
+    # sellers.seller_name, u bo'lmasa sellers.full_name) - shu ism aniq
+    # bo'lmasa, Telegramdagi first_name'ga tushib qoladi (zaxira).
+    entered_name = None
+    if role == "owner":
+        owner = await db.get_owner(telegram_id)
+        entered_name = owner and owner.get("full_name")
+    elif role == "seller":
+        seller = await db.get_seller(telegram_id)
+        entered_name = seller and (seller.get("seller_name") or seller.get("full_name"))
+
     return {
         "telegram_id": telegram_id,
         "shop_id": shop_id,
         "role": role,
         "branch_id": branch_id,
-        "name": parsed["user"].get("first_name", ""),
+        "name": entered_name or parsed["user"].get("first_name", ""),
     }
 
 
