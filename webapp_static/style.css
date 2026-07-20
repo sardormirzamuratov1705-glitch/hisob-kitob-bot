@@ -164,6 +164,18 @@ body {
 
 .section-tabs::-webkit-scrollbar { display: none; }
 
+/* YANGI: bitta-bitta funksiya ENDI 2 joyda (ham o'rtada Bosh sahifa
+   menyusida, ham pastdagi suriluvchan panelda) qaytarilmasligi uchun -
+   bu tugmalar endi FAQAT Bosh sahifa menyusi (yoki do'kon egasi uchun
+   Profil ekranidagi qo'shimcha havolalar) orqali ochiladi. Pastki panelda
+   endi faqat 4 ta doimiy bo'lim qoladi: Bosh sahifa, Savdo, Tranzaksiyalar
+   (u yerda "Chiqim qo'shish" sotuvchiga ham kerak, shuning uchun
+   qoldirildi) va Profil. Tugmalarning o'zi DOM'da qoladi (app.js hali
+   ularga event listener qo'shadi) - shunchaki ko'rinmaydi. */
+#tab-sklad, #tab-restock, #tab-debts, #tab-reports, #tab-sellers, #tab-subscription {
+  display: none;
+}
+
 .section-tab {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -322,6 +334,39 @@ body {
 }
 .home-daily-report-bar:active { opacity: 0.85; }
 .home-daily-report-link { color: var(--accent); }
+
+.profile-owner-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.profile-owner-links .secondary-btn { flex: 1 1 auto; }
+
+.seller-menu-toggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.seller-menu-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--card-bg);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.seller-menu-toggle-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
 
 .back-to-home-btn {
   position: fixed;
