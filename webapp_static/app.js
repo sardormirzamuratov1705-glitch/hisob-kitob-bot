@@ -201,6 +201,26 @@ async function loadMe() {
     // 4-BLOK, 8-BOSQICH: "Kirim qo'shish" FAQAT haqiqiy do'kon egasiga -
     // backend ham qayta tekshiradi (owner_only), bu faqat UI qulayligi uchun.
     el("tx-add-income-btn").classList.toggle("hidden", data.role !== "owner");
+    // YANGI: Bosh sahifadagi "🏢 Filiallar" menyu tugmasi ham FAQAT haqiqiy
+    // do'kon egasiga ko'rinadi - Profil ekranidagi filiallar bo'limining
+    // o'zi sotuvchiga allaqachon yashiringan (qarang: renderProfile()
+    // ichidagi "isOwner" tekshiruvi), shuning uchun sotuvchiga bu
+    // tugmani ko'rsatib, so'ng bo'sh/kerak bo'lmagan joyga olib
+    // borishning ma'nosi yo'q.
+    const homeBranchesBtn = document.querySelector('.home-menu-item[data-home-action="branches"]');
+    if (homeBranchesBtn) homeBranchesBtn.classList.toggle("hidden", data.role !== "owner");
+    // YANGI: sotuvchi tanlovi bo'yicha Bosh sahifadagi "📦 Ombor",
+    // "📊 Hisobotlar" va "🤖 AI Tavsiyalar" tugmalari FAQAT haqiqiy do'kon
+    // egasiga ko'rinadi ("🧾 Sotib olish" ochiq qoladi - u yerda narxlar
+    // sotuvchiga baribir ko'rinmaydi, qarang: sklad_core.py
+    // api_restock_list "manage": auth["role"] == "owner"). DIQQAT: bu
+    // faqat Bosh sahifadagi tezkor tugmalarga tegishli - pastdagi
+    // "📦 Sklad"/"📊 Hisobotlar" bo'limlarining o'zi (va ularning mavjud
+    // ruxsat qoidalari, masalan sellers_can_add_stock) o'zgarishsiz qoladi.
+    ["sklad", "reports", "ai"].forEach((action) => {
+      const btn = document.querySelector(`.home-menu-item[data-home-action="${action}"]`);
+      if (btn) btn.classList.toggle("hidden", data.role !== "owner");
+    });
   } catch (e) {
     // Jim o'tkazamiz - bu faqat UI'ni yaxshilash uchun, savdo oqimini
     // to'xtatib qo'ymasligi kerak (asosiy 401 tekshiruvi baribir
